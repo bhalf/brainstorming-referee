@@ -1,0 +1,387 @@
+// ============================================
+// Metrics Computation for Brainstorming Analysis
+// ============================================
+
+import { TranscriptSegment, MetricSnapshot, SpeakingTimeDistribution, ExperimentConfig } from '../types';
+import {
+  getOrFetchEmbeddings,
+  computeEmbeddingRepetition,
+  computeEmbeddingDiversity,
+  computeNoveltyScore,
+  cosineSimilarity,
+} from './embeddingCache';
+
+// --- Utility: Generate unique ID ---
+const generateId = (): string => {
+  return `metric-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
+// --- Speaking Time Distribution ---
+// Uses text length as proxy for speaking time
+
+export function computeSpeakingTimeDistribution(
+  segments: TranscriptSegment[]
+): SpeakingTimeDistribution {
+  const distribution: SpeakingTimeDistribution = {};
+
+  for (const segment of segments) {
+    if (!segment.isFinal) continue; // Only count final segments
+
+    const speaker = segment.speaker;
+    const textLength = segment.text.trim().length;
+
+    distribution[speaker] = (distribution[speaker] || 0) + textLength;
+  }
+
+  return distribution;
+}
+
+// --- Participation Imbalance ---
+// Returns 0-1, where 0 = perfectly balanced, 1 = completely imbalanced
+// Uses Gini coefficient approach
+
+export function computeParticipationImbalance(
+  distribution: SpeakingTimeDistribution
+): number {
+  const values = Object.values(distribution);
+
+  if (values.length === 0) return 0;
+  if (values.length === 1) return 1; // Only one speaker = maximum imbalance
+
+  const total = values.reduce((sum, v) => sum + v, 0);
+  if (total === 0) return 0;
+
+  // Calculate relative shares
+  const shares = values.map(v => v / total);
+
+  // Perfect equality would be 1/n for each participant
+  const perfectShare = 1 / values.length;
+
+  // Calculate deviation from perfect equality
+  const deviationSum = shares.reduce((sum, share) => {
+    return sum + Math.abs(share - perfectShare);
+  }, 0);
+
+  // Normalize to 0-1 range
+  // Maximum deviation is 2 * (1 - 1/n) when one person speaks everything
+  const maxDeviation = 2 * (1 - perfectShare);
+
+  return maxDeviation > 0 ? deviationSum / maxDeviation : 0;
+}
+
+// --- Semantic Repetition Rate ---
+// Uses Jaccard similarity between recent segments
+
+export function computeSemanticRepetitionRate(
+  segments: TranscriptSegment[],
+  windowSize: number = 10
+): number {
+  // Exclude system activity markers ([speaking], etc.) — they have identical text
+  // across segments and would artificially inflate the Jaccard repetition rate.
+  const finalSegments = segments.filter(s => s.isFinal && !/^\[.*\]$/.test(s.text.trim()));
+
+  if (finalSegments.length < 2) return 0;
+
+  // Get last N segments
+  const recentSegments = finalSegments.slice(-windowSize);
+
+  // Extract word sets from each segment
+  const wordSets = recentSegments.map(segment => {
+    const words = segment.text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 2); // Filter out short words
+    return new Set(words);
+  });
+
+  if (wordSets.length < 2) return 0;
+
+  // Calculate average Jaccard similarity between consecutive pairs
+  let totalSimilarity = 0;
+  let pairCount = 0;
+
+  for (let i = 1; i < wordSets.length; i++) {
+    const setA = wordSets[i - 1];
+    const setB = wordSets[i];
+
+    if (setA.size === 0 || setB.size === 0) continue;
+
+    // Jaccard similarity
+    const intersection = new Set([...setA].filter(x => setB.has(x)));
+    const union = new Set([...setA, ...setB]);
+
+    const similarity = union.size > 0 ? intersection.size / union.size : 0;
+    totalSimilarity += similarity;
+    pairCount++;
+  }
+
+  return pairCount > 0 ? totalSimilarity / pairCount : 0;
+}
+
+// --- Stagnation Duration ---
+// Time since last "new" content was introduced
+
+export function computeStagnationDuration(
+  segments: TranscriptSegment[],
+  currentTime: number = Date.now()
+): number {
+  const finalSegments = segments.filter(s => s.isFinal);
+
+  if (finalSegments.length === 0) return 0;
+
+  // Find the last segment that introduced new content
+  // For simplicity, we use the timestamp of the last segment
+  const lastSegment = finalSegments[finalSegments.length - 1];
+  const timeSinceLastSegment = (currentTime - lastSegment.timestamp) / 1000;
+
+  return Math.max(0, timeSinceLastSegment);
+}
+
+// --- Semantic Stagnation Duration ---
+// Uses embeddings to determine if recent segments introduce novel content.
+// Only resets stagnation when a segment falls below the novelty threshold.
+
+const NOVELTY_THRESHOLD = 0.85; // Cosine similarity threshold: > 0.85 = repetitive
+
+export function computeStagnationDurationSemantic(
+  segments: TranscriptSegment[],
+  embeddings: Map<string, number[]>,
+  currentTime: number = Date.now()
+): number {
+  // Exclude system activity markers — their embeddings are near-identical, which
+  // would make the novelty walk conclude "no novel content" even during active speech.
+  const allFinal = segments.filter(s => s.isFinal && s.text.trim().length > 3 && !/^\[.*\]$/.test(s.text.trim()));
+
+  if (allFinal.length === 0) return 0;
+  if (allFinal.length === 1) return 0; // First segment is novel
+
+  // Cap at 30 most recent segments to keep the backward walk O(30²) = O(900) worst-case
+  const finalSegments = allFinal.slice(-30);
+
+  // Walk backwards to find the last segment that was truly novel
+  for (let i = finalSegments.length - 1; i >= 1; i--) {
+    const currentEmb = embeddings.get(finalSegments[i].id);
+    if (!currentEmb) continue;
+
+    // Compare with all previous segments in the capped window
+    let totalSim = 0;
+    let count = 0;
+    for (let j = 0; j < i; j++) {
+      const prevEmb = embeddings.get(finalSegments[j].id);
+      if (prevEmb) {
+        totalSim += cosineSimilarity(currentEmb, prevEmb);
+        count++;
+      }
+    }
+
+    if (count === 0) continue;
+
+    const avgSimilarity = totalSim / count;
+    if (avgSimilarity < NOVELTY_THRESHOLD) {
+      // This segment introduced novel content
+      const timeSince = (currentTime - finalSegments[i].timestamp) / 1000;
+      return Math.max(0, timeSince);
+    }
+  }
+
+  // No novel content found in capped window — stagnation since oldest kept segment
+  const timeSince = (currentTime - finalSegments[0].timestamp) / 1000;
+  return Math.max(0, timeSince);
+}
+
+// --- Diversity Development ---
+// Measures how diverse the vocabulary is over time (0-1)
+
+export function computeDiversityDevelopment(
+  segments: TranscriptSegment[]
+): number {
+  const finalSegments = segments.filter(s => s.isFinal);
+
+  if (finalSegments.length === 0) return 0;
+
+  // Collect all unique words
+  const allWords: string[] = [];
+  const uniqueWords = new Set<string>();
+
+  for (const segment of finalSegments) {
+    const words = segment.text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length > 2);
+
+    for (const word of words) {
+      allWords.push(word);
+      uniqueWords.add(word);
+    }
+  }
+
+  if (allWords.length === 0) return 0;
+
+  // Type-Token Ratio (TTR) - ratio of unique words to total words
+  // Normalized to account for text length
+  const ttr = uniqueWords.size / allWords.length;
+
+  return ttr;
+}
+
+// --- Main Metrics Computation ---
+
+export function computeMetrics(
+  segments: TranscriptSegment[],
+  config: ExperimentConfig,
+  currentTime: number = Date.now()
+): MetricSnapshot {
+  // Filter segments within the analysis window
+  const windowStart = currentTime - config.WINDOW_SECONDS * 1000;
+  const windowedSegments = segments.filter(s => s.timestamp >= windowStart);
+
+  const speakingTimeDistribution = computeSpeakingTimeDistribution(windowedSegments);
+  const participationImbalance = computeParticipationImbalance(speakingTimeDistribution);
+  const semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments);
+  const stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+  const diversityDevelopment = computeDiversityDevelopment(windowedSegments);
+
+  return {
+    id: generateId(),
+    timestamp: currentTime,
+    speakingTimeDistribution,
+    participationImbalance,
+    semanticRepetitionRate,
+    stagnationDuration,
+    diversityDevelopment,
+    windowStart,
+    windowEnd: currentTime,
+  };
+}
+
+// --- Threshold Checks ---
+
+export interface ThresholdBreaches {
+  imbalance: boolean;
+  repetition: boolean;
+  stagnation: boolean;
+  any: boolean;
+}
+
+export function checkThresholds(
+  metrics: MetricSnapshot,
+  config: ExperimentConfig
+): ThresholdBreaches {
+  const imbalance = metrics.participationImbalance >= config.THRESHOLD_IMBALANCE;
+  const repetition = metrics.semanticRepetitionRate >= config.THRESHOLD_REPETITION;
+  const stagnation = metrics.stagnationDuration >= config.THRESHOLD_STAGNATION_SECONDS;
+
+  return {
+    imbalance,
+    repetition,
+    stagnation,
+    any: imbalance || repetition || stagnation,
+  };
+}
+
+// --- Determine Primary Trigger ---
+
+export type TriggerType = 'imbalance' | 'repetition' | 'stagnation' | null;
+
+export function determinePrimaryTrigger(
+  metrics: MetricSnapshot,
+  config: ExperimentConfig
+): TriggerType {
+  const breaches = checkThresholds(metrics, config);
+
+  // Priority: imbalance > stagnation > repetition
+  if (breaches.imbalance) return 'imbalance';
+  if (breaches.stagnation) return 'stagnation';
+  if (breaches.repetition) return 'repetition';
+
+  return null;
+}
+
+// --- Async Metrics with Embeddings ---
+
+/**
+ * Async variant of computeMetrics that uses OpenAI embeddings
+ * for semantic repetition and diversity. Falls back to Jaccard
+ * if embeddings are unavailable.
+ */
+export async function computeMetricsAsync(
+  segments: TranscriptSegment[],
+  config: ExperimentConfig,
+  currentTime: number = Date.now(),
+  audioSpeakingTimes?: Map<string, number>
+): Promise<MetricSnapshot> {
+  const windowStart = currentTime - config.WINDOW_SECONDS * 1000;
+  const windowedSegments = segments.filter(s => s.timestamp >= windowStart);
+
+  // Use audio-level speaking times if available, else fall back to text-length proxy
+  let speakingTimeDistribution: SpeakingTimeDistribution;
+  if (audioSpeakingTimes && audioSpeakingTimes.size > 0) {
+    speakingTimeDistribution = {};
+    for (const [speaker, seconds] of audioSpeakingTimes.entries()) {
+      speakingTimeDistribution[speaker] = seconds;
+    }
+  } else {
+    speakingTimeDistribution = computeSpeakingTimeDistribution(windowedSegments);
+  }
+  const participationImbalance = computeParticipationImbalance(speakingTimeDistribution);
+
+  // Try embeddings for repetition + diversity + semantic stagnation
+  let semanticRepetitionRate: number;
+  let diversityDevelopment: number;
+  let stagnationDuration: number;
+
+  // Exclude system activity markers ([speaking], etc.) from embedding analysis —
+  // near-identical embeddings would produce false repetition and stagnation signals.
+  const finalSegments = windowedSegments.filter(
+    s => s.isFinal && s.text.trim().length > 3 && !/^\[.*\]$/.test(s.text.trim())
+  );
+
+  if (finalSegments.length >= 2) {
+    try {
+      const embeddings = await getOrFetchEmbeddings(
+        finalSegments.map(s => ({ id: s.id, text: s.text }))
+      );
+
+      // Check if we got enough embeddings back
+      const embeddingCount = finalSegments.filter(s => embeddings.has(s.id)).length;
+
+      if (embeddingCount >= 2) {
+        const segmentIds = finalSegments.map(s => s.id);
+        semanticRepetitionRate = computeEmbeddingRepetition(embeddings, segmentIds);
+        diversityDevelopment = computeEmbeddingDiversity(embeddings, segmentIds);
+        // Semantic stagnation: uses embedding novelty
+        stagnationDuration = computeStagnationDurationSemantic(
+          windowedSegments, embeddings, currentTime
+        );
+      } else {
+        // Fallback to Jaccard + time-based stagnation
+        semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments);
+        diversityDevelopment = computeDiversityDevelopment(windowedSegments);
+        stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+      }
+    } catch {
+      // Fallback to Jaccard on error
+      semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments);
+      diversityDevelopment = computeDiversityDevelopment(windowedSegments);
+      stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+    }
+  } else {
+    semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments);
+    diversityDevelopment = computeDiversityDevelopment(windowedSegments);
+    stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+  }
+
+  return {
+    id: generateId(),
+    timestamp: currentTime,
+    speakingTimeDistribution,
+    participationImbalance,
+    semanticRepetitionRate,
+    stagnationDuration,
+    diversityDevelopment,
+    windowStart,
+    windowEnd: currentTime,
+  };
+}
