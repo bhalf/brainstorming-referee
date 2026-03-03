@@ -7,7 +7,6 @@ import {
   getOrFetchEmbeddings,
   computeEmbeddingRepetition,
   computeEmbeddingDiversity,
-  computeNoveltyScore,
   cosineSimilarity,
 } from './embeddingCache';
 

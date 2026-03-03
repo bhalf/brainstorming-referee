@@ -118,6 +118,7 @@ export function useSpeechRecognition(
   // Check support after mount (client-side only)
   useEffect(() => {
     const supported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsSupported(supported);
   }, []);
 

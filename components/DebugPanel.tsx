@@ -20,9 +20,11 @@ export default function DebugPanel({
   showConfig = false,
 }: DebugPanelProps) {
   // Live-updating current time for cooldown display
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentTime(Date.now()); // Set initial time on mount
     const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);

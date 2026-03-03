@@ -31,6 +31,7 @@ export default function SetupPage() {
 
   // --- Load from localStorage on mount ---
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsHydrated(true);
     const savedConfig = loadConfigFromStorage();
     if (savedConfig) {

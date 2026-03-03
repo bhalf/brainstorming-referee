@@ -8,6 +8,7 @@ interface TranscriptFeedProps {
   interimText?: string;
   showTimestamps?: boolean;
   maxHeight?: string;
+  speakingParticipants?: Array<{ id: string; displayName: string }>;
 }
 
 export default function TranscriptFeed({
@@ -15,6 +16,7 @@ export default function TranscriptFeed({
   interimText = '',
   showTimestamps = true,
   maxHeight = '100%',
+  speakingParticipants = [],
 }: TranscriptFeedProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -129,6 +131,20 @@ export default function TranscriptFeed({
 
       {/* Scroll anchor */}
       <div ref={endRef} />
+
+      {/* Remote participants speaking indicators */}
+      {speakingParticipants.length > 0 && (
+        <div className="flex flex-col gap-2 p-2">
+            {speakingParticipants.map(participant => (
+                <div key={participant.id} className="flex items-center gap-2 bg-slate-800/50 rounded-lg p-2 border border-slate-700">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    <span className="text-xs text-slate-400 font-medium">
+                        {participant.displayName} is speaking...
+                    </span>
+                </div>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

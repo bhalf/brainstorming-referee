@@ -82,6 +82,13 @@ export function useSpeechSynthesis(
   }, [preferredLanguage]);
 
   // --- Chrome Keepalive ---
+  const stopKeepAlive = useCallback(() => {
+    if (keepAliveRef.current) {
+      clearInterval(keepAliveRef.current);
+      keepAliveRef.current = null;
+    }
+  }, []);
+
   const startKeepAlive = useCallback(() => {
     stopKeepAlive();
     keepAliveRef.current = setInterval(() => {
@@ -90,14 +97,7 @@ export function useSpeechSynthesis(
         window.speechSynthesis.resume();
       }
     }, CHROME_KEEPALIVE_INTERVAL_MS);
-  }, []);
-
-  const stopKeepAlive = useCallback(() => {
-    if (keepAliveRef.current) {
-      clearInterval(keepAliveRef.current);
-      keepAliveRef.current = null;
-    }
-  }, []);
+  }, [stopKeepAlive]);
 
   // --- Smart Voice Selection ---
   const pickBestVoice = useCallback(
@@ -209,6 +209,9 @@ export function useSpeechSynthesis(
     return elapsed >= rateLimitSeconds;
   }, [lastSpeakTime, rateLimitSeconds]);
 
+  // Ref to hold the current playNext function to avoid circular dependency in useCallback
+  const playNextRef = useRef<() => void>(() => {});
+
   // --- Internal: play the next item in the queue ---
   const playNext = useCallback(() => {
     if (queueRef.current.length === 0) {
@@ -240,7 +243,7 @@ export function useSpeechSynthesis(
     utterance.onend = () => {
       stopKeepAlive();
       // Play next in queue
-      playNext();
+      playNextRef.current();
     };
 
     utterance.onerror = (event) => {
@@ -255,13 +258,18 @@ export function useSpeechSynthesis(
       } else if (event.error !== 'interrupted' && event.error !== 'canceled') {
         onError?.(`Speech error: ${event.error}`);
         // Attempt to continue queue on other errors
-        playNext();
+        playNextRef.current();
       }
     };
 
     utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
   }, [currentVoice, rate, pitch, volume, startKeepAlive, stopKeepAlive, onStart, onEnd, onError]);
+
+  // Keep ref in sync
+  useEffect(() => {
+    playNextRef.current = playNext;
+  }, [playNext]);
 
   // Speak text (public API)
   const speak = useCallback(
@@ -284,12 +292,12 @@ export function useSpeechSynthesis(
 
       // If not currently playing, start
       if (!isPlayingRef.current) {
-        playNext();
+        playNextRef.current();
       }
 
       return true;
     },
-    [isSupported, canSpeak, playNext, onError, rateLimitSeconds, lastSpeakTime]
+    [isSupported, canSpeak, onError, rateLimitSeconds, lastSpeakTime]
   );
 
   // Cancel speech

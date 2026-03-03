@@ -206,6 +206,7 @@ export default function JitsiEmbed({
       } catch (err) {
         console.error('Jitsi initialization error:', err);
         if (mounted) {
+          setError(err instanceof Error ? err.message : 'Failed to initialize Jitsi');
           // Fallback to iframe on error
           setUseIframe(true);
           setIsLoading(false);
@@ -224,6 +225,7 @@ export default function JitsiEmbed({
         apiRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomName, displayName]);
 
   // Iframe fallback

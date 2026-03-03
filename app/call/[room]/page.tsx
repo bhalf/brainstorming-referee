@@ -12,6 +12,7 @@ import { computeMetricsAsync } from '@/lib/metrics/computeMetrics';
 import { loadPersistedCache } from '@/lib/metrics/embeddingCache';
 import { evaluateDecision, generateInterventionContext, resetInterventionCountIfNeeded } from '@/lib/decision/decisionEngine';
 import { useSpeechSynthesis } from '@/lib/tts/useSpeechSynthesis';
+import { useDebounce } from '@/lib/hooks/useDebounce';
 import JitsiEmbed from '@/components/JitsiEmbed';
 import OverlayPanel from '@/components/OverlayPanel';
 
@@ -23,9 +24,11 @@ export default function CallPage() {
 
   const [isJitsiReady, setIsJitsiReady] = useState(false);
   const [participants, setParticipants] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [remoteSpeakers, setRemoteSpeakers] = useState<Array<{ id: string; displayName: string }>>([]);
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
   const [currentMetrics, setCurrentMetrics] = useState<MetricSnapshot | null>(null);
   const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
 
   const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const decisionIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -42,7 +45,6 @@ export default function CallPage() {
   const lastRemoteSpeakerTimeRef = useRef<number>(0);
   // Whisper transcription state
   const [isWhisperEnabled, setIsWhisperEnabled] = useState(false);
-  const whisperChunkCounterRef = useRef(0);
   // Audio-level-based speaking time tracking (seconds per participant)
   const speakingTimeRef = useRef<Map<string, number>>(new Map());
   const lastAudioLevelUpdateRef = useRef<Map<string, number>>(new Map());
@@ -60,6 +62,29 @@ export default function CallPage() {
   useEffect(() => {
     metricsHistoryRef.current = metricsHistory;
   }, [metricsHistory]);
+
+  // POLL for active speakers (UI Indicator) - checks audio levels for "is speaking" status
+  useEffect(() => {
+     const interval = setInterval(() => {
+        const now = Date.now();
+        const active: Array<{ id: string, displayName: string }> = [];
+
+        lastAudioLevelUpdateRef.current.forEach((lastTime, id) => {
+           if (now - lastTime < 1000) {
+              const p = participantsRef.current.find(p => p.id === id);
+              if (p) active.push(p);
+           }
+        });
+
+        setRemoteSpeakers(prev => {
+           if (prev.length !== active.length) return active;
+           const prevIds = new Set(prev.map(p => p.id));
+           if (active.some(p => !prevIds.has(p.id))) return active;
+           return prev;
+        });
+     }, 500);
+     return () => clearInterval(interval);
+  }, []);
 
   // Extract parameters
   const roomName = decodeURIComponent(params.room as string);
@@ -119,6 +144,67 @@ export default function CallPage() {
   useEffect(() => { speakRef.current = speak; }, [speak]);
   useEffect(() => { isTTSSupportedRef.current = isTTSSupported; }, [isTTSSupported]);
 
+  // SYNC: Upload function with debouncing for performance
+  const uploadSegmentImmediate = useCallback(async (segment: TranscriptSegment) => {
+    try {
+      if (!state.roomName) return;
+      await fetch('/api/sync/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: state.roomName, segment })
+      });
+    } catch (e) {
+      console.error("Upload error:", e);
+    }
+  }, [state.roomName]);
+
+  // Debounced version for performance (500ms delay)
+  const uploadSegment = useDebounce(uploadSegmentImmediate, 500);
+
+  // SYNC: Poll for remote transcript segments (optimized to 2000ms)
+  useEffect(() => {
+    if (!state.isActive) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const maxTimestamp = transcriptSegmentsRef.current.reduce((max, seg) => Math.max(max, seg.timestamp), 0);
+
+        const res = await fetch(`/api/sync/room?room=${state.roomName}&since=${maxTimestamp}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.segments && data.segments.length > 0) {
+             const newSegments = data.segments as TranscriptSegment[];
+             const uniqueNew = newSegments.filter(ns =>
+               !transcriptSegmentsRef.current.some(existing => existing.id === ns.id)
+             );
+
+             if (uniqueNew.length > 0) {
+               setTranscriptSegments(prev => {
+                 const actualNew = uniqueNew.filter(ns => !prev.some(p => p.id === ns.id));
+                 if (actualNew.length === 0) return prev;
+                 return [...prev, ...actualNew].sort((a, b) => a.timestamp - b.timestamp);
+               });
+
+               uniqueNew.forEach(s => addTranscriptSegment(s));
+
+               uniqueNew.forEach(seg => {
+                 if (seg.speaker !== 'You') {
+                   const estimatedSeconds = seg.text.length / 12.5;
+                   const current = speakingTimeRef.current.get(seg.speaker) || 0;
+                   speakingTimeRef.current.set(seg.speaker, current + estimatedSeconds);
+                 }
+               });
+             }
+          }
+        }
+      } catch (e) {
+        console.error("Sync error:", e);
+      }
+    }, 2000); // Optimized: 2000ms instead of 1000ms
+
+    return () => clearInterval(interval);
+  }, [state.isActive, state.roomName, addTranscriptSegment]);
+
   // Speech recognition
   const {
     isSupported: isTranscriptionSupported,
@@ -152,7 +238,12 @@ export default function CallPage() {
 
       setTranscriptSegments((prev) => [...prev, segment]);
       addTranscriptSegment(segment);
-    }, [language, addTranscriptSegment]),
+
+      // Upload to server for sync
+      if (result.isFinal) {
+        uploadSegment(segment);
+      }
+    }, [language, addTranscriptSegment, uploadSegment]),
     onError: useCallback((error: string) => {
       addError(error, 'speech-recognition');
     }, [addError]),
@@ -226,6 +317,10 @@ export default function CallPage() {
     chunkIntervalMs: 5000,
   });
 
+  useEffect(() => {
+    if (whisperError) console.error("Whisper recording error:", whisperError);
+  }, [whisperError]);
+
   // Tab audio capture: transcribe remote participants via getDisplayMedia
   const handleTabAudioChunk = useCallback(async (chunk: TabAudioChunk) => {
     try {
@@ -293,6 +388,10 @@ export default function CallPage() {
     onAudioChunk: handleTabAudioChunk,
     chunkIntervalMs: 5000,
   });
+
+  useEffect(() => {
+    if (tabAudioError) console.error("Tab audio capture error:", tabAudioError);
+  }, [tabAudioError]);
 
   // Sync TTS suppression: suppress tab audio capture while TTS is speaking
   useEffect(() => {
@@ -522,8 +621,7 @@ export default function CallPage() {
 
             // Speak if TTS is enabled
             if (voiceSettingsRef.current.enabled && isTTSSupportedRef.current) {
-              const spoken = speakRef.current(data.text);
-              intervention.spoken = spoken;
+              intervention.spoken = speakRef.current(data.text);
             }
 
             addIntervention(intervention);
@@ -560,8 +658,6 @@ export default function CallPage() {
         clearInterval(decisionIntervalRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // All mutable values are read via refs; only session lifecycle triggers restart.
   }, [state.isActive, addIntervention, addModelRoutingLog, addError, updateDecisionState]);
 
   // Jitsi event handlers
@@ -697,10 +793,10 @@ export default function CallPage() {
         </div>
       </header>
 
-      {/* Main Content - Two Column Layout */}
-      <div className="h-[calc(100vh-3.5rem)] flex">
-        {/* Left: Jitsi Video (65-70%) */}
-        <div className="flex-1 p-4 min-w-0">
+      {/* Main Content - Responsive Layout */}
+      <div className="h-[calc(100vh-3.5rem)] flex flex-col lg:flex-row">
+        {/* Video Section */}
+        <div className="flex-1 p-2 sm:p-4 min-w-0">
           <JitsiEmbed
             roomName={roomName}
             displayName="Researcher"
@@ -713,8 +809,31 @@ export default function CallPage() {
           />
         </div>
 
-        {/* Right: Overlay Panel (30-35%) */}
-        <div className="w-[380px] p-4 pl-0">
+        {/* Backdrop for mobile/tablet */}
+        {isPanelOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setIsPanelOpen(false)}
+          />
+        )}
+
+        {/* Overlay Panel - Collapsible on mobile/tablet */}
+        <div
+          className={`fixed lg:relative top-0 right-0 h-full w-[min(100vw,400px)] lg:w-95 bg-slate-900 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+            isPanelOpen ? 'translate-x-0' : 'translate-x-full'
+          } p-2 sm:p-4 lg:pl-0`}
+        >
+          {/* Close button for mobile/tablet */}
+          <button
+            onClick={() => setIsPanelOpen(false)}
+            className="absolute top-4 left-4 lg:hidden text-slate-400 hover:text-white z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="Close panel"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
           <OverlayPanel
             scenario={state.scenario}
             isSessionActive={state.isActive}
@@ -741,6 +860,7 @@ export default function CallPage() {
             sessionLog={sessionLog}
             modelRoutingLog={state.modelRoutingLog}
             roomName={roomName}
+            speakingParticipants={remoteSpeakers}
           />
         </div>
       </div>

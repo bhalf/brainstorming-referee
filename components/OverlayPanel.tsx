@@ -6,6 +6,7 @@ import { SCENARIO_DESCRIPTIONS } from '@/lib/config';
 import TranscriptFeed from './TranscriptFeed';
 import DebugPanel from './DebugPanel';
 import ChatFeed from './ChatFeed';
+import AnalysisPanel from './AnalysisPanel';
 import VoiceControls from './VoiceControls';
 import ExportButton from './ExportButton';
 import ModelRoutingPanel from './ModelRoutingPanel';
@@ -41,10 +42,11 @@ interface OverlayPanelProps {
   sessionLog: SessionLog;
   modelRoutingLog: ModelRoutingLogEntry[];
   roomName: string;
+  speakingParticipants?: Array<{ id: string; displayName: string }>;
   children?: ReactNode;
 }
 
-type TabId = 'chat' | 'transcript' | 'settings' | 'models' | 'debug';
+type TabId = 'chat' | 'transcript' | 'analysis' | 'settings' | 'models' | 'debug';
 
 export default function OverlayPanel({
   scenario,
@@ -72,6 +74,7 @@ export default function OverlayPanel({
   sessionLog,
   modelRoutingLog,
   roomName,
+  speakingParticipants = [],
   children,
 }: OverlayPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('transcript');
@@ -80,6 +83,7 @@ export default function OverlayPanel({
   const tabs: { id: TabId; label: string; icon: string }[] = [
     { id: 'chat', label: 'Chat', icon: '💬' },
     { id: 'transcript', label: 'Transcript', icon: '📝' },
+    { id: 'analysis', label: 'Analysis', icon: '📊' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'models', label: 'Models', icon: '🤖' },
     { id: 'debug', label: 'Debug', icon: '🔧' },
@@ -209,8 +213,18 @@ export default function OverlayPanel({
                 segments={transcriptSegments}
                 interimText={interimTranscript}
                 showTimestamps={true}
+                speakingParticipants={speakingParticipants}
               />
             </div>
+          </div>
+        )}
+
+        {activeTab === 'analysis' && (
+          <div className="h-full flex flex-col p-3">
+             <AnalysisPanel
+                currentMetrics={currentMetrics}
+                config={config}
+             />
           </div>
         )}
 
@@ -273,13 +287,5 @@ export default function OverlayPanel({
     </div>
   );
 }
-
-
-
-
-
-
-
-
 
 
