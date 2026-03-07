@@ -1,4 +1,5 @@
 import { TranscriptSegment, ModelRoutingLogEntry } from '@/lib/types';
+import { isWhisperHallucination } from './whisperHallucinationFilter';
 
 interface TranscriptionChunkParams {
   blob: Blob;
@@ -62,6 +63,12 @@ export async function processTranscriptionChunk({
     return { segments: [] };
   }
 
+  // Filter Whisper hallucinations (fake subtitle text on silence)
+  if (isWhisperHallucination(data.text)) {
+    console.log('[Transcription] Filtered Whisper hallucination:', data.text.substring(0, 80));
+    return { segments: [] };
+  }
+
   const segments: TranscriptSegment[] = (data.segments && data.segments.length > 0)
     ? data.segments
         .map((seg: { start: number; end: number; text: string }, idx: number) => ({
@@ -72,7 +79,7 @@ export async function processTranscriptionChunk({
           isFinal: true,
           language,
         }))
-        .filter((s: TranscriptSegment) => s.text.length > 0)
+        .filter((s: TranscriptSegment) => s.text.length > 0 && !isWhisperHallucination(s.text))
     : [{
         id: `${idPrefix}-${timestamp}-0`,
         speaker,
