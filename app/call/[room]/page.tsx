@@ -401,6 +401,7 @@ export default function CallPage() {
               onAddSimulatedSegment: transcription.handleAddSimulatedSegment,
               transcriptionError: transcription.transcriptionError,
               speakingParticipants: remoteSpeakers,
+              isWhisperActive: transcription.isWhisperEnabled,
             }}
             metrics={{
               currentMetrics,

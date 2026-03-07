@@ -11,12 +11,16 @@ import TranscriptFeed from './TranscriptFeed';
 export default function TranscriptTab({ transcript }: { transcript: TranscriptControlProps }) {
   const [simText, setSimText] = useState('');
 
+  const showSpeechControls = transcript.isTranscriptionSupported;
+  const showWhisperStatus = !showSpeechControls && transcript.isWhisperActive;
+  const showSimulation = !showSpeechControls && !showWhisperStatus;
+
   return (
     <div className="h-full flex flex-col">
       {/* Transcription Controls */}
       <div className="p-3 border-b border-slate-700 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {transcript.isTranscriptionSupported ? (
+          {showSpeechControls ? (
             <button
               onClick={transcript.onToggleTranscription}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${transcript.isTranscribing
@@ -27,6 +31,11 @@ export default function TranscriptTab({ transcript }: { transcript: TranscriptCo
               <span className={`w-2 h-2 rounded-full ${transcript.isTranscribing ? 'bg-white animate-pulse' : 'bg-white/50'}`} />
               {transcript.isTranscribing ? 'Stop' : 'Start'} 🎤
             </button>
+          ) : showWhisperStatus ? (
+            <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-900/40 text-green-300 border border-green-700/50">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              Whisper Active
+            </span>
           ) : (
             <span className="text-xs text-yellow-400">
               ⚠️ Simulation mode (no mic)
@@ -47,8 +56,8 @@ export default function TranscriptTab({ transcript }: { transcript: TranscriptCo
         </div>
       )}
 
-      {/* Simulation Input (fallback when no mic) */}
-      {!transcript.isTranscriptionSupported && transcript.onAddSimulatedSegment && (
+      {/* Simulation Input (fallback when no mic and no Whisper) */}
+      {showSimulation && transcript.onAddSimulatedSegment && (
         <div className="px-3 py-2 border-b border-slate-700">
           <div className="flex gap-2">
             <input

@@ -24,6 +24,7 @@ export interface TranscriptControlProps {
   onAddSimulatedSegment?: (text: string) => void;
   transcriptionError?: string | null;
   speakingParticipants?: Array<{ id: string; displayName: string }>;
+  isWhisperActive?: boolean;
 }
 
 export interface MetricsDisplayProps {
