@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
         try {
             // Build form data for OpenAI Whisper API
             const whisperFormData = new FormData();
-            whisperFormData.append('file', audioFile, 'audio.webm');
+            // Preserve original filename/extension from client upload
+            whisperFormData.append('file', audioFile, audioFile.name || 'audio.webm');
             whisperFormData.append('model', taskConfig.model);
             whisperFormData.append('language', language.split('-')[0]); // 'de-CH' → 'de'
             whisperFormData.append('response_format', 'verbose_json');

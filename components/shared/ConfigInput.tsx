@@ -14,7 +14,7 @@ export default function ConfigInput({ label, value, onChange, constraints, step 
   return (
     <div className="flex flex-col group">
       <div className="flex items-center gap-2">
-        <label className="text-sm font-medium text-slate-300 w-36 flex-shrink-0">
+        <label className="text-xs font-medium text-slate-300 min-w-0 flex-1">
           {label}
           {helpKey && <span className="ml-1 inline-flex align-middle"><InfoPopover helpKey={helpKey} size="xs" /></span>}
         </label>
@@ -25,14 +25,11 @@ export default function ConfigInput({ label, value, onChange, constraints, step 
           min={constraints.min}
           max={constraints.max}
           step={step}
-          className="flex-1 px-3 py-1.5 bg-slate-600/50 border border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+          className="w-24 flex-shrink-0 px-2 py-1.5 bg-slate-600/50 border border-slate-600 rounded text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
         />
       </div>
-      {tooltip && (
-        <div className="flex gap-2 mt-1">
-          <div className="w-36 flex-shrink-0"></div>
-          <p className="text-xs text-slate-400 leading-tight flex-1">{tooltip}</p>
-        </div>
+      {tooltip && !helpKey && (
+        <p className="text-[11px] text-slate-500 leading-tight mt-1">{tooltip}</p>
       )}
     </div>
   );

@@ -127,7 +127,7 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         maxTokens: 0,
         timeoutMs: 15000,
         fallbacks: [],
-        enabled: false, // MVP: uses Web Speech API
+        enabled: true,
     },
 };
 

@@ -41,7 +41,7 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
             </button>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid lg:grid-cols-2 gap-6">
             {/* Window & Analysis */}
             <ConfigGroup title="Window & Analysis" helpKey="config.windowGroup">
               <ConfigInput

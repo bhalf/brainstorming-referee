@@ -27,8 +27,21 @@ export async function processTranscriptionChunk({
   idPrefix,
   addModelRoutingLog,
 }: TranscriptionChunkParams): Promise<TranscriptionResult> {
+  // Determine file extension from blob MIME type
+  const mimeToExt: Record<string, string> = {
+    'audio/webm': 'webm',
+    'audio/webm;codecs=opus': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/ogg;codecs=opus': 'ogg',
+    'audio/mp4': 'mp4',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/flac': 'flac',
+  };
+  const ext = mimeToExt[blob.type] || 'webm';
+
   const formData = new FormData();
-  formData.append('audio', blob, `${idPrefix}.webm`);
+  formData.append('audio', blob, `${idPrefix}.${ext}`);
   formData.append('language', language);
 
   const response = await fetch('/api/transcription', {
