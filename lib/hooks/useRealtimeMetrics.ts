@@ -1,28 +1,28 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { segmentRowToApp } from '@/lib/supabase/converters';
-import { TranscriptSegment } from '@/lib/types';
-import type { MutableRefObject } from 'react';
+import { snapshotRowToApp } from '@/lib/supabase/converters';
+import { MetricSnapshot } from '@/lib/types';
+import type { Database } from '@/lib/supabase/types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-interface UseRealtimeSegmentsParams {
+type SnapshotRow = Database['public']['Tables']['metric_snapshots']['Row'];
+
+interface UseRealtimeMetricsParams {
   sessionId: string | null;
   isActive: boolean;
-  addTranscriptSegment: (segment: TranscriptSegment) => void;
-  speakingTimeRef: MutableRefObject<Map<string, number>>;
+  addMetricSnapshot: (snapshot: MetricSnapshot) => void;
 }
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 
-export function useRealtimeSegments({
+export function useRealtimeMetrics({
   sessionId,
   isActive,
-  addTranscriptSegment,
-  speakingTimeRef,
-}: UseRealtimeSegmentsParams) {
-  const addTranscriptSegmentRef = useRef(addTranscriptSegment);
-  useEffect(() => { addTranscriptSegmentRef.current = addTranscriptSegment; }, [addTranscriptSegment]);
+  addMetricSnapshot,
+}: UseRealtimeMetricsParams) {
+  const addMetricSnapshotRef = useRef(addMetricSnapshot);
+  useEffect(() => { addMetricSnapshotRef.current = addMetricSnapshot; }, [addMetricSnapshot]);
 
   const reconnectAttemptsRef = useRef(0);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -34,19 +34,19 @@ export function useRealtimeSegments({
     }
 
     const channel: RealtimeChannel = supabase
-      .channel(`segments-${sid}-${Date.now()}`)
+      .channel(`metrics-${sid}-${Date.now()}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'transcript_segments',
+          table: 'metric_snapshots',
           filter: `session_id=eq.${sid}`,
         },
         (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          const segment = segmentRowToApp(row as Parameters<typeof segmentRowToApp>[0]);
-          addTranscriptSegmentRef.current(segment);
+          const row = payload.new as SnapshotRow;
+          const snapshot = snapshotRowToApp(row);
+          addMetricSnapshotRef.current(snapshot);
           reconnectAttemptsRef.current = 0;
         }
       )
@@ -54,7 +54,7 @@ export function useRealtimeSegments({
         if (status === 'SUBSCRIBED') {
           reconnectAttemptsRef.current = 0;
         } else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && isMountedRef.current) {
-          console.error(`Realtime segments error (${status}):`, err);
+          console.error(`Realtime metrics error (${status}):`, err);
           if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
             const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptsRef.current);
             reconnectAttemptsRef.current++;
@@ -82,5 +82,5 @@ export function useRealtimeSegments({
         channelRef.current = null;
       }
     };
-  }, [sessionId, isActive, subscribe, speakingTimeRef]);
+  }, [sessionId, isActive, subscribe]);
 }

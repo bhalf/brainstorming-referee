@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
 import { TranscriptSegment, ModelRoutingLogEntry } from '@/lib/types';
-import { estimateSpeakingSeconds } from '@/lib/utils/format';
 import { useSpeechRecognition } from '@/lib/transcription/useSpeechRecognition';
 import { useAudioRecorder, AudioChunk } from '@/lib/transcription/useAudioRecorder';
 import { processTranscriptionChunk } from '@/lib/transcription/processTranscriptionChunk';
@@ -11,7 +10,7 @@ const ECHO_GATE_MS = 3000;
 interface UseTranscriptionManagerParams {
   language: string;
   isSessionActive: boolean;
-  speakingTimeRef: MutableRefObject<Map<string, number>>;
+  displayName: string;
   /** Updated by LiveKit when local participant is speaking — used to filter echo */
   lastLocalSpeakingTimeRef?: MutableRefObject<number | null>;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
@@ -23,7 +22,7 @@ interface UseTranscriptionManagerParams {
 export function useTranscriptionManager({
   language,
   isSessionActive,
-  speakingTimeRef,
+  displayName,
   lastLocalSpeakingTimeRef,
   addTranscriptSegment,
   addModelRoutingLog,
@@ -67,19 +66,12 @@ export function useTranscriptionManager({
 
       const segment: TranscriptSegment = {
         id: result.id,
-        speaker: 'You',
+        speaker: displayName,
         text: result.text,
         timestamp: result.timestamp,
         isFinal: result.isFinal,
         language,
       };
-
-      // Track local user speaking time via text-length proxy
-      if (result.isFinal && result.text.trim().length > 0) {
-        const estimatedSeconds = estimateSpeakingSeconds(result.text);
-        const current = speakingTimeRef.current.get('You') || 0;
-        speakingTimeRef.current.set('You', current + estimatedSeconds);
-      }
 
       setTranscriptSegments(prev => [...prev, segment]);
       addTranscriptSegment(segment);
@@ -87,7 +79,7 @@ export function useTranscriptionManager({
       if (result.isFinal) {
         uploadSegment(segment);
       }
-    }, [language, addTranscriptSegment, uploadSegment, speakingTimeRef, lastLocalSpeakingTimeRef]),
+    }, [language, displayName, addTranscriptSegment, uploadSegment, lastLocalSpeakingTimeRef]),
     onError: useCallback((error: string) => {
       addError(error, 'speech-recognition');
     }, [addError]),
@@ -100,7 +92,7 @@ export function useTranscriptionManager({
         blob: chunk.blob,
         timestamp: chunk.timestamp,
         language,
-        speaker: 'You',
+        speaker: displayName,
         idPrefix: 'whisper',
         addModelRoutingLog,
       });
@@ -112,6 +104,7 @@ export function useTranscriptionManager({
 
       for (const segment of result.segments) {
         addSegment(segment);
+        uploadSegment(segment);
       }
     } catch (error) {
       console.error('Whisper chunk processing error:', error);
@@ -151,7 +144,7 @@ export function useTranscriptionManager({
       toggleTranscription();
     }
   }, [isSessionActive, isWhisperEnabled, isWhisperSupported, isWhisperRecording,
-      startWhisperRecording, stopWhisperRecording, isTranscribing, isTranscriptionSupported, toggleTranscription]);
+    startWhisperRecording, stopWhisperRecording, isTranscribing, isTranscriptionSupported, toggleTranscription]);
 
   // Simulation fallback
   const handleAddSimulatedSegment = useCallback((text: string) => {

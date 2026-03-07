@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, MutableRefObject } from 'react';
+import { useEffect, useState, useRef, MutableRefObject } from 'react';
 import {
   LiveKitRoom as LKRoom,
   VideoConference,
@@ -10,9 +10,7 @@ import {
   useLocalParticipant,
 } from '@livekit/components-react';
 import '@livekit/components-styles';
-import { Track, RemoteParticipant, ConnectionState } from 'livekit-client';
-import { TranscriptSegment, ModelRoutingLogEntry } from '@/lib/types';
-import { useLiveKitTranscription } from '@/lib/hooks/useLiveKitTranscription';
+import { ConnectionState } from 'livekit-client';
 
 interface LiveKitRoomProps {
   roomName: string;
@@ -22,26 +20,21 @@ interface LiveKitRoomProps {
   onRemoteSpeakersChange: (speakers: { id: string; displayName: string }[]) => void;
   onLocalSpeakingUpdate?: () => void;
   onLocalMicMuteChange?: (muted: boolean) => void;
+  onDisconnected?: () => void;
   speakingTimeRef: MutableRefObject<Map<string, number>>;
-  transcriptionConfig: {
-    language: string;
-    isActive: boolean;
-    onSegment: (segment: TranscriptSegment) => void;
-    uploadSegment: (segment: TranscriptSegment) => void;
-    addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
-  };
 }
 
 // Inner component that runs inside LiveKit context
 function LiveKitSession({
+  displayName,
   onConnectionChange,
   onParticipantsChange,
   onRemoteSpeakersChange,
   onLocalSpeakingUpdate,
   onLocalMicMuteChange,
+  onDisconnected,
   speakingTimeRef,
-  transcriptionConfig,
-}: Omit<LiveKitRoomProps, 'roomName' | 'displayName'>) {
+}: Omit<LiveKitRoomProps, 'roomName'>) {
   const connectionState = useConnectionState();
   const remoteParticipants = useRemoteParticipants();
   const { localParticipant } = useLocalParticipant();
@@ -49,12 +42,23 @@ function LiveKitSession({
   const lastMicMutedRef = useRef<boolean | null>(null);
   const onLocalSpeakingUpdateRef = useRef(onLocalSpeakingUpdate);
   const onLocalMicMuteChangeRef = useRef(onLocalMicMuteChange);
+  const wasConnectedRef = useRef(false);
+  const onDisconnectedRef = useRef(onDisconnected);
   useEffect(() => { onLocalSpeakingUpdateRef.current = onLocalSpeakingUpdate; }, [onLocalSpeakingUpdate]);
   useEffect(() => { onLocalMicMuteChangeRef.current = onLocalMicMuteChange; }, [onLocalMicMuteChange]);
+  useEffect(() => { onDisconnectedRef.current = onDisconnected; }, [onDisconnected]);
 
   // Track connection state
   useEffect(() => {
     onConnectionChange(connectionState === ConnectionState.Connected);
+
+    // Track disconnect: only fire callback when transitioning FROM connected
+    if (connectionState === ConnectionState.Connected) {
+      wasConnectedRef.current = true;
+    } else if (connectionState === ConnectionState.Disconnected && wasConnectedRef.current) {
+      wasConnectedRef.current = false;
+      onDisconnectedRef.current?.();
+    }
   }, [connectionState, onConnectionChange]);
 
   // Track participants
@@ -84,12 +88,17 @@ function LiveKitSession({
         }
       });
 
-      onRemoteSpeakersChange(activeSpeakers);
-
-      // Track local participant speaking state (for echo gate)
+      // Track local participant speaking state (for echo gate AND actual speaking time)
       if (localParticipant.isSpeaking) {
         onLocalSpeakingUpdateRef.current?.();
+
+        // Also add local participant to active speakers and speaking time
+        activeSpeakers.push({ id: localParticipant.identity, displayName });
+        const currentLocal = speakingTimeRef.current.get(displayName) || 0;
+        speakingTimeRef.current.set(displayName, currentLocal + delta);
       }
+
+      onRemoteSpeakersChange(activeSpeakers);
 
       // Track local mic mute state
       const isMicMuted = !localParticipant.isMicrophoneEnabled;
@@ -102,16 +111,6 @@ function LiveKitSession({
     return () => clearInterval(interval);
   }, [remoteParticipants, localParticipant, speakingTimeRef, onRemoteSpeakersChange]);
 
-  // Per-participant transcription
-  useLiveKitTranscription({
-    remoteParticipants,
-    language: transcriptionConfig.language,
-    isActive: transcriptionConfig.isActive,
-    onSegment: transcriptionConfig.onSegment,
-    uploadSegment: transcriptionConfig.uploadSegment,
-    addModelRoutingLog: transcriptionConfig.addModelRoutingLog,
-  });
-
   return null;
 }
 
@@ -123,8 +122,8 @@ export default function LiveKitRoomComponent({
   onRemoteSpeakersChange,
   onLocalSpeakingUpdate,
   onLocalMicMuteChange,
+  onDisconnected,
   speakingTimeRef,
-  transcriptionConfig,
 }: LiveKitRoomProps) {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -197,13 +196,14 @@ export default function LiveKitRoomComponent({
         <VideoConference />
         <RoomAudioRenderer />
         <LiveKitSession
+          displayName={displayName}
           onConnectionChange={onConnectionChange}
           onParticipantsChange={onParticipantsChange}
           onRemoteSpeakersChange={onRemoteSpeakersChange}
           onLocalSpeakingUpdate={onLocalSpeakingUpdate}
           onLocalMicMuteChange={onLocalMicMuteChange}
+          onDisconnected={onDisconnected}
           speakingTimeRef={speakingTimeRef}
-          transcriptionConfig={transcriptionConfig}
         />
       </LKRoom>
     </div>

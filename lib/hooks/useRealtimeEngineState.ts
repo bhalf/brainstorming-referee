@@ -1,28 +1,41 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { segmentRowToApp } from '@/lib/supabase/converters';
-import { TranscriptSegment } from '@/lib/types';
-import type { MutableRefObject } from 'react';
+import { engineStateRowToApp } from '@/lib/supabase/converters';
+import { DecisionEngineState } from '@/lib/types';
+import type { Database } from '@/lib/supabase/types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-interface UseRealtimeSegmentsParams {
+type EngineStateRow = Database['public']['Tables']['engine_state']['Row'];
+
+interface UseRealtimeEngineStateParams {
   sessionId: string | null;
   isActive: boolean;
-  addTranscriptSegment: (segment: TranscriptSegment) => void;
-  speakingTimeRef: MutableRefObject<Map<string, number>>;
+  /** Don't apply Realtime updates if we are the decision owner (we already have local state) */
+  isDecisionOwner: boolean;
+  updateDecisionState: (updates: Partial<DecisionEngineState>) => void;
 }
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1000;
 
-export function useRealtimeSegments({
+/**
+ * Subscribes to Supabase Realtime for engine_state UPDATE events.
+ * This allows non-owner clients to see the current engine phase,
+ * and supports recovery when decision ownership transfers.
+ *
+ * NOTE: Requires `alter publication supabase_realtime add table engine_state;`
+ * to be run in Supabase SQL editor.
+ */
+export function useRealtimeEngineState({
   sessionId,
   isActive,
-  addTranscriptSegment,
-  speakingTimeRef,
-}: UseRealtimeSegmentsParams) {
-  const addTranscriptSegmentRef = useRef(addTranscriptSegment);
-  useEffect(() => { addTranscriptSegmentRef.current = addTranscriptSegment; }, [addTranscriptSegment]);
+  isDecisionOwner,
+  updateDecisionState,
+}: UseRealtimeEngineStateParams) {
+  const updateDecisionStateRef = useRef(updateDecisionState);
+  const isDecisionOwnerRef = useRef(isDecisionOwner);
+  useEffect(() => { updateDecisionStateRef.current = updateDecisionState; }, [updateDecisionState]);
+  useEffect(() => { isDecisionOwnerRef.current = isDecisionOwner; }, [isDecisionOwner]);
 
   const reconnectAttemptsRef = useRef(0);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -34,19 +47,22 @@ export function useRealtimeSegments({
     }
 
     const channel: RealtimeChannel = supabase
-      .channel(`segments-${sid}-${Date.now()}`)
+      .channel(`engine-state-${sid}-${Date.now()}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: 'UPDATE',
           schema: 'public',
-          table: 'transcript_segments',
+          table: 'engine_state',
           filter: `session_id=eq.${sid}`,
         },
         (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          const segment = segmentRowToApp(row as Parameters<typeof segmentRowToApp>[0]);
-          addTranscriptSegmentRef.current(segment);
+          // Skip if we are the decision owner — we already have local state
+          if (isDecisionOwnerRef.current) return;
+
+          const row = payload.new as EngineStateRow;
+          const stateUpdate = engineStateRowToApp(row);
+          updateDecisionStateRef.current(stateUpdate);
           reconnectAttemptsRef.current = 0;
         }
       )
@@ -54,7 +70,7 @@ export function useRealtimeSegments({
         if (status === 'SUBSCRIBED') {
           reconnectAttemptsRef.current = 0;
         } else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && isMountedRef.current) {
-          console.error(`Realtime segments error (${status}):`, err);
+          console.error(`Realtime engine state error (${status}):`, err);
           if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
             const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptsRef.current);
             reconnectAttemptsRef.current++;
@@ -82,5 +98,5 @@ export function useRealtimeSegments({
         channelRef.current = null;
       }
     };
-  }, [sessionId, isActive, subscribe, speakingTimeRef]);
+  }, [sessionId, isActive, subscribe]);
 }

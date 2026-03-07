@@ -69,6 +69,8 @@ create table if not exists engine_state (
   confirmation_start bigint,
   last_intervention_time bigint,
   intervention_count int not null default 0,
+  decision_owner text,
+  decision_heartbeat timestamptz,
   updated_at timestamptz not null default now()
 );
 
@@ -90,3 +92,4 @@ create index if not exists idx_routing_session on model_routing_logs(session_id)
 -- alter publication supabase_realtime add table transcript_segments;
 -- alter publication supabase_realtime add table interventions;
 -- alter publication supabase_realtime add table engine_state;
+-- alter publication supabase_realtime add table metric_snapshots;

@@ -6,9 +6,15 @@ import { useSession } from '@/lib/context/SessionContext';
 import { decodeConfig, DEFAULT_CONFIG } from '@/lib/config';
 import { Scenario, Intervention, TranscriptSegment } from '@/lib/types';
 import { loadPersistedCache } from '@/lib/metrics/embeddingCache';
+import { fetchWithRetry } from '@/lib/utils/fetchWithRetry';
+import { segmentRowToApp, interventionRowToApp } from '@/lib/supabase/converters';
 import { useSpeechSynthesis } from '@/lib/tts/useSpeechSynthesis';
 import { useTranscriptionManager } from '@/lib/hooks/useTranscriptionManager';
 import { useRealtimeSegments } from '@/lib/hooks/useRealtimeSegments';
+import { useRealtimeInterventions } from '@/lib/hooks/useRealtimeInterventions';
+import { useRealtimeMetrics } from '@/lib/hooks/useRealtimeMetrics';
+import { useDecisionOwnership } from '@/lib/hooks/useDecisionOwnership';
+import { useRealtimeEngineState } from '@/lib/hooks/useRealtimeEngineState';
 import { useMetricsComputation } from '@/lib/hooks/useMetricsComputation';
 import { useDecisionLoop } from '@/lib/hooks/useDecisionLoop';
 import LiveKitRoom from '@/components/LiveKitRoom';
@@ -30,7 +36,7 @@ export default function CallPage() {
   const roomName = decodeURIComponent(params.room as string);
   const role = (searchParams.get('role') || 'host') as 'host' | 'participant';
   const isParticipant = role === 'participant';
-  const participantName = searchParams.get('name') || 'Participant';
+  const [participantName, setParticipantName] = useState(searchParams.get('name') || 'Participant');
   const scenario = (searchParams.get('scenario') as Scenario) || 'A';
   const language = searchParams.get('lang') || 'en-US';
   const encodedConfig = searchParams.get('config');
@@ -97,26 +103,20 @@ export default function CallPage() {
   const uploadSegment = useCallback(async (segment: TranscriptSegment) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
-    const displayName = isParticipant ? participantName : 'Researcher';
-    const uploadSeg = segment.speaker === 'You'
-      ? { ...segment, speaker: displayName }
-      : segment;
-    try {
-      await fetch('/api/segments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sid, segment: uploadSeg }),
-      });
-    } catch (e) {
-      console.error('Segment upload error:', e);
-    }
-  }, [isParticipant, participantName]);
+    await fetchWithRetry('/api/segments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sid, segment }),
+      maxRetries: 3,
+      silent: true,
+    });
+  }, []);
 
-  // --- Transcription Manager (local mic only — remote handled by LiveKit) ---
+  // --- Transcription Manager (local mic only — remote segments arrive via Supabase Realtime) ---
   const transcription = useTranscriptionManager({
     language,
     isSessionActive: state.isActive && !isLocalMicMuted,
-    speakingTimeRef,
+    displayName: isParticipant ? participantName : 'Researcher',
     lastLocalSpeakingTimeRef,
     addTranscriptSegment,
     addModelRoutingLog,
@@ -143,22 +143,43 @@ export default function CallPage() {
     interventionsRef.current = state.interventions;
   }, [state.interventions]);
 
-  // --- Metrics Computation ---
-  const { currentMetrics, metricsHistory, currentMetricsRef, metricsHistoryRef, stateHistoryRef } = useMetricsComputation({
+  // --- Decision Ownership (Supabase-based lock: one decision engine per session) ---
+  const { isDecisionOwner } = useDecisionOwnership({
+    sessionId: state.sessionId,
     isActive: state.isActive,
     isParticipant,
+  });
+
+  // --- Realtime Engine State (non-owners see phase transitions via Supabase Realtime) ---
+  useRealtimeEngineState({
+    sessionId: state.sessionId,
+    isActive: state.isActive,
+    isDecisionOwner,
+    updateDecisionState,
+  });
+
+  // --- Realtime Metrics (all clients receive metric snapshots via Supabase Realtime) ---
+  useRealtimeMetrics({
+    sessionId: state.sessionId,
+    isActive: state.isActive,
+    addMetricSnapshot,
+  });
+
+  // --- Metrics Computation (only runs on the decision owner) ---
+  const { currentMetrics, metricsHistory, currentMetricsRef, metricsHistoryRef, stateHistoryRef } = useMetricsComputation({
+    isActive: state.isActive,
+    isDecisionOwner,
     sessionId: state.sessionId,
     config: state.config,
     transcriptSegmentsRef,
     speakingTimeRef,
-    addMetricSnapshot,
     participantCountRef,
   });
 
-  // --- Decision Engine ---
+  // --- Decision Engine (only runs on the decision owner) ---
   useDecisionLoop({
     isActive: state.isActive,
-    isParticipant,
+    isDecisionOwner,
     sessionId: state.sessionId,
     transcriptSegmentsRef,
     interventionsRef,
@@ -179,10 +200,45 @@ export default function CallPage() {
     updateDecisionState,
   });
 
-  // --- Segment callback for LiveKit remote transcription ---
-  const handleRemoteSegment = useCallback((segment: TranscriptSegment) => {
-    addTranscriptSegment(segment);
-  }, [addTranscriptSegment]);
+  // --- Realtime Interventions (Supabase → all participants) ---
+  useRealtimeInterventions({
+    sessionId: state.sessionId,
+    isActive: state.isActive,
+    addIntervention,
+    speak,
+    voiceEnabled: state.voiceSettings.enabled,
+    isTTSSupported,
+  });
+
+  // --- Initial data load: fetch historical segments + interventions for catch-up ---
+  const loadInitialData = useCallback(async (sid: string) => {
+    try {
+      const [segRes, intRes] = await Promise.all([
+        fetch(`/api/segments?sessionId=${sid}`),
+        fetch(`/api/interventions?sessionId=${sid}`),
+      ]);
+
+      if (segRes.ok) {
+        const { segments } = await segRes.json();
+        if (Array.isArray(segments)) {
+          for (const row of segments) {
+            addTranscriptSegment(segmentRowToApp(row));
+          }
+        }
+      }
+
+      if (intRes.ok) {
+        const { interventions } = await intRes.json();
+        if (Array.isArray(interventions)) {
+          for (const row of interventions) {
+            addIntervention(interventionRowToApp(row));
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load initial data:', e);
+    }
+  }, [addTranscriptSegment, addIntervention]);
 
   // --- Session Initialization ---
   useEffect(() => {
@@ -197,7 +253,7 @@ export default function CallPage() {
           const res = await fetch('/api/session/join', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomName }),
+            body: JSON.stringify({ roomName, participantName }),
           });
           if (res.ok) {
             const data = await res.json();
@@ -206,6 +262,10 @@ export default function CallPage() {
             lang = data.language || lang;
             if (data.config && typeof data.config === 'object' && Object.keys(data.config).length > 0) {
               config = data.config;
+            }
+            // Use server-resolved name (deduplicated if needed)
+            if (data.resolvedName && data.resolvedName !== participantName) {
+              setParticipantName(data.resolvedName);
             }
           }
         } catch {
@@ -222,30 +282,54 @@ export default function CallPage() {
           }
         }
 
-        // Create session in Supabase
+        // Check for existing active session first (prevents duplicate sessions on refresh)
         try {
-          const res = await fetch('/api/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              roomName,
-              scenario: sc,
-              language: lang,
-              config,
-              hostIdentity: 'Researcher',
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            sessionId = data.sessionId;
+          const getRes = await fetch(`/api/session?room=${encodeURIComponent(roomName)}`);
+          if (getRes.ok) {
+            const existing = await getRes.json();
+            sessionId = existing.sessionId;
+            // Use existing session's config if available
+            sc = existing.scenario || sc;
+            lang = existing.language || lang;
+            if (existing.config && typeof existing.config === 'object' && Object.keys(existing.config).length > 0) {
+              config = existing.config;
+            }
           }
         } catch {
-          addError('Failed to create session in database', 'session');
+          // GET failed — will create new session below
+        }
+
+        // Only create a new session if none exists
+        if (!sessionId) {
+          try {
+            const res = await fetch('/api/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                roomName,
+                scenario: sc,
+                language: lang,
+                config,
+                hostIdentity: 'Researcher',
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              sessionId = data.sessionId;
+            }
+          } catch {
+            addError('Failed to create session in database', 'session');
+          }
         }
       }
 
       startSession(roomName, sc, lang, config, sessionId);
       loadPersistedCache();
+
+      // Load historical data for catch-up (segments + interventions)
+      if (sessionId) {
+        loadInitialData(sessionId);
+      }
 
       // Whisper is default — disable only if server transcription is not available
       fetch('/api/model-routing')
@@ -263,13 +347,15 @@ export default function CallPage() {
     init();
 
     return () => {
-      // End session in Supabase
+      // End session in Supabase (best-effort on unmount)
       if (sessionIdRef.current) {
-        fetch('/api/session', {
+        fetchWithRetry('/api/session', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId: sessionIdRef.current }),
-        }).catch(() => {});
+          maxRetries: 1,
+          silent: true,
+        });
       }
       endSession();
     };
@@ -279,11 +365,13 @@ export default function CallPage() {
   // --- End Session ---
   const handleEndSession = useCallback(() => {
     if (sessionIdRef.current) {
-      fetch('/api/session', {
+      fetchWithRetry('/api/session', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: sessionIdRef.current }),
-      }).catch(() => {});
+        maxRetries: 2,
+        silent: true,
+      });
     }
     endSession();
     router.push('/');
@@ -335,12 +423,10 @@ export default function CallPage() {
           </div>
 
           {/* Connection status */}
-          <div className={`flex items-center gap-1.5 px-2 py-1 rounded ${
-            isConnected ? 'bg-green-900/30 text-green-400' : 'bg-yellow-900/30 text-yellow-400'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${
-              isConnected ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'
-            }`} />
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded ${isConnected ? 'bg-green-900/30 text-green-400' : 'bg-yellow-900/30 text-yellow-400'
+            }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'
+              }`} />
             {isConnected ? 'Connected' : 'Connecting...'}
           </div>
         </div>
@@ -358,14 +444,8 @@ export default function CallPage() {
             onRemoteSpeakersChange={setRemoteSpeakers}
             onLocalSpeakingUpdate={handleLocalSpeakingUpdate}
             onLocalMicMuteChange={handleLocalMicMuteChange}
+            onDisconnected={handleEndSession}
             speakingTimeRef={speakingTimeRef}
-            transcriptionConfig={{
-              language,
-              isActive: state.isActive,
-              onSegment: handleRemoteSegment,
-              uploadSegment,
-              addModelRoutingLog,
-            }}
           />
         </div>
 
@@ -379,9 +459,8 @@ export default function CallPage() {
 
         {/* Overlay Panel */}
         <div
-          className={`fixed lg:relative top-0 right-0 h-full w-[min(100vw,400px)] lg:w-95 bg-slate-900 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-            isPanelOpen ? 'translate-x-0' : 'translate-x-full'
-          } p-2 sm:p-4 lg:pl-0`}
+          className={`fixed lg:relative top-0 right-0 h-full w-[min(100vw,400px)] lg:w-95 bg-slate-900 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'
+            } p-2 sm:p-4 lg:pl-0`}
         >
           <button
             onClick={() => setIsPanelOpen(false)}
@@ -411,8 +490,12 @@ export default function CallPage() {
               isWhisperActive: transcription.isWhisperEnabled,
             }}
             metrics={{
-              currentMetrics,
-              metricsHistory,
+              currentMetrics: isDecisionOwner
+                ? currentMetrics
+                : state.metricSnapshots[state.metricSnapshots.length - 1] ?? null,
+              metricsHistory: isDecisionOwner
+                ? metricsHistory
+                : state.metricSnapshots,
               config: state.config,
               decisionState: state.decisionState,
             }}

@@ -13,10 +13,11 @@ import {
 } from '@/lib/types';
 import { evaluatePolicy, intentToTrigger } from '@/lib/decision/interventionPolicy';
 import { resetInterventionCountIfNeeded, generateInterventionContext } from '@/lib/decision/decisionEngine';
+import { fetchWithRetry } from '@/lib/utils/fetchWithRetry';
 
 interface UseDecisionLoopParams {
   isActive: boolean;
-  isParticipant: boolean;
+  isDecisionOwner: boolean;
   sessionId: string | null;
   // Stable refs to avoid interval recreation on every state change
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
@@ -42,7 +43,7 @@ interface UseDecisionLoopParams {
 
 export function useDecisionLoop({
   isActive,
-  isParticipant,
+  isDecisionOwner,
   sessionId,
   transcriptSegmentsRef,
   interventionsRef,
@@ -85,20 +86,22 @@ export function useDecisionLoop({
   useEffect(() => { isTTSSupportedRef.current = isTTSSupported; }, [isTTSSupported]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
-  // Fire-and-forget engine state persist
+  // Engine state persist with retry
   const persistEngineState = (newState: DecisionEngineState) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
-    fetch('/api/engine-state', {
+    fetchWithRetry('/api/engine-state', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: sid, state: newState }),
-    }).catch(() => {});
+      maxRetries: 2,
+      silent: true,
+    });
   };
 
   // Decision engine interval
   useEffect(() => {
-    if (!isActive || isParticipant) return;
+    if (!isActive || !isDecisionOwner) return;
 
     const runDecisionEngine = async () => {
       const metrics = currentMetricsRef.current;
@@ -249,9 +252,9 @@ export function useDecisionLoop({
             addIntervention(intervention);
             lastInterventionIdRef.current = interventionId;
 
-            // Persist intervention to Supabase
+            // Persist intervention to Supabase (with retry)
             if (sessionIdRef.current) {
-              fetch('/api/interventions', {
+              fetchWithRetry('/api/interventions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -259,22 +262,26 @@ export function useDecisionLoop({
                   intervention,
                   engineState: decisionStateRef.current,
                 }),
-              }).catch(() => {});
+                maxRetries: 3,
+                silent: true,
+              });
             }
 
             if (data.logEntry) {
               addModelRoutingLog(data.logEntry);
 
-              // Persist routing log to Supabase
+              // Persist routing log to Supabase (with retry)
               if (sessionIdRef.current) {
-                fetch('/api/model-routing-log', {
+                fetchWithRetry('/api/model-routing-log', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     sessionId: sessionIdRef.current,
                     entry: data.logEntry,
                   }),
-                }).catch(() => {});
+                  maxRetries: 2,
+                  silent: true,
+                });
               }
             }
           } else {
@@ -298,7 +305,7 @@ export function useDecisionLoop({
 
     const interval = setInterval(runDecisionEngine, 2000);
     return () => clearInterval(interval);
-  }, [isActive, isParticipant, addIntervention, updateIntervention, addModelRoutingLog, addError, updateDecisionState,
+  }, [isActive, isDecisionOwner, addIntervention, updateIntervention, addModelRoutingLog, addError, updateDecisionState,
       currentMetricsRef, metricsHistoryRef, transcriptSegmentsRef, interventionsRef, stateHistoryRef]);
 
   return null;

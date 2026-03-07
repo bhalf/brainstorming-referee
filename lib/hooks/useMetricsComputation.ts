@@ -2,27 +2,26 @@ import { useState, useEffect, useRef, MutableRefObject } from 'react';
 import { TranscriptSegment, MetricSnapshot, ExperimentConfig, ConversationStateInference } from '@/lib/types';
 import { computeMetricsAsync } from '@/lib/metrics/computeMetrics';
 import { inferConversationState } from '@/lib/state/inferConversationState';
+import { fetchWithRetry } from '@/lib/utils/fetchWithRetry';
 
 interface UseMetricsComputationParams {
   isActive: boolean;
-  isParticipant: boolean;
+  isDecisionOwner: boolean;
   sessionId: string | null;
   config: ExperimentConfig;
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
   speakingTimeRef: MutableRefObject<Map<string, number>>;
-  addMetricSnapshot: (snapshot: MetricSnapshot) => void;
   /** Total number of participants in the room (from LiveKit), including self */
   participantCountRef?: MutableRefObject<number>;
 }
 
 export function useMetricsComputation({
   isActive,
-  isParticipant,
+  isDecisionOwner,
   sessionId,
   config,
   transcriptSegmentsRef,
   speakingTimeRef,
-  addMetricSnapshot,
   participantCountRef,
 }: UseMetricsComputationParams) {
   const [currentMetrics, setCurrentMetrics] = useState<MetricSnapshot | null>(null);
@@ -54,7 +53,7 @@ export function useMetricsComputation({
 
   // Metrics computation interval (async for embeddings)
   useEffect(() => {
-    if (!isActive || isParticipant) return;
+    if (!isActive || !isDecisionOwner) return;
 
     const interval = setInterval(async () => {
       if (isComputingRef.current) return;
@@ -88,15 +87,16 @@ export function useMetricsComputation({
         setCurrentMetrics(metrics);
         setMetricsHistory(prev => [...prev.slice(-50), metrics]);
         setStateHistory(prev => [...prev.slice(-200), inference]);
-        addMetricSnapshot(metrics);
 
-        // Fire-and-forget persist to Supabase
+        // Persist to Supabase (awaited so Realtime fires reliably for all clients)
         if (sessionIdRef.current) {
-          fetch('/api/metrics/snapshot', {
+          await fetchWithRetry('/api/metrics/snapshot', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionId: sessionIdRef.current, snapshot: metrics }),
-          }).catch(() => {});
+            maxRetries: 2,
+            silent: true,
+          });
         }
       } catch (error) {
         console.error('Metrics computation error:', error);
@@ -106,7 +106,7 @@ export function useMetricsComputation({
     }, config.ANALYZE_EVERY_MS);
 
     return () => clearInterval(interval);
-  }, [isActive, isParticipant, config, addMetricSnapshot, transcriptSegmentsRef, speakingTimeRef, participantCountRef]);
+  }, [isActive, isDecisionOwner, config, transcriptSegmentsRef, speakingTimeRef, participantCountRef]);
 
   return {
     currentMetrics,

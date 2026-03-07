@@ -38,7 +38,7 @@ const initialVoiceSettings: VoiceSettings = {
   rate: 1.0,
   pitch: 1.0,
   volume: 0.8,
-  enabled: false,
+  enabled: true,
 };
 
 const initialSessionState: SessionState = {
@@ -139,7 +139,11 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         ),
       };
 
-    case 'ADD_METRIC_SNAPSHOT':
+    case 'ADD_METRIC_SNAPSHOT': {
+      // Deduplicate by timestamp (prevents double-add from owner + Realtime)
+      if (state.metricSnapshots.some(s => s.timestamp === action.payload.timestamp)) {
+        return state;
+      }
       return {
         ...state,
         // Cap at 200 entries (~16 min at 5s intervals) to prevent unbounded growth
@@ -147,8 +151,13 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
           ? [...state.metricSnapshots.slice(-199), action.payload]
           : [...state.metricSnapshots, action.payload],
       };
+    }
 
-    case 'ADD_INTERVENTION':
+    case 'ADD_INTERVENTION': {
+      // Deduplicate by intervention ID (prevents double-add from Realtime sync)
+      if (state.interventions.some(i => i.id === action.payload.id)) {
+        return state;
+      }
       return {
         ...state,
         interventions: [...state.interventions, action.payload],
@@ -158,6 +167,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
           interventionCount: state.decisionState.interventionCount + 1,
         },
       };
+    }
 
     case 'UPDATE_INTERVENTION':
       return {

@@ -31,6 +31,30 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// GET — Fetch interventions for a session (for initial load on join)
+export async function GET(request: NextRequest) {
+  const sessionId = request.nextUrl.searchParams.get('sessionId');
+
+  if (!sessionId) {
+    return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
+  }
+
+  const supabase = getServiceClient();
+
+  const { data, error } = await supabase
+    .from('interventions')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('timestamp', { ascending: true });
+
+  if (error) {
+    console.error('Failed to fetch interventions:', error);
+    return NextResponse.json({ error: 'Failed to fetch interventions' }, { status: 500 });
+  }
+
+  return NextResponse.json({ interventions: data || [] });
+}
+
 // PATCH — Update intervention status
 export async function PATCH(request: NextRequest) {
   try {

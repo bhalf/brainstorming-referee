@@ -117,6 +117,8 @@ export interface Database {
           confirmation_start: number | null;
           last_intervention_time: number | null;
           intervention_count: number;
+          decision_owner: string | null;
+          decision_heartbeat: string | null;
           updated_at: string;
         };
         Insert: {
@@ -126,6 +128,8 @@ export interface Database {
           confirmation_start?: number | null;
           last_intervention_time?: number | null;
           intervention_count?: number;
+          decision_owner?: string | null;
+          decision_heartbeat?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -134,6 +138,8 @@ export interface Database {
           confirmation_start?: number | null;
           last_intervention_time?: number | null;
           intervention_count?: number;
+          decision_owner?: string | null;
+          decision_heartbeat?: string | null;
           updated_at?: string;
         };
       };

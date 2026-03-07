@@ -78,6 +78,27 @@ export function interventionToInsert(
 
 // --- Metric Snapshots ---
 
+type SnapshotRow = Database['public']['Tables']['metric_snapshots']['Row'];
+
+export function snapshotRowToApp(row: SnapshotRow): MetricSnapshot {
+  const m = row.metrics as Record<string, unknown>;
+  const si = row.state_inference as Record<string, unknown> | null;
+  return {
+    id: (m.id as string) || row.id,
+    timestamp: row.timestamp,
+    speakingTimeDistribution: (m.speakingTimeDistribution as MetricSnapshot['speakingTimeDistribution']) || {},
+    participationImbalance: (m.participationImbalance as number) ?? 0,
+    semanticRepetitionRate: (m.semanticRepetitionRate as number) ?? 0,
+    stagnationDuration: (m.stagnationDuration as number) ?? 0,
+    diversityDevelopment: (m.diversityDevelopment as number) ?? 0,
+    windowStart: (m.windowStart as number) ?? 0,
+    windowEnd: (m.windowEnd as number) ?? 0,
+    participation: m.participation as MetricSnapshot['participation'],
+    semanticDynamics: m.semanticDynamics as MetricSnapshot['semanticDynamics'],
+    inferredState: si as unknown as MetricSnapshot['inferredState'],
+  };
+}
+
 export function snapshotToInsert(snapshot: MetricSnapshot, sessionId: string): SnapshotInsert {
   const { inferredState, ...metricsData } = snapshot;
   return {
