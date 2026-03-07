@@ -80,10 +80,10 @@ describe('computeNoveltyRate', () => {
     expect(rate).toBeLessThan(0.3);
   });
 
-  it('returns 1 for fewer than 2 segments', () => {
+  it('returns neutral 0.5 for fewer than 2 segments (insufficient data)', () => {
     const segments = [seg('s0', 'A', 'hello')];
     const embeddings = makeEmbeddings(['s0'], [0]);
-    expect(computeNoveltyRate(segments, embeddings)).toBe(1);
+    expect(computeNoveltyRate(segments, embeddings)).toBe(0.5);
   });
 });
 
@@ -121,10 +121,10 @@ describe('computeClusterConcentration', () => {
     expect(concentration).toBeLessThan(0.5);
   });
 
-  it('returns 0 for fewer than 2 embedded segments', () => {
+  it('returns neutral 0.5 for fewer than 2 embedded segments (insufficient data)', () => {
     const segments = [seg('s0', 'A', 'hello')];
     const embeddings = makeEmbeddings(['s0'], [0]);
-    expect(computeClusterConcentration(segments, embeddings)).toBe(0);
+    expect(computeClusterConcentration(segments, embeddings)).toBe(0.5);
   });
 });
 
@@ -197,11 +197,11 @@ describe('computeSemanticExpansionScore', () => {
 });
 
 describe('computeSemanticDynamicsFallback', () => {
-  it('returns sensible defaults for few segments', () => {
+  it('returns neutral defaults for few segments (insufficient data)', () => {
     const segments = [seg('s0', 'A', 'hello world')];
     const result = computeSemanticDynamicsFallback(segments, []);
-    expect(result.noveltyRate).toBe(1);
-    expect(result.clusterConcentration).toBe(0);
+    expect(result.noveltyRate).toBe(0.5);
+    expect(result.clusterConcentration).toBe(0.5);
     expect(result.explorationElaborationRatio).toBeCloseTo(0.5);
     expect(result.semanticExpansionScore).toBe(0);
   });

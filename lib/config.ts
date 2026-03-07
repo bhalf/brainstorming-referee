@@ -96,16 +96,8 @@ export function decodeConfig(encoded: string): ExperimentConfig | null {
   try {
     const json = atob(encoded);
     const parsed = JSON.parse(json);
-
-    // Validate that all required keys exist
-    const requiredKeys = Object.keys(DEFAULT_CONFIG);
-    for (const key of requiredKeys) {
-      if (!(key in parsed)) {
-        return null;
-      }
-    }
-
-    return parsed as ExperimentConfig;
+    // Merge with defaults so old encoded configs missing v2 fields still work
+    return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
     return null;
   }
@@ -130,7 +122,9 @@ export function loadConfigFromStorage(): ExperimentConfig | null {
   try {
     const stored = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (!stored) return null;
-    return JSON.parse(stored) as ExperimentConfig;
+    const parsed = JSON.parse(stored);
+    // Merge with defaults so old configs missing v2 fields still work
+    return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
     return null;
   }

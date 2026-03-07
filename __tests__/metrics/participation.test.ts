@@ -132,10 +132,19 @@ describe('computeDominanceStreakScore', () => {
     expect(computeDominanceStreakScore(segments)).toBe(0);
   });
 
-  it('returns 1 for single speaker with many turns', () => {
+  it('returns 0 for single speaker alone (no dominance without others)', () => {
     const segments: TranscriptSegment[] = [];
     for (let i = 0; i < 10; i++) segments.push(seg('Alice', `turn ${i}`, `a-${i}`));
-    expect(computeDominanceStreakScore(segments)).toBe(1);
+    // Without knownParticipantCount or with 1 participant, single speaker isn't "dominating"
+    expect(computeDominanceStreakScore(segments)).toBe(0);
+    expect(computeDominanceStreakScore(segments, 1)).toBe(0);
+  });
+
+  it('returns 1 for single speaker when others are known to exist', () => {
+    const segments: TranscriptSegment[] = [];
+    for (let i = 0; i < 10; i++) segments.push(seg('Alice', `turn ${i}`, `a-${i}`));
+    // With 3 known participants but only 1 speaking → dominance
+    expect(computeDominanceStreakScore(segments, 3)).toBe(1);
   });
 });
 
@@ -152,8 +161,8 @@ describe('computeGini', () => {
     expect(computeGini([])).toBe(0);
   });
 
-  it('returns 1 for single value', () => {
-    expect(computeGini([42])).toBe(1);
+  it('returns 0 for single value (no inequality with 1 participant)', () => {
+    expect(computeGini([42])).toBe(0);
   });
 });
 

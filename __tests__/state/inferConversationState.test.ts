@@ -157,14 +157,15 @@ describe('inferConversationState', () => {
     expect(result.state).toBe('DOMINANCE_RISK');
   });
 
-  it('falls back to HEALTHY_EXPLORATION when v2 metrics are absent', () => {
+  it('returns low confidence when v2 metrics are absent (insufficient data)', () => {
     const metrics = makeMetrics({
       participation: undefined,
       semanticDynamics: undefined,
     });
     const result = inferConversationState(metrics, null, Date.now());
     expect(result.state).toBe('HEALTHY_EXPLORATION');
-    expect(result.confidence).toBe(0.5);
+    expect(result.confidence).toBe(0.2);
+    expect(result.criteriaSnapshot).toHaveProperty('insufficientData', 1);
   });
 
   it('tracks enteredAt and durationMs across inferences', () => {

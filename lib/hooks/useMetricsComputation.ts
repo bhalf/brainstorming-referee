@@ -11,6 +11,8 @@ interface UseMetricsComputationParams {
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
   speakingTimeRef: MutableRefObject<Map<string, number>>;
   addMetricSnapshot: (snapshot: MetricSnapshot) => void;
+  /** Total number of participants in the room (from LiveKit), including self */
+  participantCountRef?: MutableRefObject<number>;
 }
 
 export function useMetricsComputation({
@@ -21,6 +23,7 @@ export function useMetricsComputation({
   transcriptSegmentsRef,
   speakingTimeRef,
   addMetricSnapshot,
+  participantCountRef,
 }: UseMetricsComputationParams) {
   const [currentMetrics, setCurrentMetrics] = useState<MetricSnapshot | null>(null);
   const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
@@ -68,6 +71,7 @@ export function useMetricsComputation({
           now,
           speakingTimeRef.current,
           metricsHistoryRef.current,
+          participantCountRef?.current,
         );
 
         // Infer conversation state from the computed metrics
@@ -102,7 +106,7 @@ export function useMetricsComputation({
     }, config.ANALYZE_EVERY_MS);
 
     return () => clearInterval(interval);
-  }, [isActive, isParticipant, config, addMetricSnapshot, transcriptSegmentsRef, speakingTimeRef]);
+  }, [isActive, isParticipant, config, addMetricSnapshot, transcriptSegmentsRef, speakingTimeRef, participantCountRef]);
 
   return {
     currentMetrics,

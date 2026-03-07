@@ -28,7 +28,7 @@ export function computeNoveltyRate(
   threshold: number = NOVELTY_THRESHOLD,
 ): number {
   const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
-  if (finalSegs.length < 2) return 1; // Too few segments = everything is novel
+  if (finalSegs.length < 2) return 0.5; // Neutral — insufficient data
 
   const recent = finalSegs.slice(-NOVELTY_WINDOW);
   let novelCount = 0;
@@ -45,13 +45,18 @@ export function computeNoveltyRate(
       continue;
     }
 
-    // Compare with all preceding segments in the window
-    let totalSim = 0;
+    // Compare with all preceding segments in the window.
+    // Use MAX similarity: if the segment is very similar to ANY previous
+    // segment, it's a repeat — even if it's different from others.
+    // This prevents alternating phrases ("Hello"/"Thank you") from
+    // being scored as novel.
+    let maxSim = 0;
     let count = 0;
     for (let j = 0; j < i; j++) {
       const prevEmb = embeddings.get(recent[j].id);
       if (prevEmb) {
-        totalSim += cosineSimilarity(currentEmb, prevEmb);
+        const sim = cosineSimilarity(currentEmb, prevEmb);
+        maxSim = Math.max(maxSim, sim);
         count++;
       }
     }
@@ -59,13 +64,12 @@ export function computeNoveltyRate(
     if (count === 0) continue;
     evaluatedCount++;
 
-    const avgSim = totalSim / count;
-    if (avgSim < threshold) {
+    if (maxSim < threshold) {
       novelCount++;
     }
   }
 
-  return evaluatedCount > 0 ? novelCount / evaluatedCount : 1;
+  return evaluatedCount > 0 ? novelCount / evaluatedCount : 0.5;
 }
 
 // --- Cluster Concentration ---
@@ -91,7 +95,7 @@ export function computeClusterConcentration(
   const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
   const embeddedSegs = finalSegs.filter(s => embeddings.has(s.id));
 
-  if (embeddedSegs.length < 2) return 0;
+  if (embeddedSegs.length < 2) return 0.5; // Neutral — insufficient data
 
   // Greedy centroid clustering
   const clusters: Cluster[] = [];
@@ -248,9 +252,26 @@ export function computeSemanticDynamicsMetrics(
 // --- Fallback (no embeddings) ---
 // Uses Jaccard word-set similarity instead of cosine on embeddings.
 
+// Stopwords for English and German — common function words that inflate Jaccard similarity
+const STOPWORDS = new Set([
+  // English
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was',
+  'one', 'our', 'out', 'has', 'have', 'that', 'this', 'with', 'they', 'from', 'been',
+  'will', 'also', 'just', 'more', 'some', 'than', 'them', 'then', 'very', 'what', 'when',
+  'who', 'how', 'its', 'let', 'into', 'about', 'would', 'could', 'should', 'there',
+  'their', 'which', 'other', 'were', 'does', 'done', 'being', 'these', 'those',
+  // German
+  'der', 'die', 'das', 'und', 'ist', 'ein', 'eine', 'für', 'von', 'mit', 'auf', 'den',
+  'dem', 'des', 'sich', 'als', 'auch', 'nach', 'wie', 'über', 'nicht', 'noch', 'bei',
+  'aber', 'aus', 'dass', 'hat', 'ich', 'wir', 'sie', 'man', 'mir', 'uns', 'was', 'war',
+  'wird', 'haben', 'sind', 'oder', 'nur', 'schon', 'dann', 'eben', 'also', 'wenn',
+  'doch', 'kann', 'hier', 'gibt', 'zum', 'zur', 'einen', 'einer', 'einem', 'eines',
+]);
+
 function getWordSet(text: string): Set<string> {
   return new Set(
-    text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2),
+    text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/)
+      .filter(w => w.length > 2 && !STOPWORDS.has(w)),
   );
 }
 
@@ -269,8 +290,8 @@ export function computeSemanticDynamicsFallback(
 
   if (finalSegs.length < 2) {
     return {
-      noveltyRate: 1,
-      clusterConcentration: 0,
+      noveltyRate: 0.5,
+      clusterConcentration: 0.5,
       explorationElaborationRatio: 0.5,
       semanticExpansionScore: 0,
     };
@@ -279,18 +300,18 @@ export function computeSemanticDynamicsFallback(
   const wordSets = finalSegs.map(s => getWordSet(s.text));
   const recent = wordSets.slice(-NOVELTY_WINDOW);
 
-  // Novelty: fraction with avg Jaccard < 0.4 to prior
+  // Novelty: fraction with max Jaccard < 0.4 to any prior segment.
+  // Uses MAX (not avg) so repeating ANY previous phrase is caught as "not novel".
   let novelCount = 1; // First is always novel
   let evalCount = 1;
   for (let i = 1; i < recent.length; i++) {
-    let totalSim = 0;
-    let count = 0;
+    let maxSim = 0;
     for (let j = 0; j < i; j++) {
-      totalSim += jaccardSimilarity(recent[i], recent[j]);
-      count++;
+      const sim = jaccardSimilarity(recent[i], recent[j]);
+      maxSim = Math.max(maxSim, sim);
     }
     evalCount++;
-    if (count > 0 && totalSim / count < JACCARD_MERGE_THRESHOLD) {
+    if (maxSim < JACCARD_MERGE_THRESHOLD) {
       novelCount++;
     }
   }

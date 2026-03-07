@@ -71,6 +71,14 @@ export async function processTranscriptionChunk({
 
   const segments: TranscriptSegment[] = (data.segments && data.segments.length > 0)
     ? data.segments
+        .filter((seg: { start: number; end: number; text: string; no_speech_prob?: number }) => {
+          // Skip segments where Whisper is confident there's no speech
+          if (seg.no_speech_prob && seg.no_speech_prob > 0.6) {
+            console.log(`[Transcription] Skipping segment with high no_speech_prob (${seg.no_speech_prob.toFixed(2)}): "${seg.text.substring(0, 50)}"`);
+            return false;
+          }
+          return true;
+        })
         .map((seg: { start: number; end: number; text: string }, idx: number) => ({
           id: `${idPrefix}-${timestamp}-${idx}`,
           speaker,

@@ -9,9 +9,11 @@
 // each chunk is a self-contained audio file with
 // proper container headers.
 //
-// Includes silence detection via Web Audio API
-// AnalyserNode to skip silent chunks (prevents
-// Whisper hallucinations on silence).
+// Silence detection uses blob-size heuristic:
+// silent Opus/WebM audio for 5s is typically <2KB,
+// real speech produces much larger blobs.
+// Combined with whisperHallucinationFilter.ts as
+// a second defense line.
 // ============================================
 
 'use client';
@@ -30,7 +32,9 @@ export interface UseAudioRecorderOptions {
     onAudioChunk: (chunk: AudioChunk) => void;
     chunkIntervalMs?: number; // Default: 5000 (5s chunks)
     mimeType?: string; // Default: auto-detect best available
-    silenceThreshold?: number; // RMS threshold below which audio is considered silent (0-1). Default: 0.01
+    /** Minimum blob size in bytes to consider a chunk as containing speech.
+     *  Silent Opus-encoded audio for 5s is typically <2KB. Default: 2000 */
+    minBlobSizeBytes?: number;
 }
 
 export interface UseAudioRecorderReturn {
@@ -70,7 +74,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
         onAudioChunk,
         chunkIntervalMs = 5000,
         mimeType,
-        silenceThreshold = 0.01,
+        minBlobSizeBytes = 2000,
     } = options;
 
     const [isRecording, setIsRecording] = useState(false);
@@ -82,12 +86,6 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
     const mountedRef = useRef(true);
     const selectedMimeRef = useRef<string>('audio/webm');
     const isRecordingRef = useRef(false);
-
-    // Silence detection refs
-    const audioContextRef = useRef<AudioContext | null>(null);
-    const analyserRef = useRef<AnalyserNode | null>(null);
-    const silenceCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const hadSpeechRef = useRef(false);
 
     // Keep callback ref up to date
     useEffect(() => {
@@ -103,17 +101,9 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
                 clearInterval(intervalRef.current);
                 intervalRef.current = null;
             }
-            if (silenceCheckIntervalRef.current) {
-                clearInterval(silenceCheckIntervalRef.current);
-                silenceCheckIntervalRef.current = null;
-            }
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
                 streamRef.current = null;
-            }
-            if (audioContextRef.current) {
-                audioContextRef.current.close().catch(() => {});
-                audioContextRef.current = null;
             }
         };
     }, []);
@@ -123,49 +113,9 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
         && typeof navigator.mediaDevices !== 'undefined'
         && typeof MediaRecorder !== 'undefined';
 
-    // Setup silence detection using Web Audio API AnalyserNode
-    const setupSilenceDetection = useCallback((stream: MediaStream) => {
-        try {
-            const audioContext = new AudioContext();
-            const source = audioContext.createMediaStreamSource(stream);
-            const analyser = audioContext.createAnalyser();
-            analyser.fftSize = 512;
-            analyser.smoothingTimeConstant = 0.3;
-            source.connect(analyser);
-
-            audioContextRef.current = audioContext;
-            analyserRef.current = analyser;
-
-            // Check audio level every 100ms
-            const dataArray = new Float32Array(analyser.fftSize);
-            silenceCheckIntervalRef.current = setInterval(() => {
-                if (!analyserRef.current || !isRecordingRef.current) return;
-                analyserRef.current.getFloatTimeDomainData(dataArray);
-
-                // Calculate RMS (root mean square) for audio energy
-                let sumSquares = 0;
-                for (let i = 0; i < dataArray.length; i++) {
-                    sumSquares += dataArray[i] * dataArray[i];
-                }
-                const rms = Math.sqrt(sumSquares / dataArray.length);
-
-                if (rms > silenceThreshold) {
-                    hadSpeechRef.current = true;
-                }
-            }, 100);
-        } catch (e) {
-            console.warn('[AudioRecorder] Could not setup silence detection:', e);
-            // Fallback: always treat as speech
-            hadSpeechRef.current = true;
-        }
-    }, [silenceThreshold]);
-
     // Record a single complete chunk: start → collect data → stop → emit blob
     const recordOneChunk = useCallback((stream: MediaStream) => {
         if (!mountedRef.current || !isRecordingRef.current) return;
-
-        // Reset speech flag for this chunk
-        hadSpeechRef.current = false;
 
         const recorder = new MediaRecorder(stream, {
             mimeType: selectedMimeRef.current,
@@ -183,20 +133,19 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
         recorder.onstop = () => {
             if (!mountedRef.current || chunks.length === 0) return;
 
-            // Skip silent chunks to prevent Whisper hallucinations
-            if (!hadSpeechRef.current) {
-                console.log('[AudioRecorder] Skipping silent chunk');
+            const blob = new Blob(chunks, { type: selectedMimeRef.current });
+
+            // Blob-size silence detection: silent Opus audio for 5s is typically <2KB
+            if (blob.size < minBlobSizeBytes) {
+                console.log(`[AudioRecorder] Skipping likely-silent chunk (${blob.size} bytes < ${minBlobSizeBytes})`);
                 return;
             }
 
-            const blob = new Blob(chunks, { type: selectedMimeRef.current });
-            if (blob.size > 0) {
-                onAudioChunkRef.current({
-                    blob,
-                    duration: Date.now() - chunkStart,
-                    timestamp: chunkStart,
-                });
-            }
+            onAudioChunkRef.current({
+                blob,
+                duration: Date.now() - chunkStart,
+                timestamp: chunkStart,
+            });
         };
 
         recorder.onerror = (event) => {
@@ -211,7 +160,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
                 recorder.stop();
             }
         }, chunkIntervalMs);
-    }, [chunkIntervalMs]);
+    }, [chunkIntervalMs, minBlobSizeBytes]);
 
     const start = useCallback(async () => {
         if (!isSupported) {
@@ -235,10 +184,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
             isRecordingRef.current = true;
             setIsRecording(true);
 
-            // Setup silence detection
-            setupSilenceDetection(stream);
-
-            console.log(`[AudioRecorder] Started (${selectedMimeRef.current}, ${chunkIntervalMs}ms cycles, silence threshold: ${silenceThreshold})`);
+            console.log(`[AudioRecorder] Started (${selectedMimeRef.current}, ${chunkIntervalMs}ms cycles, min blob size: ${minBlobSizeBytes}B)`);
 
             // Record first chunk immediately
             recordOneChunk(stream);
@@ -262,7 +208,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
                 setError(`Recording failed: ${message}`);
             }
         }
-    }, [isSupported, chunkIntervalMs, mimeType, silenceThreshold, recordOneChunk, setupSilenceDetection]);
+    }, [isSupported, chunkIntervalMs, mimeType, minBlobSizeBytes, recordOneChunk]);
 
     const stop = useCallback(() => {
         isRecordingRef.current = false;
@@ -271,19 +217,10 @@ export function useAudioRecorder(options: UseAudioRecorderOptions): UseAudioReco
             clearInterval(intervalRef.current);
             intervalRef.current = null;
         }
-        if (silenceCheckIntervalRef.current) {
-            clearInterval(silenceCheckIntervalRef.current);
-            silenceCheckIntervalRef.current = null;
-        }
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
         }
-        if (audioContextRef.current) {
-            audioContextRef.current.close().catch(() => {});
-            audioContextRef.current = null;
-        }
-        analyserRef.current = null;
         setIsRecording(false);
         console.log('[AudioRecorder] Stopped');
     }, []);

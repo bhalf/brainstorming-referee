@@ -30,6 +30,7 @@ export default function AnalysisPanel({
   }
 
   const totalSpeakingTime = Object.values(currentMetrics.speakingTimeDistribution).reduce((a, b) => a + b, 0);
+  const speakerCount = Object.keys(currentMetrics.speakingTimeDistribution).length;
 
   // v2 state inference
   const inferredState = currentMetrics?.inferredState;
@@ -136,9 +137,11 @@ export default function AnalysisPanel({
               threshold={config.THRESHOLD_PARTICIPATION_RISK}
               higherIsBetter={false}
               statusText={
-                currentMetrics.participation.participationRiskScore >= config.THRESHOLD_PARTICIPATION_RISK
-                  ? 'High participation imbalance risk'
-                  : 'Participation is balanced'
+                speakerCount <= 1
+                  ? 'Only 1 speaker — no participation data'
+                  : currentMetrics.participation.participationRiskScore >= config.THRESHOLD_PARTICIPATION_RISK
+                    ? 'High participation imbalance risk'
+                    : 'Participation is balanced'
               }
             />
           )}
@@ -188,9 +191,11 @@ export default function AnalysisPanel({
             threshold={balanceThreshold}
             higherIsBetter={true}
             statusText={
-              balance < balanceThreshold
-                ? `Imbalanced — one speaker dominates (>${(config.THRESHOLD_IMBALANCE * 100).toFixed(0)}% threshold)`
-                : 'Participation is balanced'
+              speakerCount <= 1
+                ? 'Only 1 speaker — no balance data'
+                : balance < balanceThreshold
+                  ? `Imbalanced — one speaker dominates (>${(config.THRESHOLD_IMBALANCE * 100).toFixed(0)}% threshold)`
+                  : 'Participation is balanced'
             }
           />
 
@@ -203,7 +208,7 @@ export default function AnalysisPanel({
             threshold={repetitionThreshold}
             higherIsBetter={false}
             statusText={
-              repetition > repetitionThreshold
+              repetition >= repetitionThreshold
                 ? `High repetition — conversation is going in circles`
                 : 'Content is varied'
             }

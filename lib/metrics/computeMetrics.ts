@@ -51,12 +51,19 @@ export function computeSpeakingTimeDistribution(
 // Uses Gini coefficient approach
 
 export function computeParticipationImbalance(
-  distribution: SpeakingTimeDistribution
+  distribution: SpeakingTimeDistribution,
+  knownParticipantCount?: number,
 ): number {
   const values = Object.values(distribution);
 
   if (values.length === 0) return 0;
-  if (values.length === 1) return 1; // Only one speaker = maximum imbalance
+
+  // Single speaker: if we know there's only 1 participant, there's no imbalance.
+  // If we know there are more participants who aren't speaking, that IS imbalance.
+  if (values.length === 1) {
+    if (knownParticipantCount && knownParticipantCount <= 1) return 0;
+    return knownParticipantCount && knownParticipantCount > 1 ? 1 : 0.5; // Neutral if unknown
+  }
 
   const total = values.reduce((sum, v) => sum + v, 0);
   if (total === 0) return 0;
@@ -79,6 +86,22 @@ export function computeParticipationImbalance(
   return maxDeviation > 0 ? deviationSum / maxDeviation : 0;
 }
 
+// Stopwords for Jaccard-based metrics (prevents common function words from inflating similarity)
+const STOPWORDS = new Set([
+  // English
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was',
+  'one', 'our', 'out', 'has', 'have', 'that', 'this', 'with', 'they', 'from', 'been',
+  'will', 'also', 'just', 'more', 'some', 'than', 'them', 'then', 'very', 'what', 'when',
+  'who', 'how', 'its', 'let', 'into', 'about', 'would', 'could', 'should', 'there',
+  'their', 'which', 'other', 'were', 'does', 'done', 'being', 'these', 'those',
+  // German
+  'der', 'die', 'das', 'und', 'ist', 'ein', 'eine', 'für', 'von', 'mit', 'auf', 'den',
+  'dem', 'des', 'sich', 'als', 'auch', 'nach', 'wie', 'über', 'nicht', 'noch', 'bei',
+  'aber', 'aus', 'dass', 'hat', 'ich', 'wir', 'sie', 'man', 'mir', 'uns', 'was', 'war',
+  'wird', 'haben', 'sind', 'oder', 'nur', 'schon', 'dann', 'eben', 'also', 'wenn',
+  'doch', 'kann', 'hier', 'gibt', 'zum', 'zur', 'einen', 'einer', 'einem', 'eines',
+]);
+
 // --- Semantic Repetition Rate ---
 // Uses Jaccard similarity between recent segments
 
@@ -95,13 +118,13 @@ export function computeSemanticRepetitionRate(
   // Get last N segments
   const recentSegments = finalSegments.slice(-windowSize);
 
-  // Extract word sets from each segment
+  // Extract word sets from each segment (with stopword removal)
   const wordSets = recentSegments.map(segment => {
     const words = segment.text
       .toLowerCase()
       .replace(/[^\w\s]/g, '')
       .split(/\s+/)
-      .filter(w => w.length > 2); // Filter out short words
+      .filter(w => w.length > 2 && !STOPWORDS.has(w));
     return new Set(words);
   });
 
@@ -175,20 +198,22 @@ export function computeStagnationDurationSemantic(
     if (!currentEmb) continue;
 
     // Compare with all previous segments in the capped window
-    let totalSim = 0;
+    // Use maxSim (not avgSim) — a segment is only novel if it's dissimilar
+    // to ALL previous segments, not just on average.
+    let maxSim = 0;
     let count = 0;
     for (let j = 0; j < i; j++) {
       const prevEmb = embeddings.get(finalSegments[j].id);
       if (prevEmb) {
-        totalSim += cosineSimilarity(currentEmb, prevEmb);
+        const sim = cosineSimilarity(currentEmb, prevEmb);
+        maxSim = Math.max(maxSim, sim);
         count++;
       }
     }
 
     if (count === 0) continue;
 
-    const avgSimilarity = totalSim / count;
-    if (avgSimilarity < NOVELTY_THRESHOLD) {
+    if (maxSim < NOVELTY_THRESHOLD) {
       // This segment introduced novel content
       const timeSince = (currentTime - finalSegments[i].timestamp) / 1000;
       return Math.max(0, timeSince);
@@ -201,18 +226,21 @@ export function computeStagnationDurationSemantic(
 }
 
 // --- Diversity Development ---
-// Measures how diverse the vocabulary is over time (0-1)
+// Measures how diverse the vocabulary is over time (0-1).
+// Uses MATTR (Moving Average Type-Token Ratio) to avoid Heap's Law bias
+// where raw TTR naturally declines as text grows.
+
+const MATTR_WINDOW = 50; // Words per sliding window
 
 export function computeDiversityDevelopment(
   segments: TranscriptSegment[]
 ): number {
   const finalSegments = segments.filter(s => s.isFinal && !isActivityMarker(s));
 
-  if (finalSegments.length === 0) return 0;
+  if (finalSegments.length === 0) return 0.5; // Neutral — insufficient data
 
-  // Collect all unique words
+  // Collect all words
   const allWords: string[] = [];
-  const uniqueWords = new Set<string>();
 
   for (const segment of finalSegments) {
     const words = segment.text
@@ -223,17 +251,30 @@ export function computeDiversityDevelopment(
 
     for (const word of words) {
       allWords.push(word);
-      uniqueWords.add(word);
     }
   }
 
-  if (allWords.length === 0) return 0;
+  if (allWords.length === 0) return 0.5; // Neutral
 
-  // Type-Token Ratio (TTR) - ratio of unique words to total words
-  // Normalized to account for text length
-  const ttr = uniqueWords.size / allWords.length;
+  // For short texts, use standard TTR (Heap's Law doesn't bite yet)
+  if (allWords.length <= MATTR_WINDOW) {
+    const uniqueWords = new Set(allWords);
+    return uniqueWords.size / allWords.length;
+  }
 
-  return ttr;
+  // MATTR: average TTR across all sliding windows of fixed size
+  // This is length-independent and a standard measure in computational linguistics
+  let totalTTR = 0;
+  let windowCount = 0;
+
+  for (let i = 0; i <= allWords.length - MATTR_WINDOW; i++) {
+    const windowWords = allWords.slice(i, i + MATTR_WINDOW);
+    const windowUnique = new Set(windowWords);
+    totalTTR += windowUnique.size / MATTR_WINDOW;
+    windowCount++;
+  }
+
+  return windowCount > 0 ? totalTTR / windowCount : 0.5;
 }
 
 // --- Main Metrics Computation ---
@@ -322,6 +363,7 @@ export async function computeMetricsAsync(
   currentTime: number = Date.now(),
   audioSpeakingTimes?: Map<string, number>,
   previousSnapshots?: MetricSnapshot[],
+  knownParticipantCount?: number,
 ): Promise<MetricSnapshot> {
   const windowStart = currentTime - config.WINDOW_SECONDS * 1000;
   const windowedSegments = segments.filter(s => s.timestamp >= windowStart);
@@ -336,7 +378,7 @@ export async function computeMetricsAsync(
   } else {
     speakingTimeDistribution = computeSpeakingTimeDistribution(windowedSegments);
   }
-  const participationImbalance = computeParticipationImbalance(speakingTimeDistribution);
+  const participationImbalance = computeParticipationImbalance(speakingTimeDistribution, knownParticipantCount);
 
   // Try embeddings for repetition + diversity + semantic stagnation
   let semanticRepetitionRate: number;
@@ -389,6 +431,7 @@ export async function computeMetricsAsync(
     windowedSegments,
     config,
     participationImbalance,
+    knownParticipantCount,
   );
 
   // --- v2: Compute new semantic dynamics metrics ---

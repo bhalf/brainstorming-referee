@@ -58,29 +58,47 @@ export function computeTurnShare(segments: TranscriptSegment[]): Record<string, 
 }
 
 // --- Silent Participant Ratio ---
-// Fraction of known speakers with volumeShare below threshold.
+// Fraction of participants with volumeShare below threshold.
+// Accepts optional knownParticipantCount from LiveKit to detect
+// participants who never spoke (invisible to transcript-only analysis).
 
 export function computeSilentParticipantRatio(
   volumeShare: Record<string, number>,
   threshold: number = 0.05,
+  knownParticipantCount?: number,
 ): number {
-  const speakers = Object.keys(volumeShare);
-  if (speakers.length <= 1) return 0;
+  const speakersInTranscript = Object.keys(volumeShare);
+  const totalParticipants = knownParticipantCount
+    ? Math.max(knownParticipantCount, speakersInTranscript.length)
+    : speakersInTranscript.length;
 
-  const silentCount = speakers.filter(s => volumeShare[s] < threshold).length;
-  return silentCount / speakers.length;
+  if (totalParticipants <= 1) return 0;
+
+  // Count speakers with volume below threshold
+  const silentSpeakers = speakersInTranscript.filter(s => volumeShare[s] < threshold).length;
+  // Count participants who never spoke at all
+  const neverSpoke = Math.max(0, totalParticipants - speakersInTranscript.length);
+
+  return (silentSpeakers + neverSpoke) / totalParticipants;
 }
 
 // --- Dominance Streak Score ---
 // Measures how much one speaker controls consecutive turns.
 
-export function computeDominanceStreakScore(segments: TranscriptSegment[]): number {
+export function computeDominanceStreakScore(
+  segments: TranscriptSegment[],
+  knownParticipantCount?: number,
+): number {
   const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
   if (finalSegs.length < 3) return 0;
 
   const speakers = new Set(finalSegs.map(s => s.speaker));
   const speakerCount = speakers.size;
-  if (speakerCount <= 1) return 1;
+
+  // Single speaker: only a dominance issue if we know there are more participants
+  if (speakerCount <= 1) {
+    return (knownParticipantCount && knownParticipantCount > 1) ? 1 : 0;
+  }
 
   // Find the longest consecutive run by any single speaker
   let maxRun = 1;
@@ -106,8 +124,7 @@ export function computeDominanceStreakScore(segments: TranscriptSegment[]): numb
 // Reusable helper: 0 = perfectly equal, 1 = maximally unequal.
 
 export function computeGini(values: number[]): number {
-  if (values.length === 0) return 0;
-  if (values.length === 1) return 1;
+  if (values.length <= 1) return 0; // No inequality possible with 0 or 1 values
 
   const total = values.reduce((a, b) => a + b, 0);
   if (total === 0) return 0;
@@ -146,14 +163,16 @@ export function computeParticipationMetrics(
   segments: TranscriptSegment[],
   config: ExperimentConfig,
   giniImbalance: number,
+  knownParticipantCount?: number,
 ): ParticipationMetrics {
   const volumeShare = computeVolumeShare(segments);
   const turnShare = computeTurnShare(segments);
   const silentParticipantRatio = computeSilentParticipantRatio(
     volumeShare,
     config.THRESHOLD_SILENT_PARTICIPANT,
+    knownParticipantCount,
   );
-  const dominanceStreakScore = computeDominanceStreakScore(segments);
+  const dominanceStreakScore = computeDominanceStreakScore(segments, knownParticipantCount);
   const participationRiskScore = computeParticipationRiskScore(
     giniImbalance,
     silentParticipantRatio,

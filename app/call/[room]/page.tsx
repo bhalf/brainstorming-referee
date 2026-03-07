@@ -43,6 +43,12 @@ export default function CallPage() {
   const [participants, setParticipants] = useState<{ id: string; displayName: string }[]>([]);
   const [remoteSpeakers, setRemoteSpeakers] = useState<{ id: string; displayName: string }[]>([]);
   const speakingTimeRef = useRef<Map<string, number>>(new Map());
+  const participantCountRef = useRef<number>(1); // self
+
+  // Keep participant count ref in sync with LiveKit state
+  useEffect(() => {
+    participantCountRef.current = participants.length + 1; // +1 for self
+  }, [participants]);
 
   // --- TTS ---
   const {
@@ -146,6 +152,7 @@ export default function CallPage() {
     transcriptSegmentsRef,
     speakingTimeRef,
     addMetricSnapshot,
+    participantCountRef,
   });
 
   // --- Decision Engine ---

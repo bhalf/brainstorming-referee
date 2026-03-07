@@ -97,11 +97,12 @@ export async function POST(request: NextRequest) {
                 fallbackUsed: false,
             };
 
-            // Extract segments with timestamps
-            const segments = (data.segments || []).map((seg: { start: number; end: number; text: string }) => ({
+            // Extract segments with timestamps and speech probability
+            const segments = (data.segments || []).map((seg: { start: number; end: number; text: string; no_speech_prob?: number }) => ({
                 start: seg.start,
                 end: seg.end,
                 text: seg.text.trim(),
+                no_speech_prob: seg.no_speech_prob ?? 0,
             }));
 
             return NextResponse.json({

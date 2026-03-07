@@ -105,9 +105,16 @@ const ALL_STATES: ConversationStateName[] = [
   'STALLED_DISCUSSION',
 ];
 
-// Priority order for tiebreaking: risk states win over healthy states
-// Within risk states: STALLED > DOMINANCE > CONVERGENCE (more urgent first)
-const RISK_PRIORITY: ConversationStateName[] = [
+// Risk states that should win tiebreaks against healthy states
+const RISK_STATES = new Set<ConversationStateName>([
+  'STALLED_DISCUSSION',
+  'DOMINANCE_RISK',
+  'CONVERGENCE_RISK',
+]);
+
+// Full priority order for tiebreaking within the same category
+// Risk states first (more urgent first), then healthy states
+const TIEBREAK_PRIORITY: ConversationStateName[] = [
   'STALLED_DISCUSSION',
   'DOMINANCE_RISK',
   'CONVERGENCE_RISK',
@@ -132,16 +139,18 @@ export function inferConversationState(
   previousInference: ConversationStateInference | null,
   currentTime: number = Date.now(),
 ): ConversationStateInference {
-  // Guard: if new metric fields aren't available yet, return safe default
+  // Guard: if new metric fields aren't available yet, return low-confidence default.
+  // Using low confidence (0.2) signals to the UI and decision engine that
+  // the state inference is unreliable due to insufficient data.
   if (!metrics.participation || !metrics.semanticDynamics) {
     return {
-      state: 'HEALTHY_EXPLORATION',
-      confidence: 0.5,
+      state: previousInference?.state ?? 'HEALTHY_EXPLORATION',
+      confidence: 0.2,
       secondaryState: null,
       secondaryConfidence: 0,
       enteredAt: previousInference?.enteredAt ?? currentTime,
       durationMs: previousInference ? currentTime - previousInference.enteredAt : 0,
-      criteriaSnapshot: {},
+      criteriaSnapshot: { insufficientData: 1 },
     };
   }
 
@@ -159,12 +168,12 @@ export function inferConversationState(
     const diff = b.confidence - a.confidence;
     if (Math.abs(diff) < TIEBREAK_MARGIN) {
       // Within tiebreak margin: prefer risk states over healthy states
-      const aIsRisk = RISK_PRIORITY.includes(a.state);
-      const bIsRisk = RISK_PRIORITY.includes(b.state);
-      if (aIsRisk && !bIsRisk) return 1; // a (risk) should come first
-      if (!aIsRisk && bIsRisk) return -1; // b (risk) should come first
+      const aIsRisk = RISK_STATES.has(a.state);
+      const bIsRisk = RISK_STATES.has(b.state);
+      if (aIsRisk && !bIsRisk) return -1; // a (risk) should come first
+      if (!aIsRisk && bIsRisk) return 1;  // b (risk) should come first
       // Both same category: use priority order
-      return RISK_PRIORITY.indexOf(a.state) - RISK_PRIORITY.indexOf(b.state);
+      return TIEBREAK_PRIORITY.indexOf(a.state) - TIEBREAK_PRIORITY.indexOf(b.state);
     }
     return diff;
   });
