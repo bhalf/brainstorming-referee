@@ -42,6 +42,7 @@ const initialVoiceSettings: VoiceSettings = {
 };
 
 const initialSessionState: SessionState = {
+  sessionId: null,
   roomName: '',
   scenario: 'baseline',
   language: 'en-US',
@@ -60,8 +61,9 @@ const initialSessionState: SessionState = {
 // --- Action Types ---
 
 type SessionAction =
-  | { type: 'START_SESSION'; payload: { roomName: string; scenario: Scenario; language: string; config: ExperimentConfig } }
+  | { type: 'START_SESSION'; payload: { roomName: string; scenario: Scenario; language: string; config: ExperimentConfig; sessionId?: string } }
   | { type: 'END_SESSION' }
+  | { type: 'SET_SESSION_ID'; payload: string }
   | { type: 'UPDATE_CONFIG'; payload: Partial<ExperimentConfig> }
   | { type: 'ADD_TRANSCRIPT_SEGMENT'; payload: TranscriptSegment }
   | { type: 'UPDATE_TRANSCRIPT_SEGMENT'; payload: { id: string; updates: Partial<TranscriptSegment> } }
@@ -82,6 +84,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case 'START_SESSION':
       return {
         ...state,
+        sessionId: action.payload.sessionId ?? null,
         roomName: action.payload.roomName,
         scenario: action.payload.scenario,
         language: action.payload.language,
@@ -94,6 +97,12 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         decisionState: initialDecisionState,
         modelRoutingLog: [],
         errors: [],
+      };
+
+    case 'SET_SESSION_ID':
+      return {
+        ...state,
+        sessionId: action.payload,
       };
 
     case 'END_SESSION':
@@ -206,7 +215,8 @@ interface SessionContextValue {
   dispatch: React.Dispatch<SessionAction>;
 
   // Convenience methods
-  startSession: (roomName: string, scenario: Scenario, language: string, config: ExperimentConfig) => void;
+  startSession: (roomName: string, scenario: Scenario, language: string, config: ExperimentConfig, sessionId?: string) => void;
+  setSessionId: (sessionId: string) => void;
   endSession: () => void;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
   updateTranscriptSegment: (id: string, updates: Partial<TranscriptSegment>) => void;
@@ -232,11 +242,15 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState);
 
   const startSession = useCallback(
-    (roomName: string, scenario: Scenario, language: string, config: ExperimentConfig) => {
-      dispatch({ type: 'START_SESSION', payload: { roomName, scenario, language, config } });
+    (roomName: string, scenario: Scenario, language: string, config: ExperimentConfig, sessionId?: string) => {
+      dispatch({ type: 'START_SESSION', payload: { roomName, scenario, language, config, sessionId } });
     },
     []
   );
+
+  const setSessionId = useCallback((sessionId: string) => {
+    dispatch({ type: 'SET_SESSION_ID', payload: sessionId });
+  }, []);
 
   const endSession = useCallback(() => {
     dispatch({ type: 'END_SESSION' });
@@ -301,6 +315,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     state,
     dispatch,
     startSession,
+    setSessionId,
     endSession,
     addTranscriptSegment,
     updateTranscriptSegment,

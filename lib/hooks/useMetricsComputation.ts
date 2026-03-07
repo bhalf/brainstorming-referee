@@ -6,6 +6,7 @@ import { inferConversationState } from '@/lib/state/inferConversationState';
 interface UseMetricsComputationParams {
   isActive: boolean;
   isParticipant: boolean;
+  sessionId: string | null;
   config: ExperimentConfig;
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
   speakingTimeRef: MutableRefObject<Map<string, number>>;
@@ -15,6 +16,7 @@ interface UseMetricsComputationParams {
 export function useMetricsComputation({
   isActive,
   isParticipant,
+  sessionId,
   config,
   transcriptSegmentsRef,
   speakingTimeRef,
@@ -24,6 +26,7 @@ export function useMetricsComputation({
   const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
   const [stateHistory, setStateHistory] = useState<ConversationStateInference[]>([]);
   const isComputingRef = useRef(false);
+  const sessionIdRef = useRef(sessionId);
   const currentMetricsRef = useRef<MetricSnapshot | null>(null);
   const metricsHistoryRef = useRef<MetricSnapshot[]>([]);
   const stateHistoryRef = useRef<ConversationStateInference[]>([]);
@@ -41,6 +44,10 @@ export function useMetricsComputation({
   useEffect(() => {
     stateHistoryRef.current = stateHistory;
   }, [stateHistory]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   // Metrics computation interval (async for embeddings)
   useEffect(() => {
@@ -78,6 +85,15 @@ export function useMetricsComputation({
         setMetricsHistory(prev => [...prev.slice(-50), metrics]);
         setStateHistory(prev => [...prev.slice(-200), inference]);
         addMetricSnapshot(metrics);
+
+        // Fire-and-forget persist to Supabase
+        if (sessionIdRef.current) {
+          fetch('/api/metrics/snapshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: sessionIdRef.current, snapshot: metrics }),
+          }).catch(() => {});
+        }
       } catch (error) {
         console.error('Metrics computation error:', error);
       } finally {

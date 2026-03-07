@@ -7,8 +7,8 @@ import { decodeConfig, DEFAULT_CONFIG } from '@/lib/config';
 import { Scenario, Intervention, TranscriptSegment } from '@/lib/types';
 import { loadPersistedCache } from '@/lib/metrics/embeddingCache';
 import { useSpeechSynthesis } from '@/lib/tts/useSpeechSynthesis';
-import { useRemoteSync } from '@/lib/hooks/useRemoteSync';
 import { useTranscriptionManager } from '@/lib/hooks/useTranscriptionManager';
+import { useRealtimeSegments } from '@/lib/hooks/useRealtimeSegments';
 import { useMetricsComputation } from '@/lib/hooks/useMetricsComputation';
 import { useDecisionLoop } from '@/lib/hooks/useDecisionLoop';
 import LiveKitRoom from '@/components/LiveKitRoom';
@@ -25,7 +25,6 @@ export default function CallPage() {
   } = useSession();
 
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [isLoadingConfig, setIsLoadingConfig] = useState(false);
 
   // Extract URL parameters
   const roomName = decodeURIComponent(params.room as string);
@@ -69,19 +68,31 @@ export default function CallPage() {
     cancelSpeech();
   }, [cancelSpeech]);
 
-  // --- Remote Sync ---
+  // --- Segment Upload (Supabase) ---
   const transcriptSegmentsRef = useRef<TranscriptSegment[]>([]);
+  const sessionIdRef = useRef<string | null>(null);
 
-  const { uploadSegment } = useRemoteSync({
-    isActive: state.isActive,
-    roomName: state.roomName,
-    isParticipant,
-    participantName,
-    transcriptSegmentsRef,
-    speakingTimeRef,
-    addTranscriptSegment,
-    setTranscriptSegments: () => {},
-  });
+  useEffect(() => {
+    sessionIdRef.current = state.sessionId;
+  }, [state.sessionId]);
+
+  const uploadSegment = useCallback(async (segment: TranscriptSegment) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    const displayName = isParticipant ? participantName : 'Researcher';
+    const uploadSeg = segment.speaker === 'You'
+      ? { ...segment, speaker: displayName }
+      : segment;
+    try {
+      await fetch('/api/segments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid, segment: uploadSeg }),
+      });
+    } catch (e) {
+      console.error('Segment upload error:', e);
+    }
+  }, [isParticipant, participantName]);
 
   // --- Transcription Manager (local mic only — remote handled by LiveKit) ---
   const transcription = useTranscriptionManager({
@@ -94,10 +105,18 @@ export default function CallPage() {
     uploadSegment,
   });
 
-  // Keep the shared transcriptSegmentsRef in sync
+  // Keep the shared transcriptSegmentsRef in sync with context (single source of truth)
   useEffect(() => {
-    transcriptSegmentsRef.current = transcription.transcriptSegments;
-  }, [transcription.transcriptSegments]);
+    transcriptSegmentsRef.current = state.transcriptSegments;
+  }, [state.transcriptSegments]);
+
+  // --- Realtime Segments (Supabase) ---
+  useRealtimeSegments({
+    sessionId: state.sessionId,
+    isActive: state.isActive,
+    addTranscriptSegment,
+    speakingTimeRef,
+  });
 
   // Keep interventions ref in sync for decision engine
   const interventionsRef = useRef<Intervention[]>([]);
@@ -109,6 +128,7 @@ export default function CallPage() {
   const { currentMetrics, metricsHistory, currentMetricsRef, metricsHistoryRef, stateHistoryRef } = useMetricsComputation({
     isActive: state.isActive,
     isParticipant,
+    sessionId: state.sessionId,
     config: state.config,
     transcriptSegmentsRef,
     speakingTimeRef,
@@ -119,6 +139,7 @@ export default function CallPage() {
   useDecisionLoop({
     isActive: state.isActive,
     isParticipant,
+    sessionId: state.sessionId,
     transcriptSegmentsRef,
     interventionsRef,
     metricsHistoryRef,
@@ -140,9 +161,8 @@ export default function CallPage() {
 
   // --- Segment callback for LiveKit remote transcription ---
   const handleRemoteSegment = useCallback((segment: TranscriptSegment) => {
-    transcription.setTranscriptSegments((prev: TranscriptSegment[]) => [...prev, segment]);
     addTranscriptSegment(segment);
-  }, [addTranscriptSegment, transcription]);
+  }, [addTranscriptSegment]);
 
   // --- Session Initialization ---
   useEffect(() => {
@@ -150,19 +170,22 @@ export default function CallPage() {
       let sc = scenario;
       let lang = language;
       let config = DEFAULT_CONFIG;
+      let sessionId: string | undefined;
 
       if (isParticipant) {
         try {
-          const res = await fetch(`/api/sync/room?room=${encodeURIComponent(roomName)}&since=0`);
+          const res = await fetch('/api/session/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roomName }),
+          });
           if (res.ok) {
             const data = await res.json();
-            if (data.sessionConfig) {
-              sc = data.sessionConfig.scenario || sc;
-              lang = data.sessionConfig.language || lang;
-              if (data.sessionConfig.encodedConfig) {
-                const decoded = decodeConfig(data.sessionConfig.encodedConfig);
-                if (decoded) config = decoded;
-              }
+            sessionId = data.sessionId;
+            sc = data.scenario || sc;
+            lang = data.language || lang;
+            if (data.config && typeof data.config === 'object' && Object.keys(data.config).length > 0) {
+              config = data.config;
             }
           }
         } catch {
@@ -178,17 +201,30 @@ export default function CallPage() {
             addError('Failed to decode config, using defaults', 'config');
           }
         }
-        fetch('/api/sync/room', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            roomId: roomName,
-            sessionConfig: { scenario: sc, language: lang, encodedConfig: encodedConfig || '' },
-          }),
-        }).catch(() => {});
+
+        // Create session in Supabase
+        try {
+          const res = await fetch('/api/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              roomName,
+              scenario: sc,
+              language: lang,
+              config,
+              hostIdentity: 'Researcher',
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            sessionId = data.sessionId;
+          }
+        } catch {
+          addError('Failed to create session in database', 'session');
+        }
       }
 
-      startSession(roomName, sc, lang, config);
+      startSession(roomName, sc, lang, config, sessionId);
       loadPersistedCache();
 
       // Check if Whisper is enabled
@@ -204,12 +240,29 @@ export default function CallPage() {
 
     init();
 
-    return () => { endSession(); };
+    return () => {
+      // End session in Supabase
+      if (sessionIdRef.current) {
+        fetch('/api/session', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: sessionIdRef.current }),
+        }).catch(() => {});
+      }
+      endSession();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomName]);
 
   // --- End Session ---
   const handleEndSession = useCallback(() => {
+    if (sessionIdRef.current) {
+      fetch('/api/session', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sessionIdRef.current }),
+      }).catch(() => {});
+    }
     endSession();
     router.push('/');
   }, [endSession, router]);
@@ -323,7 +376,7 @@ export default function CallPage() {
             language={language}
             roomName={roomName}
             transcript={{
-              segments: transcription.transcriptSegments,
+              segments: state.transcriptSegments,
               interimTranscript: transcription.interimTranscript,
               isTranscribing: transcription.isTranscribing,
               isTranscriptionSupported: transcription.isTranscriptionSupported,

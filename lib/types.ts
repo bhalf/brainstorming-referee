@@ -231,6 +231,7 @@ export interface SessionLog {
 
 export interface SessionState {
   // Session info
+  sessionId: string | null;
   roomName: string;
   scenario: Scenario;
   language: string;

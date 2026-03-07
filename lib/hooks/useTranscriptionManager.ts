@@ -120,17 +120,24 @@ export function useTranscriptionManager({
     if (whisperError) console.error("Whisper recording error:", whisperError);
   }, [whisperError]);
 
-  // Auto-start/stop Whisper when session is active
+  // Auto-start transcription when session is active
   useEffect(() => {
-    if (isSessionActive && isWhisperEnabled && isWhisperSupported && !isWhisperRecording) {
+    if (!isSessionActive) {
+      // Stop everything when session ends
+      if (isWhisperRecording) stopWhisperRecording();
+      return;
+    }
+
+    if (isWhisperEnabled && isWhisperSupported && !isWhisperRecording) {
+      // Whisper path: stop speech recognition if running, start Whisper
       if (isTranscribing) toggleTranscription();
       startWhisperRecording();
-    }
-    if (!isSessionActive && isWhisperRecording) {
-      stopWhisperRecording();
+    } else if (!isWhisperEnabled && isTranscriptionSupported && !isTranscribing) {
+      // Speech Recognition path: auto-start when no Whisper
+      toggleTranscription();
     }
   }, [isSessionActive, isWhisperEnabled, isWhisperSupported, isWhisperRecording,
-      startWhisperRecording, stopWhisperRecording, isTranscribing, toggleTranscription]);
+      startWhisperRecording, stopWhisperRecording, isTranscribing, isTranscriptionSupported, toggleTranscription]);
 
   // Simulation fallback
   const handleAddSimulatedSegment = useCallback((text: string) => {

@@ -114,6 +114,12 @@ export function useSpeechRecognition(
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldRestartRef = useRef(false);
   const isStartingRef = useRef(false);
+  const onResultRef = useRef(onResult);
+  const onErrorRef = useRef(onError);
+
+  // Keep callback refs in sync (prevents effect re-creation on callback change)
+  useEffect(() => { onResultRef.current = onResult; }, [onResult]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   // Check support after mount (client-side only)
   useEffect(() => {
@@ -166,7 +172,7 @@ export function useSpeechRecognition(
       isStartingRef.current = false;
       const errorMessage = `Speech recognition error: ${event.error}`;
       setError(errorMessage);
-      onError?.(errorMessage);
+      onErrorRef.current?.(errorMessage);
 
       // Don't restart on certain errors
       if (['not-allowed', 'audio-capture', 'no-speech', 'aborted'].includes(event.error)) {
@@ -196,7 +202,7 @@ export function useSpeechRecognition(
           };
 
           setResults((prev) => [...prev, newResult]);
-          onResult?.(newResult);
+          onResultRef.current?.(newResult);
         } else {
           currentInterim += text;
         }
@@ -214,7 +220,8 @@ export function useSpeechRecognition(
       recognition.abort();
       recognitionRef.current = null;
     };
-  }, [language, continuous, interimResults, onResult, onError]);
+  // onResult/onError accessed via refs — no need to restart recognition when callbacks change
+  }, [language, continuous, interimResults]);
 
   // Start recognition
   const start = useCallback(() => {
@@ -228,9 +235,9 @@ export function useSpeechRecognition(
       isStartingRef.current = false;
       const errorMsg = e instanceof Error ? e.message : 'Failed to start recognition';
       setError(errorMsg);
-      onError?.(errorMsg);
+      onErrorRef.current?.(errorMsg);
     }
-  }, [isListening, onError]);
+  }, [isListening]);
 
   // Stop recognition
   const stop = useCallback(() => {

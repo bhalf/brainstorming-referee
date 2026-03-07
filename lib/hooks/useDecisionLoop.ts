@@ -17,6 +17,7 @@ import { resetInterventionCountIfNeeded, generateInterventionContext } from '@/l
 interface UseDecisionLoopParams {
   isActive: boolean;
   isParticipant: boolean;
+  sessionId: string | null;
   // Stable refs to avoid interval recreation on every state change
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
   interventionsRef: MutableRefObject<Intervention[]>;
@@ -42,6 +43,7 @@ interface UseDecisionLoopParams {
 export function useDecisionLoop({
   isActive,
   isParticipant,
+  sessionId,
   transcriptSegmentsRef,
   interventionsRef,
   metricsHistoryRef,
@@ -68,6 +70,7 @@ export function useDecisionLoop({
   const languageRef = useRef(language);
   const speakRef = useRef(speak);
   const isTTSSupportedRef = useRef(isTTSSupported);
+  const sessionIdRef = useRef(sessionId);
   const isProcessingRef = useRef(false);
   const interventionCountResetTimeRef = useRef(Date.now());
   const lastInterventionIdRef = useRef<string | null>(null);
@@ -80,6 +83,18 @@ export function useDecisionLoop({
   useEffect(() => { languageRef.current = language; }, [language]);
   useEffect(() => { speakRef.current = speak; }, [speak]);
   useEffect(() => { isTTSSupportedRef.current = isTTSSupported; }, [isTTSSupported]);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
+  // Fire-and-forget engine state persist
+  const persistEngineState = (newState: DecisionEngineState) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    fetch('/api/engine-state', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sid, state: newState }),
+    }).catch(() => {});
+  };
 
   // Decision engine interval
   useEffect(() => {
@@ -126,6 +141,7 @@ export function useDecisionLoop({
       if (decision.stateUpdateOnly) {
         updateDecisionState(decision.stateUpdateOnly);
         decisionStateRef.current = { ...decisionStateRef.current, ...decision.stateUpdateOnly };
+        persistEngineState(decisionStateRef.current);
       }
 
       // Handle recovery result from post-check
@@ -139,6 +155,7 @@ export function useDecisionLoop({
         if (!decision.shouldIntervene && decision.recoveryResult !== undefined) {
           updateDecisionState(decision.nextEngineState);
           decisionStateRef.current = decision.nextEngineState;
+          persistEngineState(decision.nextEngineState);
           lastInterventionIdRef.current = null;
         }
       }
@@ -205,6 +222,7 @@ export function useDecisionLoop({
             const newDecisionState = decision.nextEngineState;
             updateDecisionState(newDecisionState);
             decisionStateRef.current = newDecisionState;
+            persistEngineState(newDecisionState);
 
             const interventionId = `int-${Date.now()}`;
             const intervention: Intervention = {
@@ -231,8 +249,33 @@ export function useDecisionLoop({
             addIntervention(intervention);
             lastInterventionIdRef.current = interventionId;
 
+            // Persist intervention to Supabase
+            if (sessionIdRef.current) {
+              fetch('/api/interventions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sessionId: sessionIdRef.current,
+                  intervention,
+                  engineState: decisionStateRef.current,
+                }),
+              }).catch(() => {});
+            }
+
             if (data.logEntry) {
               addModelRoutingLog(data.logEntry);
+
+              // Persist routing log to Supabase
+              if (sessionIdRef.current) {
+                fetch('/api/model-routing-log', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    sessionId: sessionIdRef.current,
+                    entry: data.logEntry,
+                  }),
+                }).catch(() => {});
+              }
             }
           } else {
             if (response.status === 503) {
