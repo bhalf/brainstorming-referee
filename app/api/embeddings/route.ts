@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getModelRoutingConfig, setModelRoutingConfig, DEFAULT_MODEL_ROUTING } from '@/lib/config/modelRouting';
-import { loadConfigFromFile } from '@/lib/config/modelRoutingPersistence';
+import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
 
 // POST – compute embeddings for a batch of texts
 export async function POST(request: NextRequest) {
@@ -23,23 +22,11 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const apiKey = process.env.OPENAI_API_KEY;
-        if (!apiKey) {
-            return NextResponse.json(
-                { error: 'OPENAI_API_KEY not configured', code: 'NO_API_KEY' },
-                { status: 503 }
-            );
-        }
+        const apiKeyResult = requireApiKey();
+        if ('error' in apiKeyResult) return apiKeyResult.error;
+        const apiKey = apiKeyResult.key;
 
-        // Load persisted model routing config on cold start
-        let routingConfig = getModelRoutingConfig();
-        if (routingConfig === DEFAULT_MODEL_ROUTING) {
-            const fileConfig = loadConfigFromFile();
-            if (fileConfig) {
-                setModelRoutingConfig(fileConfig);
-                routingConfig = fileConfig;
-            }
-        }
+        const routingConfig = loadRoutingConfig();
 
         if (!routingConfig.embeddings_similarity.enabled) {
             return NextResponse.json(

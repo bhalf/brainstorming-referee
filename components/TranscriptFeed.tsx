@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { TranscriptSegment } from '@/lib/types';
+import { formatTime } from '@/lib/utils/format';
+import EmptyState from './shared/EmptyState';
 
 interface TranscriptFeedProps {
   segments: TranscriptSegment[];
@@ -26,16 +28,6 @@ export default function TranscriptFeed({
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [segments, interimText]);
 
-  const formatTime = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  };
-
   // Group consecutive segments by speaker
   const groupedSegments = segments.reduce<Array<{
     speaker: string;
@@ -59,15 +51,11 @@ export default function TranscriptFeed({
 
   if (segments.length === 0 && !interimText) {
     return (
-      <div className="h-full flex items-center justify-center text-slate-500 text-sm">
-        <div className="text-center">
-          <p className="mb-2">📝</p>
-          <p>Live transcript will appear here</p>
-          <p className="text-xs mt-1 text-slate-600">
-            Click the microphone button to start
-          </p>
-        </div>
-      </div>
+      <EmptyState
+        icon="📝"
+        title="Live transcript will appear here"
+        subtitle="Click the microphone button to start"
+      />
     );
   }
 

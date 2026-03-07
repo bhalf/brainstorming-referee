@@ -170,10 +170,16 @@ export async function getOrFetchEmbeddings(
     // Fetch missing embeddings
     if (toFetch.length > 0) {
         try {
+            // Deduplicate by text: identical utterances (e.g. "Flugzeug" × 30) share
+            // one embedding vector. This reduces API tokens from O(N) to O(unique texts)
+            // and prevents hitting the 50-text batch limit on repetitive content.
+            const uniqueTexts = [...new Set(toFetch.map((s) => s.text))];
+            const textToEmbedding = new Map<string, number[]>();
+
             const response = await fetch('/api/embeddings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ texts: toFetch.map((s) => s.text) }),
+                body: JSON.stringify({ texts: uniqueTexts }),
             });
 
             if (response.ok) {
@@ -181,12 +187,20 @@ export async function getOrFetchEmbeddings(
                 const embeddings: number[][] = data.embeddings;
                 const fetchTime = Date.now();
 
-                // Store in cache and result
-                for (let i = 0; i < toFetch.length; i++) {
+                // Build text → embedding lookup
+                for (let i = 0; i < uniqueTexts.length; i++) {
                     if (embeddings[i]) {
-                        embeddingCache.set(toFetch[i].id, embeddings[i]);
-                        accessTimestamp.set(toFetch[i].id, fetchTime);
-                        result.set(toFetch[i].id, embeddings[i]);
+                        textToEmbedding.set(uniqueTexts[i], embeddings[i]);
+                    }
+                }
+
+                // Map back to all segment IDs (including duplicates with same text)
+                for (const seg of toFetch) {
+                    const emb = textToEmbedding.get(seg.text);
+                    if (emb) {
+                        embeddingCache.set(seg.id, emb);
+                        accessTimestamp.set(seg.id, fetchTime);
+                        result.set(seg.id, emb);
                     }
                 }
 

@@ -1,0 +1,93 @@
+'use client';
+
+import { useState } from 'react';
+import { TranscriptControlProps } from './OverlayPanel';
+import TranscriptFeed from './TranscriptFeed';
+
+/**
+ * Transcript tab content extracted from OverlayPanel.
+ * Includes transcription controls, simulation input, error display, and the feed.
+ */
+export default function TranscriptTab({ transcript }: { transcript: TranscriptControlProps }) {
+  const [simText, setSimText] = useState('');
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Transcription Controls */}
+      <div className="p-3 border-b border-slate-700 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {transcript.isTranscriptionSupported ? (
+            <button
+              onClick={transcript.onToggleTranscription}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${transcript.isTranscribing
+                ? 'bg-red-600/80 hover:bg-red-600 text-white'
+                : 'bg-blue-600/80 hover:bg-blue-600 text-white'
+                }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${transcript.isTranscribing ? 'bg-white animate-pulse' : 'bg-white/50'}`} />
+              {transcript.isTranscribing ? 'Stop' : 'Start'} 🎤
+            </button>
+          ) : (
+            <span className="text-xs text-yellow-400">
+              ⚠️ Simulation mode (no mic)
+            </span>
+          )}
+        </div>
+        {transcript.segments.length > 0 && (
+          <span className="text-xs text-slate-500">
+            {transcript.segments.length} segments
+          </span>
+        )}
+      </div>
+
+      {/* Error display */}
+      {transcript.transcriptionError && (
+        <div className="px-3 py-2 bg-red-900/30 text-red-400 text-xs">
+          {transcript.transcriptionError}
+        </div>
+      )}
+
+      {/* Simulation Input (fallback when no mic) */}
+      {!transcript.isTranscriptionSupported && transcript.onAddSimulatedSegment && (
+        <div className="px-3 py-2 border-b border-slate-700">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={simText}
+              onChange={(e) => setSimText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && simText.trim()) {
+                  transcript.onAddSimulatedSegment!(simText.trim());
+                  setSimText('');
+                }
+              }}
+              placeholder="Paste/type transcript..."
+              className="flex-1 px-3 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => {
+                if (simText.trim()) {
+                  transcript.onAddSimulatedSegment!(simText.trim());
+                  setSimText('');
+                }
+              }}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Transcript Feed */}
+      <div className="flex-1 overflow-hidden p-3">
+        <TranscriptFeed
+          segments={transcript.segments}
+          interimText={transcript.interimTranscript}
+          showTimestamps={true}
+          speakingParticipants={transcript.speakingParticipants}
+        />
+      </div>
+    </div>
+  );
+}

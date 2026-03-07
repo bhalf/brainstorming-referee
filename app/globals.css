@@ -1,26 +1,91 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================
+   Design Tokens — UZH Brainstorming Webapp
+   ============================================
+   All recurring colors, radii, and spacings are
+   defined here as CSS custom properties so components
+   use consistent values instead of hardcoded Tailwind classes.
+   ============================================ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+:root {
+  /* --- Surface colors (dark theme) --- */
+  --surface-primary: #0f172a;     /* slate-900 */
+  --surface-secondary: #1e293b;   /* slate-800 */
+  --surface-elevated: #334155;    /* slate-700 */
+  --surface-overlay: rgba(30, 41, 59, 0.9); /* slate-800/90 */
+
+  /* --- Text colors --- */
+  --text-primary: #f8fafc;        /* slate-50 */
+  --text-secondary: #94a3b8;      /* slate-400 */
+  --text-muted: #64748b;          /* slate-500 */
+
+  /* --- Accent colors --- */
+  --accent-primary: #3b82f6;      /* blue-500 */
+  --accent-secondary: #a855f7;    /* purple-500 */
+  --accent-success: #22c55e;      /* green-500 */
+  --accent-warning: #eab308;      /* yellow-500 */
+  --accent-danger: #ef4444;       /* red-500 */
+  --accent-info: #06b6d4;         /* cyan-500 */
+
+  /* --- Border --- */
+  --border-default: #334155;      /* slate-700 */
+  --border-subtle: #1e293b;       /* slate-800 */
+
+  /* --- Panel / Card --- */
+  --panel-bg: rgba(51, 65, 85, 0.3);  /* slate-700/30 */
+  --panel-radius: 0.5rem;              /* rounded-lg */
+  --panel-padding: 1rem;               /* p-4 */
+
+  /* --- Font --- */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+@theme inline {
+  --color-background: var(--surface-primary);
+  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--surface-primary);
+  color: var(--text-primary);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ============================================
+   LiveKit Theme Overrides — Dark theme
+   ============================================ */
+.lk-theme-default {
+  --lk-bg: var(--surface-primary);
+  --lk-bg2: var(--surface-secondary);
+  --lk-bg3: var(--surface-elevated);
+  --lk-fg: var(--text-primary);
+  --lk-fg2: var(--text-secondary);
+  --lk-border-color: var(--border-default);
+  --lk-control-bg: var(--surface-secondary);
+  --lk-control-hover-bg: var(--surface-elevated);
+  --lk-accent-bg: var(--accent-primary);
+  --lk-danger: var(--accent-danger);
+  --lk-success: var(--accent-success);
+  --lk-border-radius: var(--panel-radius);
+}
+
+[data-lk-theme="default"] {
+  --lk-bg: var(--surface-primary);
+  --lk-bg2: var(--surface-secondary);
+  --lk-bg3: var(--surface-elevated);
+}
+
+/* Ensure LiveKit fills container */
+.lk-room-container {
+  height: 100% !important;
+}
+
+/* Control bar styling */
+.lk-control-bar {
+  background: var(--surface-secondary) !important;
+  border-top: 1px solid var(--border-default) !important;
 }

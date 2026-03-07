@@ -3,6 +3,11 @@
 import { useState, useEffect } from 'react';
 import { MetricSnapshot, ExperimentConfig, DecisionEngineState } from '@/lib/types';
 import { checkThresholds, ThresholdBreaches } from '@/lib/metrics/computeMetrics';
+import { DECISION_STATE_CONFIG, CONVERSATION_STATE_CONFIG, ENGINE_PHASE_CONFIG } from '@/lib/decision/stateConfig';
+import { formatTime, formatPercent, formatSeconds } from '@/lib/utils/format';
+import Panel from './shared/Panel';
+import SectionHeader from './shared/SectionHeader';
+import DebugMetricRow from './shared/DebugMetricRow';
 
 interface DebugPanelProps {
   currentMetrics: MetricSnapshot | null;
@@ -24,50 +29,82 @@ export default function DebugPanel({
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCurrentTime(Date.now()); // Set initial time on mount
+    setCurrentTime(Date.now());
     const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  const formatPercent = (value: number): string => {
-    return `${(value * 100).toFixed(1)}%`;
-  };
 
-  const formatSeconds = (value: number): string => {
-    return `${value.toFixed(1)}s`;
-  };
-
-  const formatTime = (timestamp: number | null): string => {
-    if (!timestamp) return '—';
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  };
+  const formatTimeOrDash = (timestamp: number | null | undefined): string =>
+    timestamp ? formatTime(timestamp) : '—';
 
   const thresholds: ThresholdBreaches | null = currentMetrics
     ? checkThresholds(currentMetrics, config)
     : null;
 
-  const stateColors: Record<string, string> = {
-    OBSERVATION: 'bg-green-600',
-    STABILIZATION: 'bg-yellow-600',
-    ESCALATION: 'bg-red-600',
-  };
+  const stateColor = DECISION_STATE_CONFIG[decisionState.currentState]?.badgeColor ?? 'bg-slate-600';
+  const inferredState = currentMetrics?.inferredState;
+  const convStateConfig = inferredState ? CONVERSATION_STATE_CONFIG[inferredState.state] : null;
+  const phase = decisionState.phase ?? 'MONITORING';
+  const phaseConfig = ENGINE_PHASE_CONFIG[phase];
 
   return (
     <div className="h-full overflow-y-auto space-y-4 text-sm">
-      {/* Decision Engine State */}
-      <section className="bg-slate-700/30 rounded-lg p-3">
-        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">
-          Decision Engine
-        </h3>
+      {/* Inferred Conversation State (v2) */}
+      {inferredState && convStateConfig && (
+        <Panel>
+          <SectionHeader>Conversation State</SectionHeader>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">State:</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-medium text-white ${convStateConfig.color}`}>
+                {convStateConfig.label}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Confidence:</span>
+              <div className="flex items-center gap-2">
+                <div className="w-20 h-1.5 bg-slate-600 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      convStateConfig.severity === 'healthy' ? 'bg-green-500' :
+                      convStateConfig.severity === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${inferredState.confidence * 100}%` }}
+                  />
+                </div>
+                <span className="text-white text-xs">{(inferredState.confidence * 100).toFixed(0)}%</span>
+              </div>
+            </div>
+            {inferredState.secondaryState && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Secondary:</span>
+                <span className="text-slate-300 text-xs">
+                  {CONVERSATION_STATE_CONFIG[inferredState.secondaryState]?.label} ({(inferredState.secondaryConfidence * 100).toFixed(0)}%)
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Duration:</span>
+              <span className="text-white text-xs">{(inferredState.durationMs / 1000).toFixed(0)}s</span>
+            </div>
+            <div className="text-xs text-slate-500 italic">{convStateConfig.description}</div>
+          </div>
+        </Panel>
+      )}
+
+      {/* Engine Phase (v2) + Decision Engine State */}
+      <Panel>
+        <SectionHeader>Decision Engine</SectionHeader>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-slate-400">State:</span>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium text-white ${stateColors[decisionState.currentState]}`}>
+            <span className="text-slate-400">Phase:</span>
+            <span className={`px-2 py-0.5 rounded text-xs font-medium text-white ${phaseConfig?.badgeColor ?? 'bg-slate-600'}`}>
+              {phaseConfig?.label ?? phase}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Legacy State:</span>
+            <span className={`px-2 py-0.5 rounded text-xs font-medium text-white ${stateColor}`}>
               {decisionState.currentState}
             </span>
           </div>
@@ -77,7 +114,7 @@ export default function DebugPanel({
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-400">Last Intervention:</span>
-            <span className="text-white">{formatTime(decisionState.lastInterventionTime)}</span>
+            <span className="text-white">{formatTimeOrDash(decisionState.lastInterventionTime)}</span>
           </div>
           {decisionState.cooldownUntil && currentTime < decisionState.cooldownUntil && (
             <div className="flex items-center justify-between">
@@ -85,7 +122,15 @@ export default function DebugPanel({
               <span className="text-yellow-400">{Math.ceil((decisionState.cooldownUntil - currentTime) / 1000)}s</span>
             </div>
           )}
-          {decisionState.persistenceStartTime && (
+          {decisionState.confirmingSince && (
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Confirming:</span>
+              <span className="text-blue-400">
+                {decisionState.confirmingState} ({Math.ceil((currentTime - decisionState.confirmingSince) / 1000)}s / {config.CONFIRMATION_SECONDS}s)
+              </span>
+            </div>
+          )}
+          {decisionState.persistenceStartTime && !decisionState.confirmingSince && (
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Persistence Timer:</span>
               <span className="text-blue-400">{Math.ceil((currentTime - decisionState.persistenceStartTime) / 1000)}s / {config.PERSISTENCE_SECONDS}s</span>
@@ -93,44 +138,104 @@ export default function DebugPanel({
           )}
           {decisionState.postCheckStartTime && (
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Post-Check Timer:</span>
-              <span className="text-green-400">{Math.ceil((currentTime - decisionState.postCheckStartTime) / 1000)}s / {config.POST_CHECK_SECONDS}s</span>
-            </div>
-          )}
-          {decisionState.metricsAtIntervention && (
-            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-600">
-              <span className="text-slate-400 text-xs">Awaiting improvement on previous metrics vs current.</span>
+              <span className="text-slate-400">Post-Check:</span>
+              <span className="text-green-400">
+                {Math.ceil((currentTime - decisionState.postCheckStartTime) / 1000)}s / {config.POST_CHECK_SECONDS}s
+                {decisionState.postCheckIntent && <span className="text-slate-500 ml-1">({decisionState.postCheckIntent})</span>}
+              </span>
             </div>
           )}
         </div>
-      </section>
+      </Panel>
 
-      {/* Current Metrics */}
-      <section className="bg-slate-700/30 rounded-lg p-3">
-        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">
-          Current Metrics
-        </h3>
-        {currentMetrics ? (
+      {/* Participation Metrics (v2) */}
+      {currentMetrics?.participation && (
+        <Panel>
+          <SectionHeader>Participation Metrics</SectionHeader>
           <div className="space-y-2">
-            <MetricRow
-              label="Participation Imbalance"
+            <DebugMetricRow
+              label="Risk Score"
+              value={formatPercent(currentMetrics.participation.participationRiskScore)}
+              threshold={formatPercent(config.THRESHOLD_PARTICIPATION_RISK)}
+              isBreached={currentMetrics.participation.participationRiskScore >= config.THRESHOLD_PARTICIPATION_RISK}
+            />
+            <DebugMetricRow
+              label="Silent Ratio"
+              value={formatPercent(currentMetrics.participation.silentParticipantRatio)}
+              threshold={formatPercent(config.THRESHOLD_SILENT_PARTICIPANT)}
+              isBreached={currentMetrics.participation.silentParticipantRatio > 0}
+            />
+            <DebugMetricRow
+              label="Dominance Streak"
+              value={formatPercent(currentMetrics.participation.dominanceStreakScore)}
+              threshold="—"
+              isBreached={currentMetrics.participation.dominanceStreakScore > 0.5}
+            />
+            <DebugMetricRow
+              label="Imbalance (Gini)"
               value={formatPercent(currentMetrics.participationImbalance)}
               threshold={formatPercent(config.THRESHOLD_IMBALANCE)}
               isBreached={thresholds?.imbalance}
             />
-            <MetricRow
+          </div>
+        </Panel>
+      )}
+
+      {/* Semantic Dynamics (v2) */}
+      {currentMetrics?.semanticDynamics && (
+        <Panel>
+          <SectionHeader>Semantic Dynamics</SectionHeader>
+          <div className="space-y-2">
+            <DebugMetricRow
+              label="Novelty Rate"
+              value={formatPercent(currentMetrics.semanticDynamics.noveltyRate)}
+              threshold={formatPercent(config.THRESHOLD_NOVELTY_RATE)}
+              isBreached={currentMetrics.semanticDynamics.noveltyRate < config.THRESHOLD_NOVELTY_RATE}
+            />
+            <DebugMetricRow
+              label="Cluster Concentration"
+              value={formatPercent(currentMetrics.semanticDynamics.clusterConcentration)}
+              threshold={formatPercent(config.THRESHOLD_CLUSTER_CONCENTRATION)}
+              isBreached={currentMetrics.semanticDynamics.clusterConcentration >= config.THRESHOLD_CLUSTER_CONCENTRATION}
+            />
+            <DebugMetricRow
+              label="Exploration Ratio"
+              value={formatPercent(currentMetrics.semanticDynamics.explorationElaborationRatio)}
+              threshold="—"
+              isBreached={false}
+            />
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 text-xs">Expansion Score:</span>
+              <span className={`text-xs font-mono ${
+                currentMetrics.semanticDynamics.semanticExpansionScore > 0 ? 'text-green-400' :
+                currentMetrics.semanticDynamics.semanticExpansionScore < -0.1 ? 'text-red-400' : 'text-slate-300'
+              }`}>
+                {currentMetrics.semanticDynamics.semanticExpansionScore > 0 ? '+' : ''}
+                {currentMetrics.semanticDynamics.semanticExpansionScore.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {/* Legacy Metrics */}
+      <Panel>
+        <SectionHeader>Legacy Metrics</SectionHeader>
+        {currentMetrics ? (
+          <div className="space-y-2">
+            <DebugMetricRow
               label="Semantic Repetition"
               value={formatPercent(currentMetrics.semanticRepetitionRate)}
               threshold={formatPercent(config.THRESHOLD_REPETITION)}
               isBreached={thresholds?.repetition}
             />
-            <MetricRow
+            <DebugMetricRow
               label="Stagnation Duration"
               value={formatSeconds(currentMetrics.stagnationDuration)}
               threshold={formatSeconds(config.THRESHOLD_STAGNATION_SECONDS)}
               isBreached={thresholds?.stagnation}
             />
-            <MetricRow
+            <DebugMetricRow
               label="Diversity (TTR)"
               value={formatPercent(currentMetrics.diversityDevelopment)}
               threshold="—"
@@ -140,14 +245,12 @@ export default function DebugPanel({
         ) : (
           <p className="text-slate-500 text-center py-2">No metrics yet</p>
         )}
-      </section>
+      </Panel>
 
       {/* Speaking Time Distribution */}
       {currentMetrics && Object.keys(currentMetrics.speakingTimeDistribution).length > 0 && (
-        <section className="bg-slate-700/30 rounded-lg p-3">
-          <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">
-            Speaking Distribution
-          </h3>
+        <Panel>
+          <SectionHeader>Speaking Distribution</SectionHeader>
           <div className="space-y-1.5">
             {Object.entries(currentMetrics.speakingTimeDistribution).map(([speaker, chars]) => {
               const total = Object.values(currentMetrics.speakingTimeDistribution).reduce((a, b) => a + b, 0);
@@ -168,15 +271,13 @@ export default function DebugPanel({
               );
             })}
           </div>
-        </section>
+        </Panel>
       )}
 
       {/* Metrics History */}
       {metricsHistory.length > 0 && (
-        <section className="bg-slate-700/30 rounded-lg p-3">
-          <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">
-            History (Last {Math.min(metricsHistory.length, 10)})
-          </h3>
+        <Panel>
+          <SectionHeader>History (Last {Math.min(metricsHistory.length, 10)})</SectionHeader>
           <div className="space-y-1 max-h-32 overflow-y-auto">
             {metricsHistory.slice(-10).reverse().map((snapshot) => (
               <div
@@ -184,7 +285,14 @@ export default function DebugPanel({
                 className="flex items-center justify-between text-xs py-1 border-b border-slate-600/50 last:border-0"
               >
                 <span className="text-slate-500">{formatTime(snapshot.timestamp)}</span>
-                <div className="flex gap-2">
+                <div className="flex gap-1 items-center">
+                  {snapshot.inferredState && (
+                    <span className={`px-1 py-0.5 rounded text-[10px] text-white ${
+                      CONVERSATION_STATE_CONFIG[snapshot.inferredState.state]?.color ?? 'bg-slate-600'
+                    }`}>
+                      {snapshot.inferredState.state.replace(/_/g, ' ').slice(0, 3)}
+                    </span>
+                  )}
                   <span className={snapshot.participationImbalance >= config.THRESHOLD_IMBALANCE ? 'text-red-400' : 'text-slate-400'}>
                     I:{formatPercent(snapshot.participationImbalance)}
                   </span>
@@ -198,15 +306,13 @@ export default function DebugPanel({
               </div>
             ))}
           </div>
-        </section>
+        </Panel>
       )}
 
       {/* Config (collapsible) */}
       {showConfig && (
-        <section className="bg-slate-700/30 rounded-lg p-3">
-          <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">
-            Active Configuration
-          </h3>
+        <Panel>
+          <SectionHeader>Active Configuration</SectionHeader>
           <div className="grid grid-cols-2 gap-1 text-xs">
             {Object.entries(config).map(([key, value]) => (
               <div key={key} className="flex justify-between">
@@ -215,37 +321,8 @@ export default function DebugPanel({
               </div>
             ))}
           </div>
-        </section>
+        </Panel>
       )}
     </div>
   );
 }
-
-// --- Helper Component ---
-
-interface MetricRowProps {
-  label: string;
-  value: string;
-  threshold: string;
-  isBreached?: boolean;
-}
-
-function MetricRow({ label, value, threshold, isBreached }: MetricRowProps) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-slate-400 text-xs">{label}</span>
-      <div className="flex items-center gap-2">
-        <span className={`font-mono ${isBreached ? 'text-red-400' : 'text-white'}`}>
-          {value}
-        </span>
-        <span className="text-slate-600 text-xs">/ {threshold}</span>
-        {isBreached && (
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-

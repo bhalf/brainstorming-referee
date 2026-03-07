@@ -7,11 +7,11 @@
 // ============================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getModelRoutingConfig } from '@/lib/config/modelRouting';
+import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
 
 export async function POST(request: NextRequest) {
     try {
-        const routingConfig = getModelRoutingConfig();
+        const routingConfig = loadRoutingConfig();
 
         if (!routingConfig.transcription_server.enabled) {
             return NextResponse.json(
@@ -20,13 +20,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const apiKey = process.env.OPENAI_API_KEY;
-        if (!apiKey) {
-            return NextResponse.json(
-                { error: 'OPENAI_API_KEY not configured' },
-                { status: 500 }
-            );
-        }
+        const apiKeyResult = requireApiKey();
+        if ('error' in apiKeyResult) return apiKeyResult.error;
+        const apiKey = apiKeyResult.key;
 
         // Parse multipart form data
         const formData = await request.formData();

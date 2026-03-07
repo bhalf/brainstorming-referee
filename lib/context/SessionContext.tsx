@@ -26,6 +26,11 @@ const initialDecisionState: DecisionEngineState = {
   cooldownUntil: null,
   metricsAtIntervention: null,
   triggerAtIntervention: null,
+  // v2 fields
+  phase: 'MONITORING',
+  confirmingSince: null,
+  confirmingState: null,
+  postCheckIntent: null,
 };
 
 const initialVoiceSettings: VoiceSettings = {
@@ -62,6 +67,7 @@ type SessionAction =
   | { type: 'UPDATE_TRANSCRIPT_SEGMENT'; payload: { id: string; updates: Partial<TranscriptSegment> } }
   | { type: 'ADD_METRIC_SNAPSHOT'; payload: MetricSnapshot }
   | { type: 'ADD_INTERVENTION'; payload: Intervention }
+  | { type: 'UPDATE_INTERVENTION'; payload: { id: string; updates: Partial<Intervention> } }
   | { type: 'UPDATE_DECISION_STATE'; payload: Partial<DecisionEngineState> }
   | { type: 'UPDATE_VOICE_SETTINGS'; payload: Partial<VoiceSettings> }
   | { type: 'ADD_MODEL_ROUTING_LOG'; payload: ModelRoutingLogEntry }
@@ -102,7 +108,11 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         config: { ...state.config, ...action.payload },
       };
 
-    case 'ADD_TRANSCRIPT_SEGMENT':
+    case 'ADD_TRANSCRIPT_SEGMENT': {
+      // Deduplicate by segment ID to prevent double-adds from sync polling
+      if (state.transcriptSegments.some(s => s.id === action.payload.id)) {
+        return state;
+      }
       return {
         ...state,
         // Cap at 2000 entries to prevent unbounded memory growth in long sessions
@@ -110,6 +120,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
           ? [...state.transcriptSegments.slice(-1999), action.payload]
           : [...state.transcriptSegments, action.payload],
       };
+    }
 
     case 'UPDATE_TRANSCRIPT_SEGMENT':
       return {
@@ -137,6 +148,14 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
           lastInterventionTime: action.payload.timestamp,
           interventionCount: state.decisionState.interventionCount + 1,
         },
+      };
+
+    case 'UPDATE_INTERVENTION':
+      return {
+        ...state,
+        interventions: state.interventions.map((int) =>
+          int.id === action.payload.id ? { ...int, ...action.payload.updates } : int
+        ),
       };
 
     case 'UPDATE_DECISION_STATE':
@@ -193,6 +212,7 @@ interface SessionContextValue {
   updateTranscriptSegment: (id: string, updates: Partial<TranscriptSegment>) => void;
   addMetricSnapshot: (snapshot: MetricSnapshot) => void;
   addIntervention: (intervention: Intervention) => void;
+  updateIntervention: (id: string, updates: Partial<Intervention>) => void;
   updateDecisionState: (updates: Partial<DecisionEngineState>) => void;
   updateVoiceSettings: (updates: Partial<VoiceSettings>) => void;
   addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
@@ -236,6 +256,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
   const addIntervention = useCallback((intervention: Intervention) => {
     dispatch({ type: 'ADD_INTERVENTION', payload: intervention });
+  }, []);
+
+  const updateIntervention = useCallback((id: string, updates: Partial<Intervention>) => {
+    dispatch({ type: 'UPDATE_INTERVENTION', payload: { id, updates } });
   }, []);
 
   const updateDecisionState = useCallback((updates: Partial<DecisionEngineState>) => {
@@ -282,6 +306,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     updateTranscriptSegment,
     addMetricSnapshot,
     addIntervention,
+    updateIntervention,
     updateDecisionState,
     updateVoiceSettings,
     addModelRoutingLog,

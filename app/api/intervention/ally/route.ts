@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callLLM, LLMError } from '@/lib/llm/client';
-import { getModelRoutingConfig, setModelRoutingConfig, DEFAULT_MODEL_ROUTING } from '@/lib/config/modelRouting';
-import { loadConfigFromFile } from '@/lib/config/modelRoutingPersistence';
+import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
 
 // --- Types ---
 
@@ -11,6 +10,13 @@ interface AllyRequest {
   topic?: string;
   previousInterventions?: string[];
   transcriptExcerpt?: string[];
+  totalTurns?: number;
+  // v2 fields
+  intent?: string;
+  triggeringState?: string;
+  stateConfidence?: number;
+  participationMetrics?: { participationRiskScore?: number };
+  semanticDynamics?: { noveltyRate?: number; clusterConcentration?: number };
 }
 
 // --- System Prompts ---
@@ -47,21 +53,59 @@ IMPORTANT RULES:
 Your goal is to break patterns and open new creative pathways without doing the work for the group.`;
 }
 
-const USER_PROMPT = `The brainstorming session is stuck despite earlier moderation attempts. The group needs a creative spark.
+const USER_PROMPT_EN = `The brainstorming session is stuck despite earlier moderation attempts. The group needs a creative spark.
 
 Previous interventions tried: {previousInterventions}
 
-Recent transcript from the session:
+Full conversation transcript ({totalTurns} turns total):
 {transcriptExcerpt}
 
-Generate a brief, unexpected creative impulse to energize the discussion. Make it thought-provoking but not prescriptive.`;
+Generate a brief, unexpected creative impulse to energize the discussion. Use the full transcript to avoid repeating themes already covered and to make the impulse feel specific to this group's conversation.`;
+
+const USER_PROMPT_DE = `Die Brainstorming-Sitzung steckt trotz früherer Moderationsversuche fest. Die Gruppe braucht einen kreativen Funken.
+
+Bisherige Interventionen: {previousInterventions}
+
+Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
+{transcriptExcerpt}
+
+Formuliere einen kurzen, unerwarteten kreativen Impuls, um die Diskussion zu beleben. Nutze das vollständige Transkript, um bereits besprochene Themen nicht zu wiederholen und den Impuls spezifisch für dieses Gespräch zu gestalten.`;
+
+// v2: Enhanced prompt with state context
+const USER_PROMPT_V2_EN = `The brainstorming session is stuck despite earlier moderation.
+The moderator tried to address: {triggeringState}
+Previous interventions: {previousInterventions}
+
+Key metrics:
+- Participation risk: {participationRiskScore}
+- Novelty rate: {noveltyRate}
+- Cluster concentration: {clusterConcentration}
+
+Full conversation transcript ({totalTurns} turns total):
+{transcriptExcerpt}
+
+Generate a brief, unexpected creative impulse. Make it specific to what this group has discussed. Avoid repeating themes from previous interventions.`;
+
+const USER_PROMPT_V2_DE = `Die Brainstorming-Sitzung steckt trotz früherer Moderation fest.
+Der Moderator versuchte Folgendes anzusprechen: {triggeringState}
+Bisherige Interventionen: {previousInterventions}
+
+Wichtige Kennzahlen:
+- Partizipationsrisiko: {participationRiskScore}
+- Neuheitsrate: {noveltyRate}
+- Cluster-Konzentration: {clusterConcentration}
+
+Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
+{transcriptExcerpt}
+
+Formuliere einen kurzen, unerwarteten kreativen Impuls. Mache ihn spezifisch für das, was diese Gruppe besprochen hat. Vermeide die Wiederholung von Themen aus früheren Interventionen.`;
 
 // --- Handler ---
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AllyRequest;
-    const { language, scenario, previousInterventions = [], transcriptExcerpt = [] } = body;
+    const { language, scenario, previousInterventions = [], transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, triggeringState, participationMetrics, semanticDynamics } = body;
 
     // Server-side scenario guard: ally is only permitted in Scenario B
     if (scenario && scenario !== 'B') {
@@ -71,24 +115,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Require API key — return 503 so the client can detect misconfiguration
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'OPENAI_API_KEY not configured', code: 'NO_API_KEY' },
-        { status: 503 }
-      );
-    }
+    const apiKeyResult = requireApiKey();
+    if ('error' in apiKeyResult) return apiKeyResult.error;
+    const apiKey = apiKeyResult.key;
 
-    // Load persisted model routing config on cold start (avoids serverless reset to defaults)
-    let routingConfig = getModelRoutingConfig();
-    if (routingConfig === DEFAULT_MODEL_ROUTING) {
-      const fileConfig = loadConfigFromFile();
-      if (fileConfig) {
-        setModelRoutingConfig(fileConfig);
-        routingConfig = fileConfig;
-      }
-    }
+    const routingConfig = loadRoutingConfig();
 
     // Build prompt
     const interventionContext = previousInterventions.length > 0
@@ -99,9 +130,26 @@ export async function POST(request: NextRequest) {
       ? transcriptExcerpt.join('\n')
       : 'No recent transcript available';
 
-    const userPrompt = USER_PROMPT
-      .replace('{previousInterventions}', interventionContext)
-      .replace('{transcriptExcerpt}', excerptText);
+    // Select language-appropriate prompts
+    const isGerman = language.startsWith('de');
+
+    // Use v2 prompt if triggeringState is available, otherwise v1
+    let userPrompt: string;
+    if (triggeringState) {
+      userPrompt = (isGerman ? USER_PROMPT_V2_DE : USER_PROMPT_V2_EN)
+        .replace('{triggeringState}', triggeringState)
+        .replace('{previousInterventions}', interventionContext)
+        .replace('{totalTurns}', String(totalTurns))
+        .replace('{transcriptExcerpt}', excerptText)
+        .replace('{participationRiskScore}', String(participationMetrics?.participationRiskScore?.toFixed(2) ?? 'N/A'))
+        .replace('{noveltyRate}', String(semanticDynamics?.noveltyRate?.toFixed(2) ?? 'N/A'))
+        .replace('{clusterConcentration}', String(semanticDynamics?.clusterConcentration?.toFixed(2) ?? 'N/A'));
+    } else {
+      userPrompt = (isGerman ? USER_PROMPT_DE : USER_PROMPT_EN)
+        .replace('{previousInterventions}', interventionContext)
+        .replace('{totalTurns}', String(totalTurns))
+        .replace('{transcriptExcerpt}', excerptText);
+    }
 
     try {
       const { text, logEntry } = await callLLM(
@@ -117,6 +165,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         role: 'ally',
         text,
+        intent: body.intent,
         timestamp: Date.now(),
         logEntry,
       });

@@ -14,6 +14,7 @@ import {
     type ModelOption,
 } from '@/lib/config/modelRouting';
 import type { ModelRoutingLogEntry } from '@/lib/types';
+import Toggle from './shared/Toggle';
 
 interface ModelRoutingPanelProps {
     logEntries: ModelRoutingLogEntry[];
@@ -149,17 +150,13 @@ export default function ModelRoutingPanel({ logEntries }: ModelRoutingPanelProps
                             </div>
                             <div className="flex items-center gap-2">
                                 {/* Enable toggle */}
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        updateTask(task, { enabled: !tc.enabled });
-                                    }}
-                                    className={`w-8 h-4 rounded-full transition-colors relative ${tc.enabled ? 'bg-green-600' : 'bg-slate-600'
-                                        }`}
-                                >
-                                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${tc.enabled ? 'left-4' : 'left-0.5'
-                                        }`} />
-                                </button>
+                                <span onClick={(e) => e.stopPropagation()}>
+                                    <Toggle
+                                        checked={tc.enabled}
+                                        onChange={(v) => updateTask(task, { enabled: v })}
+                                        size="sm"
+                                    />
+                                </span>
                                 <span className="text-slate-400 text-xs">
                                     {isExpanded ? '▼' : '▶'}
                                 </span>

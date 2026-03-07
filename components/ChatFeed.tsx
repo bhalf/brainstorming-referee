@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { Intervention } from '@/lib/types';
+import { formatTime } from '@/lib/utils/format';
+import EmptyState from './shared/EmptyState';
 
 interface ChatFeedProps {
   interventions: Intervention[];
@@ -15,17 +17,17 @@ export default function ChatFeed({ interventions, maxHeight = '100%' }: ChatFeed
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [interventions]);
 
-  const formatTime = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-  };
-
-  const getTriggerLabel = (trigger: string): string => {
+  const getTriggerLabel = (intervention: Intervention): string => {
+    // Prefer v2 intent labels over legacy trigger labels
+    if (intervention.intent) {
+      const intentLabels: Record<string, string> = {
+        PARTICIPATION_REBALANCING: 'Rebalancing',
+        PERSPECTIVE_BROADENING: 'Broadening',
+        REACTIVATION: 'Reactivation',
+        ALLY_IMPULSE: 'Ally Impulse',
+      };
+      return intentLabels[intervention.intent] || intervention.intent;
+    }
     const labels: Record<string, string> = {
       imbalance: 'Participation',
       repetition: 'Repetition',
@@ -33,7 +35,26 @@ export default function ChatFeed({ interventions, maxHeight = '100%' }: ChatFeed
       escalation: 'Escalation',
       manual: 'Manual',
     };
-    return labels[trigger] || trigger;
+    return labels[intervention.trigger] || intervention.trigger;
+  };
+
+  const getRecoveryBadge = (result?: string) => {
+    if (!result || result === 'pending') return null;
+    const styles: Record<string, string> = {
+      recovered: 'bg-green-900/50 text-green-400',
+      partial: 'bg-yellow-900/50 text-yellow-400',
+      not_recovered: 'bg-red-900/50 text-red-400',
+    };
+    const labels: Record<string, string> = {
+      recovered: 'Recovered',
+      partial: 'Partial',
+      not_recovered: 'Not recovered',
+    };
+    return (
+      <span className={`text-xs px-1.5 py-0.5 rounded ${styles[result] || ''}`}>
+        {labels[result] || result}
+      </span>
+    );
   };
 
   const getTypeColor = (type: string): string => {
@@ -44,12 +65,10 @@ export default function ChatFeed({ interventions, maxHeight = '100%' }: ChatFeed
 
   if (interventions.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-slate-500 text-sm">
-        <div className="text-center">
-          <p className="mb-2">💬</p>
-          <p>AI Moderator messages will appear here</p>
-        </div>
-      </div>
+      <EmptyState
+        icon="💬"
+        title="AI Moderator messages will appear here"
+      />
     );
   }
 
@@ -73,10 +92,11 @@ export default function ChatFeed({ interventions, maxHeight = '100%' }: ChatFeed
             </div>
             <span className="text-xs text-slate-500">{formatTime(intervention.timestamp)}</span>
           </div>
-          <div className="mb-2">
+          <div className="mb-2 flex items-center gap-2">
             <span className="text-xs px-2 py-0.5 bg-slate-700 text-slate-400 rounded">
-              {getTriggerLabel(intervention.trigger)}
+              {getTriggerLabel(intervention)}
             </span>
+            {getRecoveryBadge(intervention.recoveryResult)}
           </div>
           <p className="text-sm text-slate-200 leading-relaxed">{intervention.text}</p>
         </div>

@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getRoomData, appendSegmentToRoom } from '@/lib/sync/roomPersistence';
+import { getRoomData, appendSegmentToRoom, saveSessionConfig, SessionConfig } from '@/lib/sync/roomPersistence';
 import { TranscriptSegment } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -27,8 +27,26 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     segments: newSegments,
     count: newSegments.length,
+    sessionConfig: data.sessionConfig || null,
     timestamp: Date.now()
   });
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { roomId, sessionConfig } = body as { roomId: string; sessionConfig: SessionConfig };
+
+    if (!roomId || !sessionConfig) {
+      return NextResponse.json({ error: 'roomId and sessionConfig required' }, { status: 400 });
+    }
+
+    saveSessionConfig(roomId, sessionConfig);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error saving session config:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest) {

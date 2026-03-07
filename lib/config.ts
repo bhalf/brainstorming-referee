@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   COOLDOWN_SECONDS: 180,
   POST_CHECK_SECONDS: 90,
 
-  // Thresholds
+  // Thresholds (v1 — kept for backward compat)
   THRESHOLD_IMBALANCE: 0.65,
   THRESHOLD_REPETITION: 0.75,
   THRESHOLD_STAGNATION_SECONDS: 180,
@@ -24,6 +24,14 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   // Safety Limits
   TTS_RATE_LIMIT_SECONDS: 30,
   MAX_INTERVENTIONS_PER_10MIN: 3,
+
+  // v2 thresholds
+  THRESHOLD_SILENT_PARTICIPANT: 0.05,
+  THRESHOLD_PARTICIPATION_RISK: 0.55,
+  THRESHOLD_NOVELTY_RATE: 0.3,
+  THRESHOLD_CLUSTER_CONCENTRATION: 0.7,
+  CONFIRMATION_SECONDS: 30,
+  RECOVERY_IMPROVEMENT_THRESHOLD: 0.15,
 };
 
 // --- Config Validation ---
@@ -44,6 +52,13 @@ export const CONFIG_CONSTRAINTS = {
   THRESHOLD_STAGNATION_SECONDS: { min: 15, max: 600 },
   TTS_RATE_LIMIT_SECONDS: { min: 10, max: 120 },
   MAX_INTERVENTIONS_PER_10MIN: { min: 1, max: 20 },
+  // v2
+  THRESHOLD_SILENT_PARTICIPANT: { min: 0.01, max: 0.3 },
+  THRESHOLD_PARTICIPATION_RISK: { min: 0.1, max: 1.0 },
+  THRESHOLD_NOVELTY_RATE: { min: 0.05, max: 0.8 },
+  THRESHOLD_CLUSTER_CONCENTRATION: { min: 0.3, max: 1.0 },
+  CONFIRMATION_SECONDS: { min: 5, max: 120 },
+  RECOVERY_IMPROVEMENT_THRESHOLD: { min: 0.01, max: 0.5 },
 } as const;
 
 export function validateConfig(config: ExperimentConfig): ConfigValidation {

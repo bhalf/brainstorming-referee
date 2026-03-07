@@ -9,11 +9,21 @@ import {
   computeEmbeddingDiversity,
   cosineSimilarity,
 } from './embeddingCache';
+import { computeParticipationMetrics } from './participation';
+import { computeSemanticDynamicsMetrics, computeSemanticDynamicsFallback } from './semanticDynamics';
 
 // --- Utility: Generate unique ID ---
 const generateId = (): string => {
   return `metric-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
+
+// --- Utility: Detect system activity markers like [speaking] ---
+const isActivityMarker = (seg: TranscriptSegment) => /^\[.*\]$/.test(seg.text.trim());
+
+// Number of recent segments used for repetition / diversity computation.
+// Must match MAX_PAIRWISE_SEGMENTS in embeddingCache.ts so the Jaccard fallback
+// and the embedding path look at the same slice of the transcript.
+const REPETITION_WINDOW_SEGMENTS = 30;
 
 // --- Speaking Time Distribution ---
 // Uses text length as proxy for speaking time
@@ -25,6 +35,7 @@ export function computeSpeakingTimeDistribution(
 
   for (const segment of segments) {
     if (!segment.isFinal) continue; // Only count final segments
+    if (isActivityMarker(segment)) continue; // Skip [speaking] markers
 
     const speaker = segment.speaker;
     const textLength = segment.text.trim().length;
@@ -125,7 +136,7 @@ export function computeStagnationDuration(
   segments: TranscriptSegment[],
   currentTime: number = Date.now()
 ): number {
-  const finalSegments = segments.filter(s => s.isFinal);
+  const finalSegments = segments.filter(s => s.isFinal && !isActivityMarker(s));
 
   if (finalSegments.length === 0) return 0;
 
@@ -195,7 +206,7 @@ export function computeStagnationDurationSemantic(
 export function computeDiversityDevelopment(
   segments: TranscriptSegment[]
 ): number {
-  const finalSegments = segments.filter(s => s.isFinal);
+  const finalSegments = segments.filter(s => s.isFinal && !isActivityMarker(s));
 
   if (finalSegments.length === 0) return 0;
 
@@ -309,7 +320,8 @@ export async function computeMetricsAsync(
   segments: TranscriptSegment[],
   config: ExperimentConfig,
   currentTime: number = Date.now(),
-  audioSpeakingTimes?: Map<string, number>
+  audioSpeakingTimes?: Map<string, number>,
+  previousSnapshots?: MetricSnapshot[],
 ): Promise<MetricSnapshot> {
   const windowStart = currentTime - config.WINDOW_SECONDS * 1000;
   const windowedSegments = segments.filter(s => s.timestamp >= windowStart);
@@ -356,20 +368,62 @@ export async function computeMetricsAsync(
         );
       } else {
         // Fallback to Jaccard + time-based stagnation
-        semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments);
+        semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
         diversityDevelopment = computeDiversityDevelopment(windowedSegments);
         stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
       }
     } catch {
       // Fallback to Jaccard on error
-      semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments);
+      semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
       diversityDevelopment = computeDiversityDevelopment(windowedSegments);
       stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
     }
   } else {
-    semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments);
+    semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
     diversityDevelopment = computeDiversityDevelopment(windowedSegments);
     stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+  }
+
+  // --- v2: Compute new participation metrics ---
+  const participation = computeParticipationMetrics(
+    windowedSegments,
+    config,
+    participationImbalance,
+  );
+
+  // --- v2: Compute new semantic dynamics metrics ---
+  let semanticDynamicsResult;
+  if (finalSegments.length >= 2) {
+    try {
+      // Reuse the embedding fetch path (cache will serve from memory if already fetched above)
+      const embeddingsForDynamics = await getOrFetchEmbeddings(
+        finalSegments.map(s => ({ id: s.id, text: s.text }))
+      );
+      const embCount = finalSegments.filter(s => embeddingsForDynamics.has(s.id)).length;
+
+      if (embCount >= 2) {
+        semanticDynamicsResult = computeSemanticDynamicsMetrics(
+          windowedSegments,
+          embeddingsForDynamics,
+          previousSnapshots ?? [],
+        );
+      } else {
+        semanticDynamicsResult = computeSemanticDynamicsFallback(
+          windowedSegments,
+          previousSnapshots ?? [],
+        );
+      }
+    } catch {
+      semanticDynamicsResult = computeSemanticDynamicsFallback(
+        windowedSegments,
+        previousSnapshots ?? [],
+      );
+    }
+  } else {
+    semanticDynamicsResult = computeSemanticDynamicsFallback(
+      windowedSegments,
+      previousSnapshots ?? [],
+    );
   }
 
   return {
@@ -382,5 +436,8 @@ export async function computeMetricsAsync(
     diversityDevelopment,
     windowStart,
     windowEnd: currentTime,
+    participation,
+    semanticDynamics: semanticDynamicsResult,
+    // inferredState is attached by the hook after metrics computation
   };
 }

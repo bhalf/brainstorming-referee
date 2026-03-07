@@ -1,6 +1,7 @@
 'use client';
 
 import { VoiceSettings } from '@/lib/types';
+import Toggle from './shared/Toggle';
 
 interface VoiceControlsProps {
   settings: VoiceSettings;
@@ -53,16 +54,7 @@ export default function VoiceControls({
       {/* Enable/Disable Toggle */}
       <div className="flex items-center justify-between">
         <label className="text-sm text-slate-300">Enable Voice</label>
-        <button
-          onClick={() => onUpdateSettings({ enabled: !settings.enabled })}
-          className={`relative w-12 h-6 rounded-full transition-colors ${settings.enabled ? 'bg-blue-600' : 'bg-slate-600'
-            }`}
-        >
-          <span
-            className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${settings.enabled ? 'left-7' : 'left-1'
-              }`}
-          />
-        </button>
+        <Toggle checked={settings.enabled} onChange={(v) => onUpdateSettings({ enabled: v })} />
       </div>
 
       {settings.enabled && (
