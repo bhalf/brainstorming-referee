@@ -331,16 +331,13 @@ export default function CallPage() {
         loadInitialData(sessionId);
       }
 
-      // Whisper is default — disable only if server transcription is not available
-      fetch('/api/model-routing')
-        .then(r => r.json())
-        .then(data => {
-          if (!data.config?.transcription_server?.enabled) {
-            transcription.setIsWhisperEnabled(false);
-          }
+      // OpenAI Realtime is default — fallback to Web Speech API if token fetch fails
+      fetch('/api/transcription/token', { method: 'POST' })
+        .then(res => {
+          if (!res.ok) transcription.setIsRealtimeEnabled(false);
         })
         .catch(() => {
-          transcription.setIsWhisperEnabled(false);
+          transcription.setIsRealtimeEnabled(false);
         });
     };
 
@@ -487,7 +484,7 @@ export default function CallPage() {
               onAddSimulatedSegment: transcription.handleAddSimulatedSegment,
               transcriptionError: transcription.transcriptionError,
               speakingParticipants: remoteSpeakers,
-              isWhisperActive: transcription.isWhisperEnabled,
+              isWhisperActive: transcription.isRealtimeEnabled, // Legacy prop name
             }}
             metrics={{
               currentMetrics: isDecisionOwner

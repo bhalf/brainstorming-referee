@@ -14,68 +14,92 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServiceClient();
 
-    // Atomic claim: only succeeds if no owner, we are the owner, or heartbeat is stale
-    const { data, error } = await supabase
+    // First, read the current engine state
+    const { data: current, error: readError } = await supabase
       .from('engine_state')
-      .update({
-        decision_owner: clientId,
-        decision_heartbeat: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('session_id', sessionId)
-      .or(`decision_owner.is.null,decision_owner.eq.${clientId},decision_heartbeat.lt.${new Date(Date.now() - STALE_THRESHOLD_SECONDS * 1000).toISOString()}`)
-      .select('session_id')
-      .maybeSingle();
-
-    if (error) {
-      console.error('Decision owner claim error:', error);
-      return NextResponse.json({ error: 'Failed to claim ownership' }, { status: 500 });
-    }
-
-    if (data) {
-      return NextResponse.json({ isOwner: true });
-    }
-
-    // No row updated — either the row doesn't exist or another owner is active
-    // Check if engine_state row exists at all
-    const { data: existing } = await supabase
-      .from('engine_state')
-      .select('session_id')
+      .select('session_id, decision_owner, decision_heartbeat')
       .eq('session_id', sessionId)
       .maybeSingle();
 
-    if (!existing) {
+    if (readError) {
+      console.error('Decision owner read error:', readError);
+      return NextResponse.json({ error: 'Failed to read engine state' }, { status: 500 });
+    }
+
+    const now = new Date();
+    const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_SECONDS * 1000);
+
+    if (!current) {
       // No engine_state row yet — create one with us as owner
       const { error: insertError } = await supabase
         .from('engine_state')
         .insert({
           session_id: sessionId,
           decision_owner: clientId,
-          decision_heartbeat: new Date().toISOString(),
+          decision_heartbeat: now.toISOString(),
         });
 
       if (insertError) {
-        // Race: another client might have inserted first — try claim again
-        const { data: retryData } = await supabase
+        // Race condition: another client might have inserted first
+        // Read again and check if we can claim
+        const { data: raceCheck } = await supabase
           .from('engine_state')
-          .update({
-            decision_owner: clientId,
-            decision_heartbeat: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
+          .select('decision_owner, decision_heartbeat')
           .eq('session_id', sessionId)
-          .or(`decision_owner.is.null,decision_owner.eq.${clientId}`)
-          .select('session_id')
           .maybeSingle();
 
-        return NextResponse.json({ isOwner: !!retryData });
+        if (raceCheck && (
+          !raceCheck.decision_owner ||
+          raceCheck.decision_owner === clientId
+        )) {
+          const { data: claimed } = await supabase
+            .from('engine_state')
+            .update({
+              decision_owner: clientId,
+              decision_heartbeat: now.toISOString(),
+              updated_at: now.toISOString(),
+            })
+            .eq('session_id', sessionId)
+            .select('session_id')
+            .maybeSingle();
+          return NextResponse.json({ isOwner: !!claimed });
+        }
+
+        return NextResponse.json({ isOwner: false });
       }
 
       return NextResponse.json({ isOwner: true });
     }
 
-    // Row exists but another owner is active
-    return NextResponse.json({ isOwner: false });
+    // Row exists — check if we can claim ownership
+    const heartbeat = current.decision_heartbeat ? new Date(current.decision_heartbeat) : null;
+    const canClaim =
+      !current.decision_owner ||                        // No owner
+      current.decision_owner === clientId ||             // We are the owner
+      (heartbeat && heartbeat < staleThreshold);         // Heartbeat is stale
+
+    if (!canClaim) {
+      return NextResponse.json({ isOwner: false });
+    }
+
+    // Claim ownership
+    const { data: updated, error: updateError } = await supabase
+      .from('engine_state')
+      .update({
+        decision_owner: clientId,
+        decision_heartbeat: now.toISOString(),
+        updated_at: now.toISOString(),
+      })
+      .eq('session_id', sessionId)
+      .select('session_id')
+      .maybeSingle();
+
+    if (updateError) {
+      console.error('Decision owner claim error:', updateError);
+      return NextResponse.json({ error: 'Failed to claim ownership' }, { status: 500 });
+    }
+
+    return NextResponse.json({ isOwner: !!updated });
   } catch (error) {
     console.error('Decision owner error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

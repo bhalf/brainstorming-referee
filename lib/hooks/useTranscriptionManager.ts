@@ -1,8 +1,7 @@
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
 import { TranscriptSegment, ModelRoutingLogEntry } from '@/lib/types';
 import { useSpeechRecognition } from '@/lib/transcription/useSpeechRecognition';
-import { useAudioRecorder, AudioChunk } from '@/lib/transcription/useAudioRecorder';
-import { processTranscriptionChunk } from '@/lib/transcription/processTranscriptionChunk';
+import { useOpenAIRealtimeStream } from '@/lib/transcription/useOpenAIRealtimeStream';
 
 /** Max ms since last local speaking event to accept a Speech Recognition result */
 const ECHO_GATE_MS = 3000;
@@ -30,8 +29,11 @@ export function useTranscriptionManager({
   uploadSegment,
 }: UseTranscriptionManagerParams) {
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
-  const [isWhisperEnabled, setIsWhisperEnabled] = useState(true);
+  const [isRealtimeEnabled, setIsRealtimeEnabled] = useState(true);
   const transcriptSegmentsRef = useRef<TranscriptSegment[]>([]);
+
+  // Local interim state for OpenAI Realtime
+  const [realtimeInterimTranscript, setRealtimeInterimTranscript] = useState<string>('');
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -42,14 +44,28 @@ export function useTranscriptionManager({
   const addSegment = useCallback((segment: TranscriptSegment) => {
     setTranscriptSegments(prev => [...prev, segment]);
     addTranscriptSegment(segment);
-  }, [addTranscriptSegment]);
+    uploadSegment(segment);
+  }, [addTranscriptSegment, uploadSegment]);
 
-  // Speech recognition
+  // 1. OpenAI Realtime streaming (Primary)
+  const realtime = useOpenAIRealtimeStream({
+    language,
+    speaker: displayName,
+    isActive: isSessionActive && isRealtimeEnabled,
+    onInterimTranscript: (text) => {
+      setRealtimeInterimTranscript(text);
+    },
+    onFinalSegment: (segment) => {
+      addSegment(segment);
+    }
+  });
+
+  // 2. Speech recognition (Fallback)
   const {
     isSupported: isTranscriptionSupported,
-    isListening: isTranscribing,
-    interimTranscript,
-    toggle: toggleTranscription,
+    isListening: isSpeechTranscribing,
+    interimTranscript: speechInterimTranscript,
+    toggle: toggleSpeechTranscription,
     error: transcriptionError,
   } = useSpeechRecognition({
     language,
@@ -64,87 +80,47 @@ export function useTranscriptionManager({
         }
       }
 
-      const segment: TranscriptSegment = {
-        id: result.id,
-        speaker: displayName,
-        text: result.text,
-        timestamp: result.timestamp,
-        isFinal: result.isFinal,
-        language,
-      };
-
-      setTranscriptSegments(prev => [...prev, segment]);
-      addTranscriptSegment(segment);
-
       if (result.isFinal) {
-        uploadSegment(segment);
-      }
-    }, [language, displayName, addTranscriptSegment, uploadSegment, lastLocalSpeakingTimeRef]),
-    onError: useCallback((error: string) => {
-      addError(error, 'speech-recognition');
-    }, [addError]),
-  });
-
-  // Whisper audio chunk handler
-  const handleAudioChunk = useCallback(async (chunk: AudioChunk) => {
-    try {
-      const result = await processTranscriptionChunk({
-        blob: chunk.blob,
-        timestamp: chunk.timestamp,
-        language,
-        speaker: displayName,
-        idPrefix: 'whisper',
-        addModelRoutingLog,
-      });
-
-      if (result.error) {
-        console.warn('Whisper transcription failed:', result.error);
-        return;
-      }
-
-      for (const segment of result.segments) {
+        const segment: TranscriptSegment = {
+          id: result.id,
+          speaker: displayName,
+          text: result.text,
+          timestamp: result.timestamp,
+          isFinal: result.isFinal,
+          language,
+        };
         addSegment(segment);
-        uploadSegment(segment);
       }
-    } catch (error) {
-      console.error('Whisper chunk processing error:', error);
-    }
-  }, [language, addModelRoutingLog, addSegment]);
-
-  // Audio recorder for Whisper
-  const {
-    isRecording: isWhisperRecording,
-    isSupported: isWhisperSupported,
-    start: startWhisperRecording,
-    stop: stopWhisperRecording,
-    error: whisperError,
-  } = useAudioRecorder({
-    onAudioChunk: handleAudioChunk,
-    chunkIntervalMs: 5000,
+    }, [language, displayName, addSegment, lastLocalSpeakingTimeRef]),
+    onError: useCallback((error: string) => {
+      if (!isRealtimeEnabled) {
+        addError(error, 'speech-recognition');
+      }
+    }, [addError, isRealtimeEnabled]),
   });
 
-  useEffect(() => {
-    if (whisperError) console.error("Whisper recording error:", whisperError);
-  }, [whisperError]);
-
-  // Auto-start transcription when session is active
+  // Auto-start fallback transcription when realtime is disabled
   useEffect(() => {
     if (!isSessionActive) {
-      // Stop everything when session ends
-      if (isWhisperRecording) stopWhisperRecording();
+      if (isSpeechTranscribing) toggleSpeechTranscription();
       return;
     }
 
-    if (isWhisperEnabled && isWhisperSupported && !isWhisperRecording) {
-      // Whisper path: stop speech recognition if running, start Whisper
-      if (isTranscribing) toggleTranscription();
-      startWhisperRecording();
-    } else if (!isWhisperEnabled && isTranscriptionSupported && !isTranscribing) {
-      // Speech Recognition path: auto-start when no Whisper
-      toggleTranscription();
+    if (!isRealtimeEnabled && isTranscriptionSupported && !isSpeechTranscribing) {
+      toggleSpeechTranscription();
+    } else if (isRealtimeEnabled && isSpeechTranscribing) {
+      // Turn off fallback if realtime is enabled
+      toggleSpeechTranscription();
     }
-  }, [isSessionActive, isWhisperEnabled, isWhisperSupported, isWhisperRecording,
-    startWhisperRecording, stopWhisperRecording, isTranscribing, isTranscriptionSupported, toggleTranscription]);
+  }, [isSessionActive, isRealtimeEnabled, isTranscriptionSupported, isSpeechTranscribing, toggleSpeechTranscription]);
+
+  // Bubble up Realtime errors
+  useEffect(() => {
+    if (realtime.error) {
+      console.error('OpenAI Realtime stream error:', realtime.error);
+      addError(realtime.error, 'openai-realtime');
+    }
+  }, [realtime.error, addError]);
 
   // Simulation fallback
   const handleAddSimulatedSegment = useCallback((text: string) => {
@@ -163,13 +139,19 @@ export function useTranscriptionManager({
     transcriptSegments,
     transcriptSegmentsRef,
     setTranscriptSegments,
-    interimTranscript,
-    isTranscribing,
-    isTranscriptionSupported: isTranscriptionSupported && !isWhisperEnabled,
-    toggleTranscription,
-    transcriptionError,
-    isWhisperEnabled,
-    setIsWhisperEnabled,
+    interimTranscript: isRealtimeEnabled ? realtimeInterimTranscript : speechInterimTranscript,
+    isTranscribing: isRealtimeEnabled ? realtime.isConnected : isSpeechTranscribing,
+    isTranscriptionSupported: isRealtimeEnabled ? realtime.isSupported : (isTranscriptionSupported && !isRealtimeEnabled),
+    toggleTranscription: toggleSpeechTranscription, // Note: mostly for fallback manual control
+    transcriptionError: isRealtimeEnabled ? realtime.error : transcriptionError,
+
+    // Legacy compat mappings
+    isWhisperEnabled: false,
+    setIsWhisperEnabled: () => { },
+
+    // Realtime controls
+    isRealtimeEnabled,
+    setIsRealtimeEnabled,
     handleAddSimulatedSegment,
   };
 }

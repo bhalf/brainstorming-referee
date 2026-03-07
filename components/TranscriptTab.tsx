@@ -34,7 +34,7 @@ export default function TranscriptTab({ transcript }: { transcript: TranscriptCo
           ) : showWhisperStatus ? (
             <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-900/40 text-green-300 border border-green-700/50">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              Whisper Active
+              Transcription Active
             </span>
           ) : (
             <span className="text-xs text-yellow-400">
