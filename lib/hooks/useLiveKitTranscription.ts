@@ -148,17 +148,18 @@ export function useLiveKitTranscription({
     remoteParticipants.forEach(participant => {
       const audioPublication = participant.getTrackPublication(Track.Source.Microphone);
       const audioTrack = audioPublication?.track;
+      const isMuted = audioPublication?.isMuted ?? false;
       const existing = recordersRef.current.get(participant.identity);
 
-      // Track disappeared — remove recorder
-      if (!audioTrack?.mediaStreamTrack && existing) {
+      // Track disappeared or muted — remove recorder
+      if ((!audioTrack?.mediaStreamTrack || isMuted) && existing) {
         stopAndCleanup(existing);
         recordersRef.current.delete(participant.identity);
         return;
       }
 
-      // No track or already recording — skip
-      if (!audioTrack?.mediaStreamTrack || existing) return;
+      // No track, muted, or already recording — skip
+      if (!audioTrack?.mediaStreamTrack || isMuted || existing) return;
 
       // Track available but no recorder — create one
       try {

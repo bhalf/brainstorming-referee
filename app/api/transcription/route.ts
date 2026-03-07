@@ -56,6 +56,15 @@ export async function POST(request: NextRequest) {
             whisperFormData.append('response_format', 'verbose_json');
             whisperFormData.append('timestamp_granularities[]', 'segment');
 
+            // Dialect prompt: helps Whisper adapt to Swiss German accent and vocabulary
+            if (language === 'de-CH') {
+                whisperFormData.append('prompt',
+                    'Brainstorming-Diskussion auf Schweizerdeutsch. ' +
+                    'Die Teilnehmer sprechen mit Schweizer Akzent und verwenden Helvetismen wie ' +
+                    'grüezi, merci, ähm, genau, oder, also, quasi, mega, luege, chönne, müesse, wäge, Velo, Trottoir, Natel, parkieren.'
+                );
+            }
+
             const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
                 method: 'POST',
                 headers: {

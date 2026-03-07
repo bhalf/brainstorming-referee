@@ -1,3 +1,5 @@
+import InfoPopover from './InfoPopover';
+
 /**
  * Visual metric bar with threshold indicator.
  * Used for displaying conversation health metrics with breach detection.
@@ -10,6 +12,7 @@ interface MetricBarProps {
   threshold: number;       // 0-1 position of threshold line
   higherIsBetter: boolean; // breach logic direction
   statusText: string;
+  helpKey?: string;
 }
 
 export default function MetricBar({
@@ -20,6 +23,7 @@ export default function MetricBar({
   threshold,
   higherIsBetter,
   statusText,
+  helpKey,
 }: MetricBarProps) {
   const breached = higherIsBetter ? value < threshold : value > threshold;
   const barColor = breached ? 'bg-red-500' : value === 0 ? 'bg-slate-600' : 'bg-green-500';
@@ -30,7 +34,10 @@ export default function MetricBar({
   return (
     <div>
       <div className="flex justify-between items-baseline text-xs mb-1">
-        <span className="text-slate-300 font-medium">{icon} {label}</span>
+        <span className="text-slate-300 font-medium">
+          {icon} {label}
+          {helpKey && <span className="ml-1 inline-flex align-middle"><InfoPopover helpKey={helpKey} size="xs" /></span>}
+        </span>
         <span className={`font-mono font-semibold ${statusColor}`}>{displayValue}</span>
       </div>
 

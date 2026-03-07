@@ -119,6 +119,7 @@ export default function AnalysisPanel({
           icon="❤️"
           size="page"
           description="Yellow line = intervention threshold. Red = threshold breached."
+          helpKey="section.conversationHealth"
         >
           Conversation Health
         </SectionHeader>
@@ -129,6 +130,7 @@ export default function AnalysisPanel({
             <MetricBar
               label="Participation Risk"
               icon="⚠️"
+              helpKey="metric.participationRisk"
               value={currentMetrics.participation.participationRiskScore}
               displayValue={`${(currentMetrics.participation.participationRiskScore * 100).toFixed(0)}%`}
               threshold={config.THRESHOLD_PARTICIPATION_RISK}
@@ -146,6 +148,7 @@ export default function AnalysisPanel({
             <MetricBar
               label="Novelty"
               icon="💡"
+              helpKey="metric.novelty"
               value={currentMetrics.semanticDynamics.noveltyRate}
               displayValue={`${(currentMetrics.semanticDynamics.noveltyRate * 100).toFixed(0)}%`}
               threshold={config.THRESHOLD_NOVELTY_RATE}
@@ -163,6 +166,7 @@ export default function AnalysisPanel({
             <MetricBar
               label="Concentration"
               icon="🎯"
+              helpKey="metric.concentration"
               value={currentMetrics.semanticDynamics.clusterConcentration}
               displayValue={`${(currentMetrics.semanticDynamics.clusterConcentration * 100).toFixed(0)}%`}
               threshold={config.THRESHOLD_CLUSTER_CONCENTRATION}
@@ -178,6 +182,7 @@ export default function AnalysisPanel({
           <MetricBar
             label="Balance"
             icon="⚖️"
+            helpKey="metric.balance"
             value={balance}
             displayValue={`${(balance * 100).toFixed(0)}%`}
             threshold={balanceThreshold}
@@ -192,6 +197,7 @@ export default function AnalysisPanel({
           <MetricBar
             label="Repetition"
             icon="🔁"
+            helpKey="metric.repetition"
             value={repetition}
             displayValue={`${(repetition * 100).toFixed(0)}%`}
             threshold={repetitionThreshold}
@@ -206,6 +212,7 @@ export default function AnalysisPanel({
           <MetricBar
             label="Stagnation"
             icon="⏱️"
+            helpKey="metric.stagnation"
             value={stagnationNorm}
             displayValue={
               currentMetrics.stagnationDuration < 5
@@ -224,6 +231,7 @@ export default function AnalysisPanel({
           <MetricBar
             label="Diversity"
             icon="🌐"
+            helpKey="metric.diversity"
             value={diversity}
             displayValue={`${(diversity * 100).toFixed(0)}%`}
             threshold={0.3}
@@ -239,7 +247,7 @@ export default function AnalysisPanel({
 
       {/* Decision Engine State */}
       <Panel>
-        <SectionHeader icon="🤖" size="page">Moderator State</SectionHeader>
+        <SectionHeader icon="🤖" size="page" helpKey="section.moderatorState">Moderator State</SectionHeader>
 
         {/* v2 Engine Phase */}
         {phaseConfig && (

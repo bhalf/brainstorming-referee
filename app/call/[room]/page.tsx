@@ -68,6 +68,18 @@ export default function CallPage() {
     cancelSpeech();
   }, [cancelSpeech]);
 
+  // --- Local participant state (echo gate + mute tracking) ---
+  const lastLocalSpeakingTimeRef = useRef<number | null>(null);
+  const [isLocalMicMuted, setIsLocalMicMuted] = useState(false);
+
+  const handleLocalSpeakingUpdate = useCallback(() => {
+    lastLocalSpeakingTimeRef.current = Date.now();
+  }, []);
+
+  const handleLocalMicMuteChange = useCallback((muted: boolean) => {
+    setIsLocalMicMuted(muted);
+  }, []);
+
   // --- Segment Upload (Supabase) ---
   const transcriptSegmentsRef = useRef<TranscriptSegment[]>([]);
   const sessionIdRef = useRef<string | null>(null);
@@ -97,8 +109,9 @@ export default function CallPage() {
   // --- Transcription Manager (local mic only — remote handled by LiveKit) ---
   const transcription = useTranscriptionManager({
     language,
-    isSessionActive: state.isActive,
+    isSessionActive: state.isActive && !isLocalMicMuted,
     speakingTimeRef,
+    lastLocalSpeakingTimeRef,
     addTranscriptSegment,
     addModelRoutingLog,
     addError,
@@ -227,15 +240,17 @@ export default function CallPage() {
       startSession(roomName, sc, lang, config, sessionId);
       loadPersistedCache();
 
-      // Check if Whisper is enabled
+      // Whisper is default — disable only if server transcription is not available
       fetch('/api/model-routing')
         .then(r => r.json())
         .then(data => {
-          if (data.config?.transcription_server?.enabled) {
-            transcription.setIsWhisperEnabled(true);
+          if (!data.config?.transcription_server?.enabled) {
+            transcription.setIsWhisperEnabled(false);
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          transcription.setIsWhisperEnabled(false);
+        });
     };
 
     init();
@@ -334,6 +349,8 @@ export default function CallPage() {
             onConnectionChange={setIsConnected}
             onParticipantsChange={setParticipants}
             onRemoteSpeakersChange={setRemoteSpeakers}
+            onLocalSpeakingUpdate={handleLocalSpeakingUpdate}
+            onLocalMicMuteChange={handleLocalMicMuteChange}
             speakingTimeRef={speakingTimeRef}
             transcriptionConfig={{
               language,

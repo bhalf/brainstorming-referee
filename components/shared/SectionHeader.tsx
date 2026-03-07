@@ -1,5 +1,7 @@
 'use client';
 
+import InfoPopover from './InfoPopover';
+
 interface SectionHeaderProps {
   icon?: string;
   children: React.ReactNode;
@@ -7,6 +9,7 @@ interface SectionHeaderProps {
   description?: string;
   /** Use 'panel' (smaller) inside panels, 'page' (larger) for top-level. */
   size?: 'panel' | 'page';
+  helpKey?: string;
 }
 
 /** Consistent section heading used across all panels and pages. */
@@ -15,6 +18,7 @@ export default function SectionHeader({
   children,
   description,
   size = 'panel',
+  helpKey,
 }: SectionHeaderProps) {
   const headingClass = size === 'page'
     ? 'text-sm font-semibold text-slate-300'
@@ -25,6 +29,7 @@ export default function SectionHeader({
       <h3 className={headingClass}>
         {icon && <span className="mr-1.5">{icon}</span>}
         {children}
+        {helpKey && <span className="ml-1.5 inline-flex align-middle"><InfoPopover helpKey={helpKey} size="xs" /></span>}
       </h3>
       {description && (
         <p className="text-xs text-slate-500 mt-0.5">{description}</p>

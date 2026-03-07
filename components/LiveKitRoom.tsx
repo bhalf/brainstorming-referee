@@ -20,6 +20,8 @@ interface LiveKitRoomProps {
   onConnectionChange: (connected: boolean) => void;
   onParticipantsChange: (participants: { id: string; displayName: string }[]) => void;
   onRemoteSpeakersChange: (speakers: { id: string; displayName: string }[]) => void;
+  onLocalSpeakingUpdate?: () => void;
+  onLocalMicMuteChange?: (muted: boolean) => void;
   speakingTimeRef: MutableRefObject<Map<string, number>>;
   transcriptionConfig: {
     language: string;
@@ -35,6 +37,8 @@ function LiveKitSession({
   onConnectionChange,
   onParticipantsChange,
   onRemoteSpeakersChange,
+  onLocalSpeakingUpdate,
+  onLocalMicMuteChange,
   speakingTimeRef,
   transcriptionConfig,
 }: Omit<LiveKitRoomProps, 'roomName' | 'displayName'>) {
@@ -42,6 +46,11 @@ function LiveKitSession({
   const remoteParticipants = useRemoteParticipants();
   const { localParticipant } = useLocalParticipant();
   const lastSpeakingCheckRef = useRef<number>(Date.now());
+  const lastMicMutedRef = useRef<boolean | null>(null);
+  const onLocalSpeakingUpdateRef = useRef(onLocalSpeakingUpdate);
+  const onLocalMicMuteChangeRef = useRef(onLocalMicMuteChange);
+  useEffect(() => { onLocalSpeakingUpdateRef.current = onLocalSpeakingUpdate; }, [onLocalSpeakingUpdate]);
+  useEffect(() => { onLocalMicMuteChangeRef.current = onLocalMicMuteChange; }, [onLocalMicMuteChange]);
 
   // Track connection state
   useEffect(() => {
@@ -76,10 +85,22 @@ function LiveKitSession({
       });
 
       onRemoteSpeakersChange(activeSpeakers);
+
+      // Track local participant speaking state (for echo gate)
+      if (localParticipant.isSpeaking) {
+        onLocalSpeakingUpdateRef.current?.();
+      }
+
+      // Track local mic mute state
+      const isMicMuted = !localParticipant.isMicrophoneEnabled;
+      if (lastMicMutedRef.current !== isMicMuted) {
+        lastMicMutedRef.current = isMicMuted;
+        onLocalMicMuteChangeRef.current?.(isMicMuted);
+      }
     }, 500);
 
     return () => clearInterval(interval);
-  }, [remoteParticipants, speakingTimeRef, onRemoteSpeakersChange]);
+  }, [remoteParticipants, localParticipant, speakingTimeRef, onRemoteSpeakersChange]);
 
   // Per-participant transcription
   useLiveKitTranscription({
@@ -100,6 +121,8 @@ export default function LiveKitRoomComponent({
   onConnectionChange,
   onParticipantsChange,
   onRemoteSpeakersChange,
+  onLocalSpeakingUpdate,
+  onLocalMicMuteChange,
   speakingTimeRef,
   transcriptionConfig,
 }: LiveKitRoomProps) {
@@ -177,6 +200,8 @@ export default function LiveKitRoomComponent({
           onConnectionChange={onConnectionChange}
           onParticipantsChange={onParticipantsChange}
           onRemoteSpeakersChange={onRemoteSpeakersChange}
+          onLocalSpeakingUpdate={onLocalSpeakingUpdate}
+          onLocalMicMuteChange={onLocalMicMuteChange}
           speakingTimeRef={speakingTimeRef}
           transcriptionConfig={transcriptionConfig}
         />

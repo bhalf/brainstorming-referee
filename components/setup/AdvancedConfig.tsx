@@ -43,9 +43,10 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
 
           <div className="grid md:grid-cols-2 gap-4">
             {/* Window & Analysis */}
-            <ConfigGroup title="Window & Analysis">
+            <ConfigGroup title="Window & Analysis" helpKey="config.windowGroup">
               <ConfigInput
                 label="Window (sec)"
+                helpKey="config.windowSeconds"
                 value={config.WINDOW_SECONDS}
                 onChange={(v) => onUpdateConfig('WINDOW_SECONDS', v)}
                 constraints={CONFIG_CONSTRAINTS.WINDOW_SECONDS}
@@ -53,6 +54,7 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
               />
               <ConfigInput
                 label="Analyze every (ms)"
+                helpKey="config.analyzeEveryMs"
                 value={config.ANALYZE_EVERY_MS}
                 onChange={(v) => onUpdateConfig('ANALYZE_EVERY_MS', v)}
                 constraints={CONFIG_CONSTRAINTS.ANALYZE_EVERY_MS}
@@ -61,9 +63,10 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
             </ConfigGroup>
 
             {/* Trigger Timing */}
-            <ConfigGroup title="Trigger Timing">
+            <ConfigGroup title="Trigger Timing" helpKey="config.triggerGroup">
               <ConfigInput
                 label="Persistence (sec)"
+                helpKey="config.persistenceSeconds"
                 value={config.PERSISTENCE_SECONDS}
                 onChange={(v) => onUpdateConfig('PERSISTENCE_SECONDS', v)}
                 constraints={CONFIG_CONSTRAINTS.PERSISTENCE_SECONDS}
@@ -71,6 +74,7 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
               />
               <ConfigInput
                 label="Cooldown (sec)"
+                helpKey="config.cooldownSeconds"
                 value={config.COOLDOWN_SECONDS}
                 onChange={(v) => onUpdateConfig('COOLDOWN_SECONDS', v)}
                 constraints={CONFIG_CONSTRAINTS.COOLDOWN_SECONDS}
@@ -78,6 +82,7 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
               />
               <ConfigInput
                 label="Post-check (sec)"
+                helpKey="config.postCheckSeconds"
                 value={config.POST_CHECK_SECONDS}
                 onChange={(v) => onUpdateConfig('POST_CHECK_SECONDS', v)}
                 constraints={CONFIG_CONSTRAINTS.POST_CHECK_SECONDS}
@@ -86,9 +91,10 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
             </ConfigGroup>
 
             {/* Thresholds */}
-            <ConfigGroup title="Thresholds">
+            <ConfigGroup title="Thresholds" helpKey="config.thresholdGroup">
               <ConfigInput
                 label="Imbalance (0-1)"
+                helpKey="config.thresholdImbalance"
                 value={config.THRESHOLD_IMBALANCE}
                 onChange={(v) => onUpdateConfig('THRESHOLD_IMBALANCE', v)}
                 constraints={CONFIG_CONSTRAINTS.THRESHOLD_IMBALANCE}
@@ -97,6 +103,7 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
               />
               <ConfigInput
                 label="Repetition (0-1)"
+                helpKey="config.thresholdRepetition"
                 value={config.THRESHOLD_REPETITION}
                 onChange={(v) => onUpdateConfig('THRESHOLD_REPETITION', v)}
                 constraints={CONFIG_CONSTRAINTS.THRESHOLD_REPETITION}
@@ -105,6 +112,7 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
               />
               <ConfigInput
                 label="Stagnation (sec)"
+                helpKey="config.thresholdStagnation"
                 value={config.THRESHOLD_STAGNATION_SECONDS}
                 onChange={(v) => onUpdateConfig('THRESHOLD_STAGNATION_SECONDS', v)}
                 constraints={CONFIG_CONSTRAINTS.THRESHOLD_STAGNATION_SECONDS}
@@ -113,9 +121,10 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
             </ConfigGroup>
 
             {/* Safety Limits */}
-            <ConfigGroup title="Safety Limits">
+            <ConfigGroup title="Safety Limits" helpKey="config.safetyGroup">
               <ConfigInput
                 label="TTS Rate Limit (sec)"
+                helpKey="config.ttsRateLimit"
                 value={config.TTS_RATE_LIMIT_SECONDS}
                 onChange={(v) => onUpdateConfig('TTS_RATE_LIMIT_SECONDS', v)}
                 constraints={CONFIG_CONSTRAINTS.TTS_RATE_LIMIT_SECONDS}
@@ -123,6 +132,7 @@ export default function AdvancedConfig({ config, onUpdateConfig, onReset }: Adva
               />
               <ConfigInput
                 label="Max Interv. / 10min"
+                helpKey="config.maxInterventions"
                 value={config.MAX_INTERVENTIONS_PER_10MIN}
                 onChange={(v) => onUpdateConfig('MAX_INTERVENTIONS_PER_10MIN', v)}
                 constraints={CONFIG_CONSTRAINTS.MAX_INTERVENTIONS_PER_10MIN}

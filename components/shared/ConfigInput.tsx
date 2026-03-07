@@ -1,3 +1,5 @@
+import InfoPopover from './InfoPopover';
+
 interface ConfigInputProps {
   label: string;
   value: number;
@@ -5,13 +7,17 @@ interface ConfigInputProps {
   constraints: { min: number; max: number };
   step?: number;
   tooltip?: string;
+  helpKey?: string;
 }
 
-export default function ConfigInput({ label, value, onChange, constraints, step = 1, tooltip }: ConfigInputProps) {
+export default function ConfigInput({ label, value, onChange, constraints, step = 1, tooltip, helpKey }: ConfigInputProps) {
   return (
     <div className="flex flex-col group">
       <div className="flex items-center gap-2">
-        <label className="text-sm font-medium text-slate-300 w-36 flex-shrink-0">{label}</label>
+        <label className="text-sm font-medium text-slate-300 w-36 flex-shrink-0">
+          {label}
+          {helpKey && <span className="ml-1 inline-flex align-middle"><InfoPopover helpKey={helpKey} size="xs" /></span>}
+        </label>
         <input
           type="number"
           value={value}

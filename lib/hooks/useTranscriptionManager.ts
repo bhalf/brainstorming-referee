@@ -5,10 +5,15 @@ import { useSpeechRecognition } from '@/lib/transcription/useSpeechRecognition';
 import { useAudioRecorder, AudioChunk } from '@/lib/transcription/useAudioRecorder';
 import { processTranscriptionChunk } from '@/lib/transcription/processTranscriptionChunk';
 
+/** Max ms since last local speaking event to accept a Speech Recognition result */
+const ECHO_GATE_MS = 3000;
+
 interface UseTranscriptionManagerParams {
   language: string;
   isSessionActive: boolean;
   speakingTimeRef: MutableRefObject<Map<string, number>>;
+  /** Updated by LiveKit when local participant is speaking — used to filter echo */
+  lastLocalSpeakingTimeRef?: MutableRefObject<number | null>;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
   addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
   addError: (message: string, context?: string) => void;
@@ -19,13 +24,14 @@ export function useTranscriptionManager({
   language,
   isSessionActive,
   speakingTimeRef,
+  lastLocalSpeakingTimeRef,
   addTranscriptSegment,
   addModelRoutingLog,
   addError,
   uploadSegment,
 }: UseTranscriptionManagerParams) {
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
-  const [isWhisperEnabled, setIsWhisperEnabled] = useState(false);
+  const [isWhisperEnabled, setIsWhisperEnabled] = useState(true);
   const transcriptSegmentsRef = useRef<TranscriptSegment[]>([]);
 
   // Keep ref in sync with state
@@ -51,6 +57,14 @@ export function useTranscriptionManager({
     continuous: true,
     interimResults: true,
     onResult: useCallback((result: { id: string; text: string; timestamp: number; isFinal: boolean }) => {
+      // Echo gate: if LiveKit is connected and local user hasn't spoken recently,
+      // this is likely echo from remote audio played through speakers — drop it
+      if (lastLocalSpeakingTimeRef?.current !== null && lastLocalSpeakingTimeRef?.current !== undefined) {
+        if (Date.now() - lastLocalSpeakingTimeRef.current > ECHO_GATE_MS) {
+          return;
+        }
+      }
+
       const segment: TranscriptSegment = {
         id: result.id,
         speaker: 'You',
@@ -73,7 +87,7 @@ export function useTranscriptionManager({
       if (result.isFinal) {
         uploadSegment(segment);
       }
-    }, [language, addTranscriptSegment, uploadSegment, speakingTimeRef]),
+    }, [language, addTranscriptSegment, uploadSegment, speakingTimeRef, lastLocalSpeakingTimeRef]),
     onError: useCallback((error: string) => {
       addError(error, 'speech-recognition');
     }, [addError]),
