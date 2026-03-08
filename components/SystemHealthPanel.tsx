@@ -12,6 +12,8 @@ export interface SystemHealthProps {
     isConnected: boolean;
     isRecording: boolean;
     error: string | null;
+    isMuted?: boolean;
+    isRealtimeEnabled?: boolean;
   };
   liveKit: {
     isConnected: boolean;
@@ -72,8 +74,12 @@ function getSubsystems(props: SystemHealthProps, now: number): SubsystemStatus[]
     subsystems.push({ label: 'Transcription', status: 'healthy', detail: 'Connected & recording' });
   } else if (props.transcription.isConnected) {
     subsystems.push({ label: 'Transcription', status: 'degraded', detail: 'Connected, not recording' });
+  } else if (props.transcription.isMuted) {
+    subsystems.push({ label: 'Transcription', status: 'healthy', detail: 'Paused (mic muted)' });
+  } else if (props.transcription.isRealtimeEnabled === false) {
+    subsystems.push({ label: 'Transcription', status: 'inactive', detail: 'Disabled' });
   } else {
-    subsystems.push({ label: 'Transcription', status: 'inactive', detail: 'Not connected' });
+    subsystems.push({ label: 'Transcription', status: 'degraded', detail: 'Connecting…' });
   }
 
   // LiveKit
@@ -157,7 +163,7 @@ export default function SystemHealthPanel({ health }: { health: SystemHealthProp
             <span className={`w-2.5 h-2.5 rounded-full ${getStatusDotColor(overallHealth)} ${overallHealth === 'error' ? 'animate-pulse' : ''}`} />
             <span className={`text-xs font-medium ${getStatusTextColor(overallHealth)}`}>
               {overallHealth === 'healthy' ? 'All Systems OK' :
-               overallHealth === 'degraded' ? 'Degraded' : 'Issues Detected'}
+                overallHealth === 'degraded' ? 'Degraded' : 'Issues Detected'}
             </span>
           </div>
         </div>

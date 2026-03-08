@@ -705,6 +705,8 @@ export default function CallPage() {
       isConnected: transcription.realtimeConnected,
       isRecording: transcription.realtimeRecording,
       error: transcription.transcriptionError,
+      isMuted: isLocalMicMuted,
+      isRealtimeEnabled: transcription.isRealtimeEnabled,
     },
     liveKit: { isConnected },
     realtimeSync: { isConnected: realtimeSyncConnected },

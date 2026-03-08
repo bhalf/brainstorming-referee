@@ -187,6 +187,12 @@ async function callOpenAIChatWithTimeout(
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
     try {
+        // GPT-5+ and o-series models use max_completion_tokens; older models use max_tokens
+        const usesNewTokenParam = /^(gpt-5|o[1-9]|o\d)/.test(model);
+        const tokenParam = usesNewTokenParam
+            ? { max_completion_tokens: config.maxTokens }
+            : { max_tokens: config.maxTokens };
+
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -196,7 +202,7 @@ async function callOpenAIChatWithTimeout(
             body: JSON.stringify({
                 model,
                 messages,
-                max_tokens: config.maxTokens,
+                ...tokenParam,
                 temperature: config.temperature,
                 ...(responseFormat && { response_format: responseFormat }),
             }),
