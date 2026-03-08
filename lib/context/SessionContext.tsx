@@ -34,7 +34,7 @@ const initialDecisionState: DecisionEngineState = {
 };
 
 const initialVoiceSettings: VoiceSettings = {
-  voiceName: '',
+  voiceName: 'nova',
   rate: 1.0,
   pitch: 1.0,
   volume: 0.8,
@@ -228,6 +228,7 @@ interface SessionContextValue {
   startSession: (roomName: string, scenario: Scenario, language: string, config: ExperimentConfig, sessionId?: string) => void;
   setSessionId: (sessionId: string) => void;
   endSession: () => void;
+  updateConfig: (updates: Partial<ExperimentConfig>) => void;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
   updateTranscriptSegment: (id: string, updates: Partial<TranscriptSegment>) => void;
   addMetricSnapshot: (snapshot: MetricSnapshot) => void;
@@ -264,6 +265,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
   const endSession = useCallback(() => {
     dispatch({ type: 'END_SESSION' });
+  }, []);
+
+  const updateConfig = useCallback((updates: Partial<ExperimentConfig>) => {
+    dispatch({ type: 'UPDATE_CONFIG', payload: updates });
   }, []);
 
   const addTranscriptSegment = useCallback((segment: TranscriptSegment) => {
@@ -327,6 +332,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     startSession,
     setSessionId,
     endSession,
+    updateConfig,
     addTranscriptSegment,
     updateTranscriptSegment,
     addMetricSnapshot,

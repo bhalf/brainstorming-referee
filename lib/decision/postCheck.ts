@@ -67,7 +67,7 @@ function evaluateParticipationRecovery(
   const silentImproved = (prevSilent - currSilent >= 0.1) || currSilent === 0;
   details.silentParticipantRatio = { before: prevSilent, after: currSilent, improved: silentImproved };
 
-  // Turn distribution (Gini on turnShare)
+  // Turn distribution (Hoover index on turnShare)
   const prevImbalance = atIntervention.participationImbalance;
   const currImbalance = current.participationImbalance;
   const turnImproved = prevImbalance - currImbalance >= 0.05;

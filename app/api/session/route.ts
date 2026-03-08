@@ -13,6 +13,22 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServiceClient();
 
+    // Check for existing active session with same room name
+    const { data: existing } = await supabase
+      .from('sessions')
+      .select('id, host_identity')
+      .eq('room_name', roomName)
+      .is('ended_at', null)
+      .limit(1)
+      .single();
+
+    if (existing) {
+      return NextResponse.json(
+        { error: 'active_session_exists', sessionId: existing.id, hostIdentity: existing.host_identity },
+        { status: 409 }
+      );
+    }
+
     const { data, error } = await supabase
       .from('sessions')
       .insert({
@@ -72,6 +88,49 @@ export async function GET(request: NextRequest) {
     hostIdentity: data.host_identity,
     startedAt: data.started_at,
   });
+}
+
+// PUT — Update session voice settings
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { sessionId, voiceSettings } = body;
+
+    if (!sessionId) {
+      return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
+    }
+
+    const supabase = getServiceClient();
+
+    // Read current config, merge voice settings into it
+    const { data: session, error: readError } = await supabase
+      .from('sessions')
+      .select('config')
+      .eq('id', sessionId)
+      .single();
+
+    if (readError || !session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const currentConfig = (session.config as Record<string, unknown>) || {};
+    const updatedConfig = { ...currentConfig, voiceSettings };
+
+    const { error } = await supabase
+      .from('sessions')
+      .update({ config: updatedConfig })
+      .eq('id', sessionId);
+
+    if (error) {
+      console.error('Failed to update voice settings:', error);
+      return NextResponse.json({ error: 'Failed to update voice settings' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Voice settings update error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }
 
 // PATCH — End a session

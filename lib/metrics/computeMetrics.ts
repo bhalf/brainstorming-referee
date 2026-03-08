@@ -48,7 +48,7 @@ export function computeSpeakingTimeDistribution(
 
 // --- Participation Imbalance ---
 // Returns 0-1, where 0 = perfectly balanced, 1 = completely imbalanced
-// Uses Gini coefficient approach
+// Uses Hoover index (normalized sum of absolute deviations from 1/n)
 
 export function computeParticipationImbalance(
   distribution: SpeakingTimeDistribution,
@@ -175,12 +175,11 @@ export function computeStagnationDuration(
 // Uses embeddings to determine if recent segments introduce novel content.
 // Only resets stagnation when a segment falls below the novelty threshold.
 
-const NOVELTY_THRESHOLD = 0.85; // Cosine similarity threshold: > 0.85 = repetitive
-
 export function computeStagnationDurationSemantic(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
-  currentTime: number = Date.now()
+  currentTime: number = Date.now(),
+  stagnationNoveltyThreshold: number = 0.85,
 ): number {
   // Exclude system activity markers — their embeddings are near-identical, which
   // would make the novelty walk conclude "no novel content" even during active speech.
@@ -213,7 +212,7 @@ export function computeStagnationDurationSemantic(
 
     if (count === 0) continue;
 
-    if (maxSim < NOVELTY_THRESHOLD) {
+    if (maxSim < stagnationNoveltyThreshold) {
       // This segment introduced novel content
       const timeSince = (currentTime - finalSegments[i].timestamp) / 1000;
       return Math.max(0, timeSince);
@@ -406,7 +405,7 @@ export async function computeMetricsAsync(
         diversityDevelopment = computeEmbeddingDiversity(embeddings, segmentIds);
         // Semantic stagnation: uses embedding novelty
         stagnationDuration = computeStagnationDurationSemantic(
-          windowedSegments, embeddings, currentTime
+          windowedSegments, embeddings, currentTime, config.STAGNATION_NOVELTY_THRESHOLD,
         );
       } else {
         // Fallback to Jaccard + time-based stagnation
@@ -449,6 +448,7 @@ export async function computeMetricsAsync(
           windowedSegments,
           embeddingsForDynamics,
           previousSnapshots ?? [],
+          config,
         );
       } else {
         semanticDynamicsResult = computeSemanticDynamicsFallback(

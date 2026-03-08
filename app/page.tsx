@@ -28,6 +28,7 @@ export default function SetupPage() {
   const [config, setConfig] = useState<ExperimentConfig>(DEFAULT_CONFIG);
   const [errors, setErrors] = useState<string[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [existingRoom, setExistingRoom] = useState<{ scenario: string; language: string } | null>(null);
 
   // --- Load from localStorage on mount ---
   useEffect(() => {
@@ -60,15 +61,33 @@ export default function SetupPage() {
     );
   };
 
-  const handleStartSession = () => {
+  const handleStartSession = async () => {
     const validation = validateConfig(config);
     if (!validation.isValid) { setErrors(validation.errors); return; }
     if (!roomName.trim()) { setErrors(['Room name is required']); return; }
+
+    // Check if room already has an active session
+    try {
+      const res = await fetch(`/api/session?room=${encodeURIComponent(roomName.trim())}`);
+      if (res.ok) {
+        // Active session exists — show warning
+        const data = await res.json();
+        setExistingRoom({ scenario: data.scenario, language: data.language });
+        setErrors([]);
+        return;
+      }
+    } catch {
+      // Network error — proceed with creation attempt
+    }
 
     saveConfigToStorage(config);
     saveRoomToStorage(roomName);
     const encodedConfig = encodeConfig(config);
     router.push(`/call/${encodeURIComponent(roomName)}?scenario=${scenario}&lang=${language}&config=${encodedConfig}`);
+  };
+
+  const handleJoinExisting = () => {
+    router.push(`/call/${encodeURIComponent(roomName.trim())}?role=participant&name=Researcher`);
   };
 
   const handleResetConfig = () => {
@@ -109,12 +128,12 @@ export default function SetupPage() {
                 <input
                   type="text"
                   value={roomName}
-                  onChange={(e) => setRoomName(e.target.value)}
+                  onChange={(e) => { setRoomName(e.target.value); setExistingRoom(null); }}
                   placeholder="Enter room name..."
                   className="flex-1 px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
                 <button
-                  onClick={() => setRoomName(generateRoomName())}
+                  onClick={() => { setRoomName(generateRoomName()); setExistingRoom(null); }}
                   className="px-4 py-3 bg-slate-600 hover:bg-slate-500 rounded-lg transition-colors"
                   title="Generate random room name"
                 >
@@ -136,6 +155,32 @@ export default function SetupPage() {
                     <li key={i}>{err}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {/* Existing Room Warning */}
+            {existingRoom && (
+              <div className="mb-6 p-4 bg-yellow-900/30 border border-yellow-700 rounded-lg">
+                <p className="font-medium text-yellow-300 mb-1">
+                  Room &quot;{roomName}&quot; is already active
+                </p>
+                <p className="text-sm text-yellow-400/80 mb-3">
+                  Scenario {existingRoom.scenario} &middot; {existingRoom.language}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleJoinExisting}
+                    className="flex-1 py-2 bg-green-700 hover:bg-green-600 rounded-lg text-sm font-medium text-white transition-colors"
+                  >
+                    Join as Participant
+                  </button>
+                  <button
+                    onClick={() => setExistingRoom(null)}
+                    className="flex-1 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg text-sm font-medium text-white transition-colors"
+                  >
+                    Choose Different Name
+                  </button>
+                </div>
               </div>
             )}
 

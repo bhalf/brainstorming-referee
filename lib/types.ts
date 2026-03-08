@@ -165,6 +165,14 @@ export interface ExperimentConfig {
   THRESHOLD_CLUSTER_CONCENTRATION: number;    // 0.7  — above this = high convergence
   CONFIRMATION_SECONDS: number;               // 30   — how long risky state must persist before intervention
   RECOVERY_IMPROVEMENT_THRESHOLD: number;     // 0.15 — recovery score needed to count as recovered
+
+  // Computation parameters (calibrated for text-embedding-3-small)
+  NOVELTY_COSINE_THRESHOLD: number;           // 0.65 — cosine similarity below this = novel segment
+  CLUSTER_MERGE_THRESHOLD: number;            // 0.60 — cosine similarity above this = merge into cluster
+  STAGNATION_NOVELTY_THRESHOLD: number;       // 0.70 — cosine similarity below this = new content (stagnation)
+  EXPLORATION_COSINE_THRESHOLD: number;       // 0.55 — avg cosine similarity below this = exploration
+  ELABORATION_COSINE_THRESHOLD: number;       // 0.70 — max cosine similarity above this = elaboration
+  PARTICIPATION_RISK_WEIGHTS: [number, number, number, number]; // [hoover, silent, streak, turnHoover] must sum to 1
 }
 
 // --- Model Routing Log ---

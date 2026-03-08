@@ -9,6 +9,7 @@ import AnalysisPanel from './AnalysisPanel';
 import VoiceControls from './VoiceControls';
 import ExportButton from './ExportButton';
 import ModelRoutingPanel from './ModelRoutingPanel';
+import LiveTuningPanel from './LiveTuningPanel';
 import TranscriptTab from './TranscriptTab';
 import Panel from './shared/Panel';
 import SectionHeader from './shared/SectionHeader';
@@ -37,7 +38,6 @@ export interface MetricsDisplayProps {
 export interface VoiceControlProps {
   settings: VoiceSettings;
   onUpdateSettings: (updates: Partial<VoiceSettings>) => void;
-  voices: SpeechSynthesisVoice[];
   isSpeaking: boolean;
   onTestVoice: () => void;
   onCancelVoice: () => void;
@@ -55,15 +55,18 @@ interface OverlayPanelProps {
   interventions: Intervention[];
   sessionLog: SessionLog;
   modelRoutingLog: ModelRoutingLogEntry[];
+  onUpdateConfig?: (key: keyof ExperimentConfig, value: number | [number, number, number, number]) => void;
+  onResetConfig?: () => void;
   children?: ReactNode;
 }
 
-type TabId = 'chat' | 'transcript' | 'analysis' | 'settings' | 'models' | 'debug';
+type TabId = 'chat' | 'transcript' | 'analysis' | 'tuning' | 'settings' | 'models' | 'debug';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'chat', label: 'Chat', icon: '💬' },
   { id: 'transcript', label: 'Transcript', icon: '📝' },
   { id: 'analysis', label: 'Analysis', icon: '📊' },
+  { id: 'tuning', label: 'Tuning', icon: '🎛️' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
   { id: 'models', label: 'Models', icon: '🤖' },
   { id: 'debug', label: 'Debug', icon: '🔧' },
@@ -81,6 +84,8 @@ export default function OverlayPanel({
   interventions,
   sessionLog,
   modelRoutingLog,
+  onUpdateConfig,
+  onResetConfig,
   children,
 }: OverlayPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('transcript');
@@ -149,16 +154,24 @@ export default function OverlayPanel({
           </div>
         )}
 
+        {activeTab === 'tuning' && onUpdateConfig && onResetConfig && (
+          <div className="h-full flex flex-col p-3">
+            <LiveTuningPanel
+              config={metrics.config}
+              onUpdateConfig={onUpdateConfig}
+              onResetAll={onResetConfig}
+            />
+          </div>
+        )}
+
         {activeTab === 'settings' && (
           <div className="h-full flex flex-col p-3 space-y-4 overflow-y-auto">
             <Panel>
               <SectionHeader icon="🔊" size="page">Voice Settings</SectionHeader>
               <VoiceControls
                 settings={voice.settings}
-                voices={voice.voices}
                 isSpeaking={voice.isSpeaking}
                 canSpeak={true}
-                language={language}
                 onUpdateSettings={voice.onUpdateSettings}
                 onTestVoice={voice.onTestVoice}
                 onCancel={voice.onCancelVoice}

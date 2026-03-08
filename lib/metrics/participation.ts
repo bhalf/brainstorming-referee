@@ -120,10 +120,13 @@ export function computeDominanceStreakScore(
   return Math.max(0, Math.min(1, (rawStreak - expectedStreak) / denominator));
 }
 
-// --- Gini coefficient for any distribution ---
+// --- Hoover Index (aka Pietra Index) for any distribution ---
 // Reusable helper: 0 = perfectly equal, 1 = maximally unequal.
+// Note: This computes the normalized Hoover index (sum of |share - 1/n| / max_deviation),
+// NOT the Gini coefficient (which would be sum_i sum_j |x_i - x_j| / (2n * sum(x))).
+// The Hoover index is simpler and sufficient for participation imbalance detection.
 
-export function computeGini(values: number[]): number {
+export function computeHooverIndex(values: number[]): number {
   if (values.length <= 1) return 0; // No inequality possible with 0 or 1 values
 
   const total = values.reduce((a, b) => a + b, 0);
@@ -141,18 +144,19 @@ export function computeGini(values: number[]): number {
 // Weighted composite of all participation sub-metrics.
 
 export function computeParticipationRiskScore(
-  giniImbalance: number,
+  hooverImbalance: number,
   silentParticipantRatio: number,
   dominanceStreakScore: number,
   turnShare: Record<string, number>,
+  weights: [number, number, number, number] = [0.35, 0.25, 0.25, 0.15],
 ): number {
-  const turnGini = computeGini(Object.values(turnShare));
+  const turnHoover = computeHooverIndex(Object.values(turnShare));
 
   const score =
-    0.35 * giniImbalance +
-    0.25 * silentParticipantRatio +
-    0.25 * dominanceStreakScore +
-    0.15 * turnGini;
+    weights[0] * hooverImbalance +
+    weights[1] * silentParticipantRatio +
+    weights[2] * dominanceStreakScore +
+    weights[3] * turnHoover;
 
   return Math.max(0, Math.min(1, score));
 }
@@ -162,7 +166,7 @@ export function computeParticipationRiskScore(
 export function computeParticipationMetrics(
   segments: TranscriptSegment[],
   config: ExperimentConfig,
-  giniImbalance: number,
+  hooverImbalance: number,
   knownParticipantCount?: number,
 ): ParticipationMetrics {
   const volumeShare = computeVolumeShare(segments);
@@ -174,10 +178,11 @@ export function computeParticipationMetrics(
   );
   const dominanceStreakScore = computeDominanceStreakScore(segments, knownParticipantCount);
   const participationRiskScore = computeParticipationRiskScore(
-    giniImbalance,
+    hooverImbalance,
     silentParticipantRatio,
     dominanceStreakScore,
     turnShare,
+    config.PARTICIPATION_RISK_WEIGHTS,
   );
 
   return {

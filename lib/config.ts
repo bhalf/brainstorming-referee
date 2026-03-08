@@ -32,6 +32,16 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   THRESHOLD_CLUSTER_CONCENTRATION: 0.7,
   CONFIRMATION_SECONDS: 30,
   RECOVERY_IMPROVEMENT_THRESHOLD: 0.15,
+
+  // Computation parameters
+  // Thresholds calibrated for text-embedding-3-small (1536-dim, normalized).
+  // Unrelated sentences typically score ~0.3-0.5 cosine; related ~0.5-0.7; very similar ~0.7+.
+  NOVELTY_COSINE_THRESHOLD: 0.65,
+  CLUSTER_MERGE_THRESHOLD: 0.60,
+  STAGNATION_NOVELTY_THRESHOLD: 0.70,
+  EXPLORATION_COSINE_THRESHOLD: 0.55,
+  ELABORATION_COSINE_THRESHOLD: 0.70,
+  PARTICIPATION_RISK_WEIGHTS: [0.35, 0.25, 0.25, 0.15],
 };
 
 // --- Config Validation ---
@@ -59,6 +69,13 @@ export const CONFIG_CONSTRAINTS = {
   THRESHOLD_CLUSTER_CONCENTRATION: { min: 0.3, max: 1.0 },
   CONFIRMATION_SECONDS: { min: 5, max: 120 },
   RECOVERY_IMPROVEMENT_THRESHOLD: { min: 0.01, max: 0.5 },
+  // Computation parameters
+  NOVELTY_COSINE_THRESHOLD: { min: 0.30, max: 0.90 },
+  CLUSTER_MERGE_THRESHOLD: { min: 0.30, max: 0.90 },
+  STAGNATION_NOVELTY_THRESHOLD: { min: 0.30, max: 0.90 },
+  EXPLORATION_COSINE_THRESHOLD: { min: 0.20, max: 0.85 },
+  ELABORATION_COSINE_THRESHOLD: { min: 0.40, max: 0.95 },
+  // PARTICIPATION_RISK_WEIGHTS validated separately (must sum to 1)
 } as const;
 
 export function validateConfig(config: ExperimentConfig): ConfigValidation {
@@ -68,10 +85,30 @@ export function validateConfig(config: ExperimentConfig): ConfigValidation {
     const value = config[key as keyof ExperimentConfig];
     const { min, max } = constraints;
 
+    if (typeof value !== 'number') continue; // Skip non-numeric fields (e.g. arrays)
     if (isNaN(value)) {
       errors.push(`${key} must be a valid number`);
     } else if (value < min || value > max) {
       errors.push(`${key} must be between ${min} and ${max}`);
+    }
+  }
+
+  // Validate PARTICIPATION_RISK_WEIGHTS
+  const weights = config.PARTICIPATION_RISK_WEIGHTS;
+  if (weights) {
+    if (weights.length !== 4) {
+      errors.push('PARTICIPATION_RISK_WEIGHTS must have exactly 4 values');
+    } else {
+      for (const w of weights) {
+        if (w < 0 || w > 1) {
+          errors.push('PARTICIPATION_RISK_WEIGHTS values must be between 0 and 1');
+          break;
+        }
+      }
+      const sum = weights.reduce((a, b) => a + b, 0);
+      if (Math.abs(sum - 1.0) > 0.01) {
+        errors.push(`PARTICIPATION_RISK_WEIGHTS must sum to 1.0 (currently ${sum.toFixed(2)})`);
+      }
     }
   }
 

@@ -2,15 +2,12 @@
 // Semantic Dynamics Metrics — Idea-Space Analysis
 // ============================================
 
-import { TranscriptSegment, SemanticDynamicsMetrics, MetricSnapshot } from '../types';
+import { TranscriptSegment, SemanticDynamicsMetrics, MetricSnapshot, ExperimentConfig } from '../types';
 import { cosineSimilarity } from './embeddingCache';
+import { DEFAULT_CONFIG } from '../config';
 
 const MAX_SEGMENTS = 30;
 const NOVELTY_WINDOW = 20;
-const NOVELTY_THRESHOLD = 0.80;
-const CLUSTER_MERGE_THRESHOLD = 0.75;
-const EXPLORATION_THRESHOLD = 0.75;
-const ELABORATION_THRESHOLD = 0.80;
 const JACCARD_MERGE_THRESHOLD = 0.40;
 
 const isActivityMarker = (seg: TranscriptSegment) => /^\[.*\]$/.test(seg.text.trim());
@@ -25,7 +22,7 @@ function getFinalSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
 export function computeNoveltyRate(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
-  threshold: number = NOVELTY_THRESHOLD,
+  threshold: number = DEFAULT_CONFIG.NOVELTY_COSINE_THRESHOLD,
 ): number {
   const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
   if (finalSegs.length < 2) return 0.5; // Neutral — insufficient data
@@ -91,6 +88,7 @@ function scaleVector(v: number[], s: number): number[] {
 export function computeClusterConcentration(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
+  clusterMergeThreshold: number = DEFAULT_CONFIG.CLUSTER_MERGE_THRESHOLD,
 ): number {
   const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
   const embeddedSegs = finalSegs.filter(s => embeddings.has(s.id));
@@ -116,7 +114,7 @@ export function computeClusterConcentration(
       }
     }
 
-    if (maxSim >= CLUSTER_MERGE_THRESHOLD && bestCluster >= 0) {
+    if (maxSim >= clusterMergeThreshold && bestCluster >= 0) {
       // Merge into existing cluster — update centroid as running mean
       const cluster = clusters[bestCluster];
       const newSize = cluster.size + 1;
@@ -134,17 +132,18 @@ export function computeClusterConcentration(
   const numClusters = clusters.length;
   const numSegments = embeddedSegs.length;
 
-  // HHI: sum of squared cluster shares
+  // Normalized HHI: standard measure from economics.
+  // Raw HHI ranges from 1/n (uniform) to 1 (all in one cluster).
+  // Normalize to 0-1: nHHI = (HHI - 1/n) / (1 - 1/n)
   const hhi = clusters.reduce((sum, c) => {
     const share = c.size / numSegments;
     return sum + share * share;
   }, 0);
 
-  // Combined: spread ratio + HHI
-  const spreadRatio = 1 - numClusters / numSegments;
-  const concentration = 0.5 * spreadRatio + 0.5 * hhi;
+  const minHHI = 1 / numSegments;
+  const nHHI = numSegments > 1 ? (hhi - minHHI) / (1 - minHHI) : 0;
 
-  return Math.max(0, Math.min(1, concentration));
+  return Math.max(0, Math.min(1, nHHI));
 }
 
 // --- Exploration / Elaboration Ratio ---
@@ -153,6 +152,8 @@ export function computeClusterConcentration(
 export function computeExplorationElaborationRatio(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
+  explorationThreshold: number = DEFAULT_CONFIG.EXPLORATION_COSINE_THRESHOLD,
+  elaborationThreshold: number = DEFAULT_CONFIG.ELABORATION_COSINE_THRESHOLD,
 ): number {
   const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
   const recent = finalSegs.slice(-NOVELTY_WINDOW);
@@ -182,9 +183,9 @@ export function computeExplorationElaborationRatio(
 
     const avgSim = totalSim / count;
 
-    if (avgSim < EXPLORATION_THRESHOLD) {
+    if (avgSim < explorationThreshold) {
       explorationCount++;
-    } else if (maxSim > ELABORATION_THRESHOLD) {
+    } else if (maxSim > elaborationThreshold) {
       elaborationCount++;
     }
     // Segments that are neither clearly exploration nor elaboration are uncounted
@@ -231,10 +232,17 @@ export function computeSemanticDynamicsMetrics(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
   previousSnapshots: MetricSnapshot[],
+  config?: ExperimentConfig,
 ): SemanticDynamicsMetrics {
-  const noveltyRate = computeNoveltyRate(segments, embeddings);
-  const clusterConcentration = computeClusterConcentration(segments, embeddings);
-  const explorationElaborationRatio = computeExplorationElaborationRatio(segments, embeddings);
+  const noveltyCosineThreshold = config?.NOVELTY_COSINE_THRESHOLD ?? DEFAULT_CONFIG.NOVELTY_COSINE_THRESHOLD;
+  const clusterMergeThreshold = config?.CLUSTER_MERGE_THRESHOLD ?? DEFAULT_CONFIG.CLUSTER_MERGE_THRESHOLD;
+
+  const explorationThreshold = config?.EXPLORATION_COSINE_THRESHOLD ?? DEFAULT_CONFIG.EXPLORATION_COSINE_THRESHOLD;
+  const elaborationThreshold = config?.ELABORATION_COSINE_THRESHOLD ?? DEFAULT_CONFIG.ELABORATION_COSINE_THRESHOLD;
+
+  const noveltyRate = computeNoveltyRate(segments, embeddings, noveltyCosineThreshold);
+  const clusterConcentration = computeClusterConcentration(segments, embeddings, clusterMergeThreshold);
+  const explorationElaborationRatio = computeExplorationElaborationRatio(segments, embeddings, explorationThreshold, elaborationThreshold);
   const semanticExpansionScore = computeSemanticExpansionScore(
     clusterConcentration,
     noveltyRate,
@@ -341,12 +349,15 @@ export function computeSemanticDynamicsFallback(
     }
   }
 
+  // Normalized HHI (same formula as embedding path)
   const hhi = clusters.reduce((sum, c) => {
     const share = c.size / wordSets.length;
     return sum + share * share;
   }, 0);
-  const spreadRatio = 1 - clusters.length / wordSets.length;
-  const clusterConcentration = Math.max(0, Math.min(1, 0.5 * spreadRatio + 0.5 * hhi));
+  const minHHI = 1 / wordSets.length;
+  const clusterConcentration = wordSets.length > 1
+    ? Math.max(0, Math.min(1, (hhi - minHHI) / (1 - minHHI)))
+    : 0;
 
   // Exploration ratio: Jaccard-based
   let explorationCount = 0;

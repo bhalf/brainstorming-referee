@@ -22,7 +22,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.participationRisk': {
     title: 'Participation Risk',
     summary: 'Composite score measuring how unevenly participation is distributed across speakers.',
-    calculation: '0.35 × Gini imbalance (word volume) + 0.25 × silent participant ratio (<5% share) + 0.25 × dominance streak (consecutive turns) + 0.15 × turn Gini (turn frequency inequality)',
+    calculation: '0.35 × Hoover imbalance (word volume) + 0.25 × silent participant ratio (<5% share) + 0.25 × dominance streak (consecutive turns) + 0.15 × turn Hoover (turn frequency inequality)',
     goodValue: 'Below 55% — all participants contribute meaningfully.',
     badValue: 'Above 55% — one speaker dominates or others are silent. May trigger a rebalancing intervention.',
     relevance: 'Balanced participation leads to more diverse ideas in brainstorming. Dominant speakers can suppress quieter contributors.',
@@ -31,7 +31,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.novelty': {
     title: 'Novelty',
     summary: 'Fraction of recent statements that introduce semantically new content compared to everything said before.',
-    calculation: 'Each of the last 20 segments is compared to all prior segments via cosine similarity on text embeddings. A segment is "novel" if avg similarity < 0.80.',
+    calculation: 'Each of the last 20 segments is compared to all prior segments via cosine similarity on text embeddings. A segment is "novel" if max similarity < 0.65 (calibrated for text-embedding-3-small).',
     goodValue: 'Above 30% — new ideas are flowing into the conversation.',
     badValue: 'Below 30% — ideas are converging or repeating. May trigger a perspective-broadening intervention.',
     relevance: 'High novelty indicates active exploration of the idea space — the core goal of brainstorming.',
@@ -41,7 +41,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.concentration': {
     title: 'Concentration',
     summary: 'How strongly the discussion clusters around a few topics versus exploring many.',
-    calculation: 'Greedy centroid clustering on embeddings (merge threshold 0.75). Concentration = 0.5 × (1 - clusters/segments) + 0.5 × HHI (Herfindahl index of cluster shares).',
+    calculation: 'Greedy centroid clustering on embeddings (merge threshold 0.60). Concentration = normalized HHI: (HHI - 1/n) / (1 - 1/n), where n = segment count.',
     goodValue: 'Below 70% — topics are well distributed across multiple themes.',
     badValue: 'Above 70% — all ideas cluster into one narrow topic. Indicates groupthink risk.',
     relevance: 'Low concentration means the group explores diverse angles, which improves brainstorming output quality.',
@@ -51,7 +51,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.balance': {
     title: 'Balance',
     summary: 'How evenly speaking time is distributed. 100% means everyone speaks equally.',
-    calculation: '1 minus the Gini coefficient on speaking time distribution. Uses audio-based speaking time when available, otherwise text length as proxy.',
+    calculation: '1 minus the Hoover index on speaking time distribution. Uses audio-based speaking time when available, otherwise text length as proxy.',
     goodValue: 'Above 35% — participation is reasonably balanced.',
     badValue: 'Below 35% — one speaker dominates the conversation heavily.',
     relevance: 'Balanced participation ensures all perspectives are heard, especially important in research brainstorming settings.',
@@ -108,7 +108,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'state.dominanceRisk': {
     title: 'Dominance Risk',
     summary: 'Participation is becoming imbalanced — one speaker dominates or others are silent.',
-    calculation: '35% participation risk + 25% silent participant ratio + 20% dominance streak + 20% Gini imbalance.',
+    calculation: '35% participation risk + 25% silent participant ratio + 20% dominance streak + 20% Hoover imbalance.',
     badValue: 'When confirmed for 30 seconds, triggers a PARTICIPATION_REBALANCING intervention.',
     relevance: 'Imbalanced participation suppresses ideas from quieter participants and reduces brainstorming quality.',
   },
@@ -241,7 +241,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
 
   'config.thresholdImbalance': {
     title: 'Imbalance Threshold',
-    summary: 'Gini coefficient above which participation is considered imbalanced.',
+    summary: 'Hoover index above which participation is considered imbalanced.',
     goodValue: '0.50–0.75. Default: 0.65.',
     relevance: 'Controls sensitivity of the Balance metric. Lower = more sensitive to imbalance.',
   },

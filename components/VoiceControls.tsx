@@ -1,14 +1,25 @@
 'use client';
 
 import { VoiceSettings } from '@/lib/types';
+import { CloudTTSVoice } from '@/lib/tts/useCloudTTS';
 import Toggle from './shared/Toggle';
+
+const OPENAI_VOICES: { id: CloudTTSVoice; label: string; description: string }[] = [
+  { id: 'nova', label: 'Nova', description: 'Warm, conversational' },
+  { id: 'alloy', label: 'Alloy', description: 'Balanced, neutral' },
+  { id: 'ash', label: 'Ash', description: 'Soft, gentle' },
+  { id: 'coral', label: 'Coral', description: 'Clear, informative' },
+  { id: 'echo', label: 'Echo', description: 'Smooth, calm' },
+  { id: 'fable', label: 'Fable', description: 'Expressive, British' },
+  { id: 'onyx', label: 'Onyx', description: 'Deep, authoritative' },
+  { id: 'sage', label: 'Sage', description: 'Wise, composed' },
+  { id: 'shimmer', label: 'Shimmer', description: 'Bright, upbeat' },
+];
 
 interface VoiceControlsProps {
   settings: VoiceSettings;
-  voices: SpeechSynthesisVoice[];
   isSpeaking: boolean;
   canSpeak: boolean;
-  language: string; // Session language for filtering
   onUpdateSettings: (updates: Partial<VoiceSettings>) => void;
   onTestVoice: () => void;
   onCancel: () => void;
@@ -16,39 +27,12 @@ interface VoiceControlsProps {
 
 export default function VoiceControls({
   settings,
-  voices,
   isSpeaking,
   canSpeak,
-  language,
   onUpdateSettings,
   onTestVoice,
   onCancel,
 }: VoiceControlsProps) {
-  const langPrefix = language.split('-')[0]; // 'en' from 'en-US'
-
-  // Filter voices: show matching language first, then others
-  const matchingVoices = voices.filter((v) =>
-    v.lang.replace('_', '-').startsWith(langPrefix)
-  );
-  const otherVoices = voices.filter(
-    (v) => !v.lang.replace('_', '-').startsWith(langPrefix)
-  );
-
-  // Sort: remote (enhanced) voices first within each group
-  const sortByQuality = (a: SpeechSynthesisVoice, b: SpeechSynthesisVoice) => {
-    // Remote voices (higher quality) first
-    if (a.localService !== b.localService) return a.localService ? 1 : -1;
-    return a.name.localeCompare(b.name);
-  };
-
-  const sortedMatching = [...matchingVoices].sort(sortByQuality);
-  const sortedOther = [...otherVoices].sort(sortByQuality);
-
-  const getVoiceLabel = (voice: SpeechSynthesisVoice): string => {
-    const quality = voice.localService ? '' : ' ★';
-    return `${voice.name} (${voice.lang})${quality}`;
-  };
-
   return (
     <div className="space-y-4">
       {/* Enable/Disable Toggle */}
@@ -62,38 +46,25 @@ export default function VoiceControls({
           {/* Voice Selection */}
           <div>
             <label className="block text-xs text-slate-400 mb-1">
-              Voice <span className="text-slate-600">(★ = enhanced quality)</span>
+              Voice (OpenAI TTS)
             </label>
             <select
-              value={settings.voiceName}
+              value={settings.voiceName || 'nova'}
               onChange={(e) => onUpdateSettings({ voiceName: e.target.value })}
               className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
-              {sortedMatching.length > 0 && (
-                <optgroup label={`${langPrefix.toUpperCase()} Voices`}>
-                  {sortedMatching.map((voice) => (
-                    <option key={voice.name} value={voice.name}>
-                      {getVoiceLabel(voice)}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {sortedOther.length > 0 && (
-                <optgroup label="Other Voices">
-                  {sortedOther.map((voice) => (
-                    <option key={voice.name} value={voice.name}>
-                      {getVoiceLabel(voice)}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
+              {OPENAI_VOICES.map((voice) => (
+                <option key={voice.id} value={voice.id}>
+                  {voice.label} — {voice.description}
+                </option>
+              ))}
             </select>
           </div>
 
-          {/* Rate Slider */}
+          {/* Speed Slider */}
           <div>
             <div className="flex justify-between mb-1">
-              <label className="text-xs text-slate-400">Rate</label>
+              <label className="text-xs text-slate-400">Speed</label>
               <span className="text-xs text-slate-500">{settings.rate.toFixed(1)}x</span>
             </div>
             <input
@@ -103,23 +74,6 @@ export default function VoiceControls({
               step="0.1"
               value={settings.rate}
               onChange={(e) => onUpdateSettings({ rate: parseFloat(e.target.value) })}
-              className="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            />
-          </div>
-
-          {/* Pitch Slider */}
-          <div>
-            <div className="flex justify-between mb-1">
-              <label className="text-xs text-slate-400">Pitch</label>
-              <span className="text-xs text-slate-500">{settings.pitch.toFixed(1)}</span>
-            </div>
-            <input
-              type="range"
-              min="0.5"
-              max="2"
-              step="0.1"
-              value={settings.pitch}
-              onChange={(e) => onUpdateSettings({ pitch: parseFloat(e.target.value) })}
               className="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
             />
           </div>
@@ -151,7 +105,7 @@ export default function VoiceControls({
                   : 'bg-slate-600 text-slate-400 cursor-not-allowed'
                 }`}
             >
-              {isSpeaking ? '🔊 Speaking...' : '🔊 Test Voice'}
+              {isSpeaking ? 'Speaking...' : 'Test Voice'}
             </button>
             {isSpeaking && (
               <button

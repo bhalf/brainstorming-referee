@@ -46,15 +46,12 @@ export interface ModelOption {
 }
 
 export const AVAILABLE_MODELS: ModelOption[] = [
-    // Chat models
+    // Chat models (latest as of March 2026)
     { provider: 'openai', model: 'gpt-4o', label: 'GPT-4o', type: 'chat' },
     { provider: 'openai', model: 'gpt-4o-mini', label: 'GPT-4o Mini', type: 'chat' },
-    { provider: 'openai', model: 'gpt-4-turbo', label: 'GPT-4 Turbo', type: 'chat' },
-    { provider: 'openai', model: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', type: 'chat' },
-    // Embedding models
+    // Embedding models (text-embedding-3 family is latest as of March 2026)
     { provider: 'openai', model: 'text-embedding-3-small', label: 'Embedding 3 Small', type: 'embedding' },
     { provider: 'openai', model: 'text-embedding-3-large', label: 'Embedding 3 Large', type: 'embedding' },
-    { provider: 'openai', model: 'text-embedding-ada-002', label: 'Embedding Ada 002', type: 'embedding' },
     // Transcription models
     { provider: 'openai', model: 'whisper-1', label: 'Whisper', type: 'transcription' },
 ];
@@ -95,20 +92,20 @@ export type ModelRoutingConfig = Record<ModelTaskKey, TaskModelConfig>;
 export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
     moderator_intervention: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.4,
         maxTokens: 100,
         timeoutMs: 8000,
-        fallbacks: [{ provider: 'openai', model: 'gpt-3.5-turbo' }],
+        fallbacks: [{ provider: 'openai', model: 'gpt-4o-mini' }],
         enabled: true,
     },
     ally_intervention: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.9,
         maxTokens: 80,
         timeoutMs: 10000,
-        fallbacks: [{ provider: 'openai', model: 'gpt-3.5-turbo' }],
+        fallbacks: [{ provider: 'openai', model: 'gpt-4o-mini' }],
         enabled: true,
     },
     embeddings_similarity: {
@@ -117,7 +114,7 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         temperature: 0,
         maxTokens: 0, // Not applicable for embeddings
         timeoutMs: 5000,
-        fallbacks: [{ provider: 'openai', model: 'text-embedding-ada-002' }],
+        fallbacks: [{ provider: 'openai', model: 'text-embedding-3-large' }],
         enabled: true, // Uses cosine similarity for repetition/diversity
     },
     transcription_server: {

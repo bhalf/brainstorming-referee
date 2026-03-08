@@ -281,42 +281,6 @@ export function computeEmbeddingDiversity(
     return 1 - avgSimilarity;
 }
 
-// --- Novelty Detection (for semantic stagnation) ---
-
-/**
- * Checks if the latest segment introduces novel content compared to
- * the average of recent segments. Returns the novelty score (0-1).
- * 0 = identical to recent content, 1 = completely novel.
- */
-export function computeNoveltyScore(
-    embeddings: Map<string, number[]>,
-    segmentIds: string[]
-): number {
-    if (segmentIds.length < 2) return 1; // First segment is always novel
-
-    const latestId = segmentIds[segmentIds.length - 1];
-    const latestEmb = embeddings.get(latestId);
-    if (!latestEmb) return 1; // Can't compute, assume novel
-
-    // Compare with all previous segments (not just consecutive)
-    const previousIds = segmentIds.slice(0, -1);
-    let totalSimilarity = 0;
-    let count = 0;
-
-    for (const prevId of previousIds) {
-        const prevEmb = embeddings.get(prevId);
-        if (prevEmb) {
-            totalSimilarity += cosineSimilarity(latestEmb, prevEmb);
-            count++;
-        }
-    }
-
-    if (count === 0) return 1;
-
-    const avgSimilarity = totalSimilarity / count;
-    return 1 - avgSimilarity;
-}
-
 // --- Cache Management ---
 
 export function clearEmbeddingCache(sessionId?: string): void {

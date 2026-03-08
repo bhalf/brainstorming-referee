@@ -7,6 +7,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 interface UseRealtimeInterventionsParams {
   sessionId: string | null;
   isActive: boolean;
+  isDecisionOwner: boolean;
   addIntervention: (intervention: Intervention) => void;
   /** Optional: trigger TTS when a new intervention arrives (for participants) */
   speak?: (text: string) => boolean;
@@ -26,6 +27,7 @@ const RECONNECT_BASE_DELAY_MS = 1000;
 export function useRealtimeInterventions({
   sessionId,
   isActive,
+  isDecisionOwner,
   addIntervention,
   speak,
   voiceEnabled,
@@ -35,6 +37,9 @@ export function useRealtimeInterventions({
   const speakRef = useRef(speak);
   const voiceEnabledRef = useRef(voiceEnabled);
   const isTTSSupportedRef = useRef(isTTSSupported);
+  const isDecisionOwnerRef = useRef(isDecisionOwner);
+
+  useEffect(() => { isDecisionOwnerRef.current = isDecisionOwner; }, [isDecisionOwner]);
 
   useEffect(() => { addInterventionRef.current = addIntervention; }, [addIntervention]);
   useEffect(() => { speakRef.current = speak; }, [speak]);
@@ -67,7 +72,9 @@ export function useRealtimeInterventions({
           addInterventionRef.current(intervention);
           reconnectAttemptsRef.current = 0;
 
-          if (voiceEnabledRef.current && isTTSSupportedRef.current && speakRef.current) {
+          // Only speak on non-owner clients — the decision owner already
+          // triggers TTS in useDecisionLoop when generating the intervention.
+          if (!isDecisionOwnerRef.current && voiceEnabledRef.current && isTTSSupportedRef.current && speakRef.current) {
             speakRef.current(intervention.text);
           }
         }

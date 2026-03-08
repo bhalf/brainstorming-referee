@@ -4,7 +4,7 @@ import {
   computeTurnShare,
   computeSilentParticipantRatio,
   computeDominanceStreakScore,
-  computeGini,
+  computeHooverIndex,
   computeParticipationRiskScore,
   computeParticipationMetrics,
 } from '@/lib/metrics/participation';
@@ -148,21 +148,21 @@ describe('computeDominanceStreakScore', () => {
   });
 });
 
-describe('computeGini', () => {
+describe('computeHooverIndex', () => {
   it('returns 0 for equal values', () => {
-    expect(computeGini([25, 25, 25, 25])).toBeCloseTo(0, 1);
+    expect(computeHooverIndex([25, 25, 25, 25])).toBeCloseTo(0, 1);
   });
 
   it('returns near 1 for maximally unequal values', () => {
-    expect(computeGini([100, 0, 0, 0])).toBeCloseTo(1, 1);
+    expect(computeHooverIndex([100, 0, 0, 0])).toBeCloseTo(1, 1);
   });
 
   it('returns 0 for empty array', () => {
-    expect(computeGini([])).toBe(0);
+    expect(computeHooverIndex([])).toBe(0);
   });
 
   it('returns 0 for single value (no inequality with 1 participant)', () => {
-    expect(computeGini([42])).toBe(0);
+    expect(computeHooverIndex([42])).toBe(0);
   });
 });
 

@@ -184,7 +184,7 @@ export default function LiveKitRoomComponent({
   }
 
   return (
-    <div className="w-full h-full rounded-lg overflow-hidden lk-theme-default" style={{ minHeight: '400px' }}>
+    <div className="w-full h-full rounded-lg overflow-hidden lk-theme-default flex flex-col" style={{ minHeight: '300px' }}>
       <LKRoom
         serverUrl={serverUrl}
         token={token}

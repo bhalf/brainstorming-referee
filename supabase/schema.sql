@@ -93,3 +93,4 @@ create index if not exists idx_routing_session on model_routing_logs(session_id)
 -- alter publication supabase_realtime add table interventions;
 -- alter publication supabase_realtime add table engine_state;
 -- alter publication supabase_realtime add table metric_snapshots;
+-- alter publication supabase_realtime add table sessions;

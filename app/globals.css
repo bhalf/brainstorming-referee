@@ -84,8 +84,44 @@ body {
   height: 100% !important;
 }
 
+/* Fix: Ensure control bar is never clipped when layout switches (e.g. on participant join) */
+.lk-video-conference {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+}
+
+.lk-focus-layout-wrapper,
+.lk-grid-layout-wrapper {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.lk-focus-layout {
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
 /* Control bar styling */
 .lk-control-bar {
   background: var(--surface-secondary) !important;
   border-top: 1px solid var(--border-default) !important;
+  flex-shrink: 0 !important;
+}
+
+/* Mobile: stack focus layout vertically */
+@media (max-width: 640px) {
+  .lk-focus-layout {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 4fr 1fr !important;
+  }
+}
+
+/* Safe area insets for notched phones */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .lk-control-bar {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)) !important;
+  }
 }
