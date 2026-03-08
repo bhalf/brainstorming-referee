@@ -187,9 +187,9 @@ async function callOpenAIChatWithTimeout(
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
     try {
-        // GPT-5+ and o-series models use max_completion_tokens; older models use max_tokens
-        const usesNewTokenParam = /^(gpt-5|o[1-9]|o\d)/.test(model);
-        const tokenParam = usesNewTokenParam
+        // GPT-5+ and o-series models use max_completion_tokens and don't support custom temperature
+        const usesNewAPI = /^(gpt-5|o[1-9]|o\d)/.test(model);
+        const tokenParam = usesNewAPI
             ? { max_completion_tokens: config.maxTokens }
             : { max_tokens: config.maxTokens };
 
@@ -203,7 +203,8 @@ async function callOpenAIChatWithTimeout(
                 model,
                 messages,
                 ...tokenParam,
-                temperature: config.temperature,
+                // GPT-5/o-series only support default temperature (1), so omit for those models
+                ...(usesNewAPI ? {} : { temperature: config.temperature }),
                 ...(responseFormat && { response_format: responseFormat }),
             }),
             signal: controller.signal,
