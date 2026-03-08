@@ -35,8 +35,8 @@ export async function checkRuleViolations(
     s => s.isFinal && s.timestamp > lastCheckTime && !/^\[.*\]$/.test(s.text.trim())
   );
 
-  // Need at least 2 segments to have meaningful context
-  if (newSegments.length < 2) return null;
+  // Need at least 1 segment to check for violations
+  if (newSegments.length < 1) return null;
 
   // Send only the last 15 segments (keep payload small)
   const recentSegments = newSegments.slice(-15).map(s => ({

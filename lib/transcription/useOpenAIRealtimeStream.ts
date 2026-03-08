@@ -372,6 +372,10 @@ export function useOpenAIRealtimeStream({
                                 }
                             } catch (e) {
                                 console.error('[OpenAIStream] Reconnect failed:', e);
+                                // Propagate error to UI so user knows transcription stopped
+                                if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+                                    setError('Transcription connection lost — please restart');
+                                }
                             }
                         }
                     }, delay);

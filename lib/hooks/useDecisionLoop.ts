@@ -325,6 +325,7 @@ export function useDecisionLoop({
       const budgetAvailable = decisionStateRef.current.interventionCount < cfg.MAX_INTERVENTIONS_PER_10MIN;
 
       if (!budgetAvailable) {
+        console.log('[DecisionLoop] Intervention budget exhausted — dropping pending violation');
         pendingRuleViolationRef.current = null;
         return;
       }
@@ -334,6 +335,10 @@ export function useDecisionLoop({
       // Determine what to fire
       const shouldFireViolation = pendingViolation && !violationCooldownActive && !cooldownActive;
       const shouldFireMetric = metricIntervention && !cooldownActive;
+
+      if (pendingViolation && !shouldFireViolation) {
+        console.log(`[DecisionLoop] Violation pending but blocked — violationCooldown: ${violationCooldownActive}, generalCooldown: ${cooldownActive}`);
+      }
 
       if (!shouldFireViolation && !shouldFireMetric) {
         // Nothing to do — keep pending violation for next cycle if cooldown is the reason
