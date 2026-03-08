@@ -54,9 +54,12 @@ export interface ModelOption {
 }
 
 export const AVAILABLE_MODELS: ModelOption[] = [
-    // Chat models (latest as of March 2026)
-    { provider: 'openai', model: 'gpt-4o', label: 'GPT-4o', type: 'chat' },
-    { provider: 'openai', model: 'gpt-4o-mini', label: 'GPT-4o Mini', type: 'chat' },
+    // Chat models — GPT-5 family (latest as of March 2026)
+    { provider: 'openai', model: 'gpt-5', label: 'GPT-5', type: 'chat' },
+    { provider: 'openai', model: 'gpt-5-mini', label: 'GPT-5 Mini', type: 'chat' },
+    // Chat models — GPT-4o family (legacy, available via API until retirement)
+    { provider: 'openai', model: 'gpt-4o', label: 'GPT-4o (legacy)', type: 'chat' },
+    { provider: 'openai', model: 'gpt-4o-mini', label: 'GPT-4o Mini (legacy)', type: 'chat' },
     // Embedding models (text-embedding-3 family is latest as of March 2026)
     { provider: 'openai', model: 'text-embedding-3-small', label: 'Embedding 3 Small', type: 'embedding' },
     { provider: 'openai', model: 'text-embedding-3-large', label: 'Embedding 3 Large', type: 'embedding' },
@@ -102,20 +105,20 @@ export type ModelRoutingConfig = Record<ModelTaskKey, TaskModelConfig>;
 export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
     moderator_intervention: {
         provider: 'openai',
-        model: 'gpt-4o',
+        model: 'gpt-5',
         temperature: 0.4,
         maxTokens: 100,
         timeoutMs: 8000,
-        fallbacks: [{ provider: 'openai', model: 'gpt-4o-mini' }],
+        fallbacks: [{ provider: 'openai', model: 'gpt-5-mini' }],
         enabled: true,
     },
     ally_intervention: {
         provider: 'openai',
-        model: 'gpt-4o',
+        model: 'gpt-5',
         temperature: 0.9,
         maxTokens: 80,
         timeoutMs: 10000,
-        fallbacks: [{ provider: 'openai', model: 'gpt-4o-mini' }],
+        fallbacks: [{ provider: 'openai', model: 'gpt-5-mini' }],
         enabled: true,
     },
     embeddings_similarity: {
@@ -138,20 +141,20 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
     },
     idea_extraction: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-mini',
         temperature: 0.3,
         maxTokens: 800,
         timeoutMs: 15000,
-        fallbacks: [{ provider: 'openai', model: 'gpt-4o' }],
+        fallbacks: [{ provider: 'openai', model: 'gpt-5' }],
         enabled: true,
     },
     rule_check: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-mini',
         temperature: 0,
         maxTokens: 150,
         timeoutMs: 5000,
-        fallbacks: [],
+        fallbacks: [{ provider: 'openai', model: 'gpt-5' }],
         enabled: true,
     },
 };

@@ -21,7 +21,7 @@ export interface RuleViolationResult {
 
 /**
  * Check recent transcript segments for brainstorming rule violations.
- * Calls /api/rule-check which uses gpt-4o-mini for classification.
+ * Calls /api/rule-check which uses gpt-5-mini for classification.
  *
  * Returns null if there are no new segments to check or on error.
  */
