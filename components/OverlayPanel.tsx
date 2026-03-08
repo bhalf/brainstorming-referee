@@ -1,5 +1,3 @@
-'use client';
-
 import { ReactNode, useState } from 'react';
 import { Scenario, TranscriptSegment, MetricSnapshot, ExperimentConfig, DecisionEngineState, Intervention, VoiceSettings, SessionLog, ModelRoutingLogEntry } from '@/lib/types';
 import { SCENARIO_DESCRIPTIONS } from '@/lib/config';
@@ -14,18 +12,18 @@ import TranscriptTab from './TranscriptTab';
 import SystemHealthPanel, { SystemHealthProps, computeOverallHealth } from './SystemHealthPanel';
 import Panel from './shared/Panel';
 import SectionHeader from './shared/SectionHeader';
+import type { InterimEntry } from './TranscriptFeed';
 
 // --- Grouped prop interfaces for clarity ---
 
 export interface TranscriptControlProps {
   segments: TranscriptSegment[];
-  interimTranscript?: string;
+  interimEntries?: InterimEntry[];
   isTranscribing: boolean;
   isTranscriptionSupported: boolean;
   onToggleTranscription: () => void;
   onAddSimulatedSegment?: (text: string) => void;
   transcriptionError?: string | null;
-  speakingParticipants?: Array<{ id: string; displayName: string }>;
   isWhisperActive?: boolean;
 }
 
@@ -108,14 +106,14 @@ export default function OverlayPanel({
               <button
                 onClick={() => setActiveTab('health')}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${overallHealth === 'healthy' ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50' :
-                    overallHealth === 'degraded' ? 'bg-yellow-900/30 text-yellow-400 hover:bg-yellow-900/50' :
-                      'bg-red-900/30 text-red-400 hover:bg-red-900/50'
+                  overallHealth === 'degraded' ? 'bg-yellow-900/30 text-yellow-400 hover:bg-yellow-900/50' :
+                    'bg-red-900/30 text-red-400 hover:bg-red-900/50'
                   }`}
                 title="System Health"
               >
                 <span className={`w-2 h-2 rounded-full ${overallHealth === 'healthy' ? 'bg-green-400' :
-                    overallHealth === 'degraded' ? 'bg-yellow-400 animate-pulse' :
-                      'bg-red-400 animate-pulse'
+                  overallHealth === 'degraded' ? 'bg-yellow-400 animate-pulse' :
+                    'bg-red-400 animate-pulse'
                   }`} />
                 {overallHealth === 'error' ? 'Issues' : overallHealth === 'degraded' ? 'Warning' : 'OK'}
               </button>

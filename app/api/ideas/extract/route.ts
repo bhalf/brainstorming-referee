@@ -4,6 +4,7 @@ import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
 
 interface ExtractionRequest {
   segments: { id: string; speaker: string; text: string }[];
+  contextSegments?: { id: string; speaker: string; text: string }[];
   existingTitles: string[];
   existingIdeas: { id: string; title: string; description?: string | null; ideaType?: string }[];
   language: string;
@@ -62,7 +63,7 @@ Respond ONLY with a JSON object:
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as ExtractionRequest;
-    const { segments, existingTitles = [], existingIdeas = [], language = 'en-US' } = body;
+    const { segments, contextSegments = [], existingTitles = [], existingIdeas = [], language = 'en-US' } = body;
 
     if (!segments || segments.length === 0) {
       return NextResponse.json({ ideas: [], connections: [], logEntry: null });
@@ -74,18 +75,26 @@ export async function POST(request: NextRequest) {
 
     const routingConfig = loadRoutingConfig();
 
-    const transcriptText = segments
+    // Build transcript with context marker so the LLM knows which segments are new
+    let transcriptText = '';
+    if (contextSegments.length > 0) {
+      transcriptText += '--- PRIOR CONTEXT (already processed, do NOT re-extract ideas from these) ---\n';
+      transcriptText += contextSegments
+        .map(s => `[${s.speaker}]: ${s.text}`)
+        .join('\n');
+      transcriptText += '\n\n--- NEW SEGMENTS (extract ideas ONLY from these) ---\n';
+    }
+    transcriptText += segments
       .map(s => `[${s.speaker}] (id: ${s.id}): ${s.text}`)
       .join('\n');
+
+    console.log(`[IdeaExtraction] Processing ${segments.length} new + ${contextSegments.length} context segments (${existingIdeas.length} existing ideas)`);
 
     const existingList = existingIdeas.length > 0
       ? `Existing ideas (do NOT repeat these, but you CAN create connections TO them using their ID):\n${existingIdeas.map(ei => `- [ID: ${ei.id}] "${ei.title}"${ei.description ? ` — ${ei.description}` : ''}${ei.ideaType === 'category' ? ' (CATEGORY)' : ''}`).join('\n')}`
       : 'No existing ideas yet.';
 
-    const userPrompt = `${existingList}
-
-Recent transcript segments:
-${transcriptText}`;
+    const userPrompt = `${existingList}\n\nRecent transcript segments:\n${transcriptText}`;
 
     try {
       const { text, logEntry } = await callLLM(
@@ -111,6 +120,7 @@ ${transcriptText}`;
       }
 
       if (!parsed.ideas || !Array.isArray(parsed.ideas)) {
+        console.log('[IdeaExtraction] LLM returned no ideas array');
         return NextResponse.json({ ideas: [], connections: [], logEntry });
       }
 
@@ -123,6 +133,11 @@ ${transcriptText}`;
           existing === titleLower || existing.includes(titleLower) || titleLower.includes(existing)
         );
       });
+
+      console.log(`[IdeaExtraction] LLM returned ${parsed.ideas.length} ideas, ${filteredIdeas.length} after dedup, ${parsed.connections?.length || 0} connections`);
+      if (filteredIdeas.length > 0) {
+        console.log('[IdeaExtraction] Ideas:', filteredIdeas.map(i => `"${i.title}" (${i.author})`).join(', '));
+      }
 
       // Build title→id map for resolving connections
       const allTitles = new Map<string, string>();

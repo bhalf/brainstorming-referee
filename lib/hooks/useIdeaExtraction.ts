@@ -16,7 +16,8 @@ interface UseIdeaExtractionParams {
 }
 
 const EXTRACTION_INTERVAL_MS = 5_000;
-const MIN_NEW_SEGMENTS = 1;
+const MIN_NEW_SEGMENTS = 2;
+const CONTEXT_WINDOW_SEGMENTS = 5;
 
 const IDEA_COLORS = [
   'yellow', 'light-green', 'light-blue', 'light-red',
@@ -147,6 +148,13 @@ export function useIdeaExtraction({
         const existingTitles = currentIdeas.map(i => i.title);
         const existingIdeasForApi = currentIdeas.map(i => ({ id: i.id, title: i.title, description: i.description, ideaType: i.ideaType || 'idea' }));
 
+        // Include recent already-processed segments as context so the LLM
+        // can understand conversational flow even when only 2-3 new segments arrive
+        const contextStart = Math.max(0, lastProcessedIndexRef.current - CONTEXT_WINDOW_SEGMENTS);
+        const contextSegments = segments.slice(contextStart, lastProcessedIndexRef.current);
+
+        console.log('[IdeaExtraction] Sending', newSegments.length, 'new +', contextSegments.length, 'context segments to API');
+
         // Abort previous in-flight request if any
         if (abortControllerRef.current) {
           abortControllerRef.current.abort();
@@ -159,6 +167,7 @@ export function useIdeaExtraction({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             segments: newSegments.map(s => ({ id: s.id, speaker: s.speaker, text: s.text })),
+            contextSegments: contextSegments.map(s => ({ id: s.id, speaker: s.speaker, text: s.text })),
             existingTitles,
             existingIdeas: existingIdeasForApi,
             language,

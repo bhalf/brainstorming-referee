@@ -21,7 +21,8 @@ import { useRealtimeVoiceSettings } from '@/lib/hooks/useRealtimeVoiceSettings';
 import { useRealtimeIdeas } from '@/lib/hooks/useRealtimeIdeas';
 import { useRealtimeConnections } from '@/lib/hooks/useRealtimeConnections';
 import { useIdeaExtraction } from '@/lib/hooks/useIdeaExtraction';
-import { SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload } from '@/lib/hooks/useLiveKitSync';
+import { SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload, SyncTranscriptionControlPayload } from '@/lib/hooks/useLiveKitSync';
+import type { InterimEntry } from '@/components/TranscriptFeed';
 import LiveKitRoom from '@/components/LiveKitRoom';
 import OverlayPanel from '@/components/OverlayPanel';
 import ResizableLayout from '@/components/ResizableLayout';
@@ -133,8 +134,10 @@ export default function CallPage() {
   const broadcastInterimRef = useRef<((text: string, lang?: string) => void) | null>(null);
   const broadcastFinalRef = useRef<((segment: TranscriptSegment) => void) | null>(null);
   const broadcastInterventionRef = useRef<((intervention: Intervention) => void) | null>(null);
+  const broadcastTranscriptionControlRef = useRef<((action: 'start' | 'stop') => void) | null>(null);
 
-  const [peerInterims, setPeerInterims] = useState<Map<string, string>>(new Map());
+  // Track peer interim transcripts with timestamps for stale cleanup
+  const [peerInterims, setPeerInterims] = useState<Map<string, { text: string; speakerName: string; timestamp: number }>>(new Map());
 
   const handleInterimTranscriptReceived = useCallback((payload: SyncInterimPayload) => {
     setPeerInterims(prev => {
@@ -142,7 +145,7 @@ export default function CallPage() {
       if (!payload.text) {
         next.delete(payload.speakerName);
       } else {
-        next.set(payload.speakerName, payload.text);
+        next.set(payload.speakerName, { text: payload.text, speakerName: payload.speakerName, timestamp: Date.now() });
       }
       return next;
     });
@@ -165,6 +168,39 @@ export default function CallPage() {
       speak(payload.intervention.text);
     }
   }, [addIntervention, state.voiceSettings.enabled, isTTSSupported, speak]);
+
+  // Handle transcription start/stop from peers
+  const handleTranscriptionControlReceived = useCallback((payload: SyncTranscriptionControlPayload) => {
+    console.log(`[Sync] Received transcription ${payload.action} from ${payload.identity}`);
+    // When a peer starts transcription, the session is already active (no-op for us)
+    // When a peer stops, we also stop our own transcription
+    if (payload.action === 'stop') {
+      // This will deactivate the transcription stream on our side too
+      transcription.setIsRealtimeEnabled(false);
+    } else if (payload.action === 'start') {
+      transcription.setIsRealtimeEnabled(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Stale peer interim cleanup (clear entries older than 8 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPeerInterims(prev => {
+        const now = Date.now();
+        let changed = false;
+        const next = new Map(prev);
+        for (const [key, entry] of next) {
+          if (now - entry.timestamp > 8000) {
+            next.delete(key);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   // --- Segment Upload ---
   const transcriptSegmentsRef = useRef<TranscriptSegment[]>([]);
@@ -193,12 +229,20 @@ export default function CallPage() {
     }, []),
   });
 
-  const combinedInterim = useMemo(() => {
-    return [
-      transcription.interimTranscript,
-      ...Array.from(peerInterims.values())
-    ].filter(Boolean).join(' | ');
-  }, [transcription.interimTranscript, peerInterims]);
+  // Build per-speaker interim entries for TranscriptFeed
+  const interimEntries = useMemo((): InterimEntry[] => {
+    const entries: InterimEntry[] = [];
+    // Local user's interim
+    const localDisplayName = isParticipant ? participantName : 'Researcher';
+    if (transcription.interimTranscript) {
+      entries.push({ speaker: localDisplayName, text: transcription.interimTranscript });
+    }
+    // Remote peer interims
+    for (const entry of peerInterims.values()) {
+      entries.push({ speaker: entry.speakerName, text: entry.text });
+    }
+    return entries;
+  }, [transcription.interimTranscript, peerInterims, isParticipant, participantName]);
 
   // Keep the shared transcriptSegmentsRef in sync with context (single source of truth)
   useEffect(() => {
@@ -775,9 +819,11 @@ export default function CallPage() {
                 broadcastInterimRef={broadcastInterimRef}
                 broadcastFinalRef={broadcastFinalRef}
                 broadcastInterventionRef={broadcastInterventionRef}
+                broadcastTranscriptionControlRef={broadcastTranscriptionControlRef}
                 onInterimTranscriptReceived={handleInterimTranscriptReceived}
                 onFinalSegmentReceived={handleFinalSegmentReceived}
                 onInterventionReceived={handleInterventionReceived}
+                onTranscriptionControlReceived={handleTranscriptionControlReceived}
               />
             }
             bottomLeft={
@@ -802,13 +848,12 @@ export default function CallPage() {
                 roomName={roomName}
                 transcript={{
                   segments: state.transcriptSegments,
-                  interimTranscript: combinedInterim,
+                  interimEntries,
                   isTranscribing: transcription.isTranscribing,
                   isTranscriptionSupported: transcription.isTranscriptionSupported,
                   onToggleTranscription: transcription.toggleTranscription,
                   onAddSimulatedSegment: transcription.handleAddSimulatedSegment,
                   transcriptionError: transcription.transcriptionError,
-                  speakingParticipants: remoteSpeakers,
                   isWhisperActive: transcription.isRealtimeEnabled,
                 }}
                 metrics={{
@@ -863,9 +908,11 @@ export default function CallPage() {
                   broadcastInterimRef={broadcastInterimRef}
                   broadcastFinalRef={broadcastFinalRef}
                   broadcastInterventionRef={broadcastInterventionRef}
+                  broadcastTranscriptionControlRef={broadcastTranscriptionControlRef}
                   onInterimTranscriptReceived={handleInterimTranscriptReceived}
                   onFinalSegmentReceived={handleFinalSegmentReceived}
                   onInterventionReceived={handleInterventionReceived}
+                  onTranscriptionControlReceived={handleTranscriptionControlReceived}
                 />
               </div>
 
@@ -894,13 +941,12 @@ export default function CallPage() {
                   roomName={roomName}
                   transcript={{
                     segments: state.transcriptSegments,
-                    interimTranscript: transcription.interimTranscript,
+                    interimEntries,
                     isTranscribing: transcription.isTranscribing,
                     isTranscriptionSupported: transcription.isTranscriptionSupported,
                     onToggleTranscription: transcription.toggleTranscription,
                     onAddSimulatedSegment: transcription.handleAddSimulatedSegment,
                     transcriptionError: transcription.transcriptionError,
-                    speakingParticipants: remoteSpeakers,
                     isWhisperActive: transcription.isRealtimeEnabled,
                   }}
                   metrics={{

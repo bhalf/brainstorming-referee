@@ -5,20 +5,24 @@ import { TranscriptSegment } from '@/lib/types';
 import { formatTime } from '@/lib/utils/format';
 import EmptyState from './shared/EmptyState';
 
+export interface InterimEntry {
+  speaker: string;
+  text: string;
+}
+
 interface TranscriptFeedProps {
   segments: TranscriptSegment[];
-  interimText?: string;
+  /** Per-speaker interim transcripts — one entry per actively speaking participant */
+  interimEntries?: InterimEntry[];
   showTimestamps?: boolean;
   maxHeight?: string;
-  speakingParticipants?: Array<{ id: string; displayName: string }>;
 }
 
 export default function TranscriptFeed({
   segments,
-  interimText = '',
+  interimEntries = [],
   showTimestamps = true,
   maxHeight = '100%',
-  speakingParticipants = [],
 }: TranscriptFeedProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -26,7 +30,7 @@ export default function TranscriptFeed({
   // Auto-scroll to bottom on new content
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [segments, interimText]);
+  }, [segments, interimEntries]);
 
   // Group consecutive segments by speaker
   const groupedSegments = segments.reduce<Array<{
@@ -49,7 +53,7 @@ export default function TranscriptFeed({
     return groups;
   }, []);
 
-  if (segments.length === 0 && !interimText) {
+  if (segments.length === 0 && interimEntries.length === 0) {
     return (
       <EmptyState
         icon="📝"
@@ -100,40 +104,35 @@ export default function TranscriptFeed({
         </div>
       ))}
 
-      {/* Interim text (currently being spoken) */}
-      {interimText && (
-        <div className="bg-slate-700/20 rounded-lg p-3 border border-dashed border-slate-600">
+      {/* Per-speaker interim entries (yellow boxes) */}
+      {interimEntries.map((entry) => (
+        <div
+          key={`interim-${entry.speaker}`}
+          className="bg-yellow-900/20 rounded-lg p-3 border border-dashed border-yellow-600/40"
+        >
           <div className="flex items-center gap-2 mb-2">
             <div className="w-6 h-6 rounded-full bg-yellow-600/50 flex items-center justify-center">
               <span className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
             </div>
-            <span className="text-sm font-medium text-slate-400">
-              Speaking...
+            <span className="text-sm font-medium text-yellow-300/80">
+              {entry.speaker}
             </span>
+            <span className="text-xs text-yellow-500/60">speaking…</span>
           </div>
-          <div className="text-sm text-slate-400 italic leading-relaxed pl-8">
-            {interimText}
-          </div>
+          {entry.text ? (
+            <div className="text-sm text-yellow-200/70 italic leading-relaxed pl-8">
+              {entry.text}
+            </div>
+          ) : (
+            <div className="text-sm text-yellow-200/40 italic leading-relaxed pl-8">
+              …
+            </div>
+          )}
         </div>
-      )}
+      ))}
 
-      {/* Scroll anchor */}
+      {/* Scroll anchor — AFTER all content so auto-scroll catches everything */}
       <div ref={endRef} />
-
-      {/* Remote participants speaking indicators */}
-      {speakingParticipants.length > 0 && (
-        <div className="flex flex-col gap-2 p-2">
-            {speakingParticipants.map(participant => (
-                <div key={participant.id} className="flex items-center gap-2 bg-slate-800/50 rounded-lg p-2 border border-slate-700">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                    <span className="text-xs text-slate-400 font-medium">
-                        {participant.displayName} is speaking...
-                    </span>
-                </div>
-            ))}
-        </div>
-      )}
     </div>
   );
 }
-

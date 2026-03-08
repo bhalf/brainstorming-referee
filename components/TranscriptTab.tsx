@@ -92,9 +92,8 @@ export default function TranscriptTab({ transcript }: { transcript: TranscriptCo
       <div className="flex-1 overflow-hidden p-3">
         <TranscriptFeed
           segments={transcript.segments}
-          interimText={transcript.interimTranscript}
+          interimEntries={transcript.interimEntries}
           showTimestamps={true}
-          speakingParticipants={transcript.speakingParticipants}
         />
       </div>
     </div>
