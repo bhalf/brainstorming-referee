@@ -45,6 +45,7 @@ export function useRealtimeVoiceSettings({
   }, [sessionId, isHost]);
 
   // Participants: subscribe to voice settings changes
+  const subscribeRef = useRef<((sid: string) => void) | null>(null);
   const subscribe = useCallback((sid: string) => {
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
@@ -77,7 +78,7 @@ export function useRealtimeVoiceSettings({
             const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptsRef.current);
             reconnectAttemptsRef.current++;
             setTimeout(() => {
-              if (isMountedRef.current) subscribe(sid);
+              if (isMountedRef.current && subscribeRef.current) subscribeRef.current(sid);
             }, delay);
           }
         }
@@ -85,6 +86,10 @@ export function useRealtimeVoiceSettings({
 
     channelRef.current = channel;
   }, []);
+
+  useEffect(() => {
+    subscribeRef.current = subscribe;
+  }, [subscribe]);
 
   useEffect(() => {
     // Only participants need to subscribe — the host is the source of truth

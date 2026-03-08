@@ -12,6 +12,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'sessionId and intervention required' }, { status: 400 });
     }
 
+    // Validate intervention structure
+    if (typeof intervention.id !== 'string' || typeof intervention.text !== 'string') {
+      return NextResponse.json({ error: 'intervention must have id and text as strings' }, { status: 400 });
+    }
+    if (intervention.type && !['moderator', 'ally'].includes(intervention.type)) {
+      return NextResponse.json({ error: 'intervention.type must be moderator or ally' }, { status: 400 });
+    }
+
     const supabase = getServiceClient();
     const row = interventionToInsert(intervention, sessionId, engineState);
 

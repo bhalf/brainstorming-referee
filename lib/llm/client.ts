@@ -27,11 +27,16 @@ export interface EmbeddingResult {
 
 // --- Chat Completions ---
 
+export interface LLMOptions {
+    responseFormat?: { type: 'json_object' };
+}
+
 export async function callLLM(
     task: ModelTaskKey,
     config: ModelRoutingConfig,
     messages: LLMMessage[],
-    apiKey: string
+    apiKey: string,
+    options?: LLMOptions
 ): Promise<LLMResult> {
     const taskConfig = config[task];
 
@@ -57,7 +62,8 @@ export async function callLLM(
                 model,
                 messages,
                 taskConfig,
-                apiKey
+                apiKey,
+                options?.responseFormat
             );
 
             const logEntry = createLogEntry(task, provider, model, startTime, {
@@ -174,7 +180,8 @@ async function callOpenAIChatWithTimeout(
     model: string,
     messages: LLMMessage[],
     config: TaskModelConfig,
-    apiKey: string
+    apiKey: string,
+    responseFormat?: { type: 'json_object' }
 ): Promise<OpenAIChatResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -191,6 +198,7 @@ async function callOpenAIChatWithTimeout(
                 messages,
                 max_tokens: config.maxTokens,
                 temperature: config.temperature,
+                ...(responseFormat && { response_format: responseFormat }),
             }),
             signal: controller.signal,
         });

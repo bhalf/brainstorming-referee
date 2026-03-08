@@ -59,7 +59,8 @@ export type InterventionIntent =
   | 'PARTICIPATION_REBALANCING'
   | 'PERSPECTIVE_BROADENING'
   | 'REACTIVATION'
-  | 'ALLY_IMPULSE';
+  | 'ALLY_IMPULSE'
+  | 'NORM_REINFORCEMENT';
 
 // --- Engine Phase (v2) ---
 
@@ -95,6 +96,7 @@ export type InterventionTrigger =
   | 'repetition'
   | 'stagnation'
   | 'escalation'
+  | 'rule_violation'
   | 'manual';
 
 export interface Intervention {
@@ -117,22 +119,17 @@ export interface Intervention {
 
 // --- Decision Engine State ---
 
-export type DecisionState = 'OBSERVATION' | 'STABILIZATION' | 'ESCALATION';
-
 export interface DecisionEngineState {
-  currentState: DecisionState;
+  phase: EnginePhase;
   lastInterventionTime: number | null;
   interventionCount: number; // within current 10-min window
-  persistenceStartTime: number | null; // when threshold breach started
   postCheckStartTime: number | null; // when post-check period started
   cooldownUntil: number | null;
   metricsAtIntervention: MetricSnapshot | null; // state of metrics when intervention fired
-  triggerAtIntervention: InterventionTrigger | null; // which metric caused the intervention
-  // v2 fields (optional for backward compat)
-  phase?: EnginePhase;
-  confirmingSince?: number | null;
-  confirmingState?: ConversationStateName | null;
-  postCheckIntent?: InterventionIntent | null;
+  confirmingSince: number | null;
+  confirmingState: ConversationStateName | null;
+  postCheckIntent: InterventionIntent | null;
+  lastRuleViolationTime: number | null; // when last rule violation intervention fired
 }
 
 // --- Experiment Configuration ---
@@ -141,24 +138,21 @@ export type Scenario = 'baseline' | 'A' | 'B';
 
 export interface ExperimentConfig {
   // Window & Analysis
-  WINDOW_SECONDS: number; // Rolling window for metrics (default: 90)
-  ANALYZE_EVERY_MS: number; // How often to compute metrics (default: 3000)
+  WINDOW_SECONDS: number; // Rolling window for metrics (default: 180)
+  ANALYZE_EVERY_MS: number; // How often to compute metrics (default: 5000)
 
   // Trigger Timing
-  PERSISTENCE_SECONDS: number; // How long threshold must be breached (default: 10)
-  COOLDOWN_SECONDS: number; // Min time between interventions (default: 30)
-  POST_CHECK_SECONDS: number; // Time to wait before checking improvement (default: 15)
-
-  // Thresholds (v1 — kept for backward compat and legacy checkThresholds)
-  THRESHOLD_IMBALANCE: number; // 0-1 (default: 0.6)
-  THRESHOLD_REPETITION: number; // 0-1 (default: 0.5)
-  THRESHOLD_STAGNATION_SECONDS: number; // seconds (default: 45)
+  COOLDOWN_SECONDS: number; // Min time between interventions (default: 180)
+  POST_CHECK_SECONDS: number; // Time to wait before checking improvement (default: 90)
 
   // Safety Limits
-  TTS_RATE_LIMIT_SECONDS: number; // Min time between TTS (default: 20)
-  MAX_INTERVENTIONS_PER_10MIN: number; // Hard limit (default: 5)
+  TTS_RATE_LIMIT_SECONDS: number; // Min time between TTS (default: 30)
+  MAX_INTERVENTIONS_PER_10MIN: number; // Hard limit (default: 3)
 
-  // v2 thresholds
+  // Brainstorming Rules
+  RULE_CHECK_ENABLED: boolean; // Whether to check Osborn's brainstorming rules (default: true)
+
+  // Thresholds
   THRESHOLD_SILENT_PARTICIPANT: number;       // 0.05 — volumeShare below this = silent
   THRESHOLD_PARTICIPATION_RISK: number;       // 0.55 — composite risk score
   THRESHOLD_NOVELTY_RATE: number;             // 0.3  — below this = low novelty
@@ -166,7 +160,7 @@ export interface ExperimentConfig {
   CONFIRMATION_SECONDS: number;               // 30   — how long risky state must persist before intervention
   RECOVERY_IMPROVEMENT_THRESHOLD: number;     // 0.15 — recovery score needed to count as recovered
 
-  // Computation parameters (calibrated for text-embedding-3-small)
+  // Computation parameters (calibrated for embedding model)
   NOVELTY_COSINE_THRESHOLD: number;           // 0.65 — cosine similarity below this = novel segment
   CLUSTER_MERGE_THRESHOLD: number;            // 0.60 — cosine similarity above this = merge into cluster
   STAGNATION_NOVELTY_THRESHOLD: number;       // 0.70 — cosine similarity below this = new content (stagnation)
@@ -227,12 +221,70 @@ export interface SessionLog {
   transcriptSegments: TranscriptSegment[];
   metricSnapshots: MetricSnapshot[];
   interventions: Intervention[];
+  ideas?: Idea[];
+  ideaConnections?: IdeaConnection[];
   voiceSettings: VoiceSettings;
   modelRoutingLog: ModelRoutingLogEntry[];
   errors: Array<{ timestamp: number; message: string; context?: string }>;
   // v2 fields (optional for backward compat)
   sessionSummary?: SessionSummary;
   promptVersion?: string;
+}
+
+// --- Ideas (Live Idea Board) ---
+
+export type IdeaSource = 'auto' | 'manual';
+
+export type IdeaType = 'idea' | 'category';
+
+export interface Idea {
+  id: string;
+  sessionId: string;
+  title: string;
+  description: string | null;
+  author: string;
+  source: IdeaSource;
+  sourceSegmentIds: string[];
+  positionX: number;
+  positionY: number;
+  color: string;
+  isDeleted: boolean;
+  createdAt: number;
+  updatedAt: number;
+  ideaType: IdeaType;
+  parentId: string | null;
+}
+
+// --- Idea Connections ---
+
+export type IdeaConnectionType = 'builds_on' | 'contrasts' | 'supports' | 'leads_to' | 'related';
+
+export interface IdeaConnection {
+  id: string;
+  sessionId: string;
+  sourceIdeaId: string;
+  targetIdeaId: string;
+  label: string | null;
+  connectionType: IdeaConnectionType;
+  createdAt: number;
+}
+
+// --- Intervention Annotations ---
+
+export type AnnotationRelevance = 'relevant' | 'partially_relevant' | 'not_relevant';
+export type AnnotationEffectiveness = 'effective' | 'partially_effective' | 'not_effective';
+
+export interface InterventionAnnotation {
+  id: string;
+  interventionId: string;
+  sessionId: string;
+  rating: number | null;         // 1-5
+  relevance: AnnotationRelevance | null;
+  effectiveness: AnnotationEffectiveness | null;
+  notes: string | null;
+  annotator: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // --- UI State ---
@@ -253,6 +305,8 @@ export interface SessionState {
   transcriptSegments: TranscriptSegment[];
   metricSnapshots: MetricSnapshot[];
   interventions: Intervention[];
+  ideas: Idea[];
+  ideaConnections: IdeaConnection[];
 
   decisionState: DecisionEngineState;
 

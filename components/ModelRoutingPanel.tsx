@@ -325,12 +325,13 @@ export default function ModelRoutingPanel({ logEntries }: ModelRoutingPanelProps
 // --- Task Icon Helper ---
 
 function TaskIcon({ task }: { task: ModelTaskKey }) {
-    const icons: Record<ModelTaskKey, string> = {
+    const icons: Partial<Record<ModelTaskKey, string>> = {
         moderator_intervention: '🎯',
         ally_intervention: '💡',
         embeddings_similarity: '🔗',
         transcription_server: '🎙️',
+        idea_extraction: '📋',
     };
 
-    return <span className="text-sm">{icons[task]}</span>;
+    return <span className="text-sm">{icons[task] ?? '⚙️'}</span>;
 }

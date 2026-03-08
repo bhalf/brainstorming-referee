@@ -1,11 +1,11 @@
 'use client';
 
 import { MetricSnapshot, ExperimentConfig, DecisionEngineState } from '@/lib/types';
-import { DECISION_STATE_CONFIG, CONVERSATION_STATE_CONFIG, ENGINE_PHASE_CONFIG } from '@/lib/decision/stateConfig';
+import { CONVERSATION_STATE_CONFIG, ENGINE_PHASE_CONFIG } from '@/lib/decision/stateConfig';
+import { generateSessionSummaryText } from '@/lib/state/generateSessionSummaryText';
 import MetricBar from './shared/MetricBar';
 import Panel from './shared/Panel';
 import SectionHeader from './shared/SectionHeader';
-import EmptyState from './shared/EmptyState';
 
 interface AnalysisPanelProps {
   currentMetrics: MetricSnapshot | null;
@@ -21,11 +21,13 @@ export default function AnalysisPanel({
 
   if (!currentMetrics) {
     return (
-      <EmptyState
-        icon="📊"
-        title="No analysis data yet"
-        subtitle="Start speaking to begin"
-      />
+      <div className="h-full flex items-center justify-center text-slate-500 text-sm">
+        <div className="text-center">
+          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="text-slate-300 font-medium mb-1">Computing metrics...</div>
+          <div className="text-xs text-slate-500">Waiting for speech data</div>
+        </div>
+      </div>
     );
   }
 
@@ -35,24 +37,17 @@ export default function AnalysisPanel({
   // v2 state inference
   const inferredState = currentMetrics?.inferredState;
   const convStateConfig = inferredState ? CONVERSATION_STATE_CONFIG[inferredState.state] : null;
-  const phase = decisionState.phase ?? 'MONITORING';
+  const sessionSummary = generateSessionSummaryText(currentMetrics);
+  const phase = decisionState.phase;
   const phaseConfig = ENGINE_PHASE_CONFIG[phase];
 
   // --- Metric values ---
-  const balance = 1 - currentMetrics.participationImbalance;
-  const balanceThreshold = 1 - config.THRESHOLD_IMBALANCE;
-
-  const repetition = currentMetrics.semanticRepetitionRate;
-  const repetitionThreshold = config.THRESHOLD_REPETITION;
-
-  const stagnationMax = config.THRESHOLD_STAGNATION_SECONDS * 1.5;
-  const stagnationNorm = Math.min(1, currentMetrics.stagnationDuration / stagnationMax);
-  const stagnationThresholdNorm = 1 / 1.5;
-
   const diversity = Math.min(1, currentMetrics.diversityDevelopment);
 
-  // --- Decision Engine ---
-  const stateConfig = DECISION_STATE_CONFIG[decisionState.currentState];
+  // Stagnation display — use a fixed 120s scale for the bar
+  const stagnationScale = 120;
+  const stagnationNorm = Math.min(1, currentMetrics.stagnationDuration / stagnationScale);
+
   const isInCooldown = decisionState.cooldownUntil !== null && decisionState.cooldownUntil > Date.now();
   const cooldownSecsLeft = isInCooldown
     ? Math.ceil((decisionState.cooldownUntil! - Date.now()) / 1000)
@@ -62,17 +57,16 @@ export default function AnalysisPanel({
   return (
     <div className="h-full overflow-y-auto space-y-4 p-1">
 
-      {/* Conversation State + Moderator (combined overview) */}
+      {/* Conversation State + Engine Status */}
       <Panel>
         <SectionHeader icon="🧠" size="page">Session Status</SectionHeader>
 
         {/* Inferred Conversation State */}
         {inferredState && convStateConfig && (
-          <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border mb-2 ${
-            convStateConfig.severity === 'healthy' ? 'border-green-700/50 bg-green-900/20' :
-            convStateConfig.severity === 'warning' ? 'border-yellow-700/50 bg-yellow-900/20' :
-            'border-red-700/50 bg-red-900/20'
-          }`}>
+          <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border mb-2 ${convStateConfig.severity === 'healthy' ? 'border-green-700/50 bg-green-900/20' :
+              convStateConfig.severity === 'warning' ? 'border-yellow-700/50 bg-yellow-900/20' :
+                'border-red-700/50 bg-red-900/20'
+            }`}>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${convStateConfig.color}`} />
             <div className="flex-1">
               <div className="text-sm font-semibold text-white">{convStateConfig.label}</div>
@@ -82,6 +76,16 @@ export default function AnalysisPanel({
           </div>
         )}
 
+        {/* --- DYNAMIC SUMMARY --- */}
+        <div className="px-3 py-2.5 rounded-lg border border-slate-700/50 bg-slate-800/30 mb-3">
+          <div className="text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+            <span className="opacity-70">📝</span> Live Summary
+          </div>
+          <div className="text-xs text-slate-400 leading-relaxed">
+            {sessionSummary}
+          </div>
+        </div>
+
         {/* Engine Phase + Stats */}
         <div className="flex items-center gap-2 mb-2">
           {phaseConfig && (
@@ -89,9 +93,6 @@ export default function AnalysisPanel({
               {phaseConfig.label}
             </span>
           )}
-          <span className={`px-2 py-0.5 rounded text-xs border ${stateConfig.panelColor}`}>
-            {stateConfig.label}
-          </span>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs">
@@ -112,9 +113,6 @@ export default function AnalysisPanel({
         {decisionState.lastInterventionTime && (
           <div className="mt-2 text-xs text-slate-500">
             Last: {Math.round((Date.now() - decisionState.lastInterventionTime) / 1000)}s ago
-            {decisionState.triggerAtIntervention && (
-              <span className="ml-1 text-slate-400">({decisionState.triggerAtIntervention})</span>
-            )}
           </div>
         )}
       </Panel>
@@ -176,14 +174,14 @@ export default function AnalysisPanel({
             label="Balance"
             icon="⚖️"
             helpKey="metric.balance"
-            value={balance}
-            displayValue={`${(balance * 100).toFixed(0)}%`}
-            threshold={balanceThreshold}
+            value={1 - currentMetrics.participationImbalance}
+            displayValue={`${((1 - currentMetrics.participationImbalance) * 100).toFixed(0)}%`}
+            threshold={0.5}
             higherIsBetter={true}
             statusText={
               speakerCount <= 1
                 ? 'Only 1 speaker'
-                : balance < balanceThreshold
+                : currentMetrics.participationImbalance > 0.5
                   ? 'Imbalanced'
                   : 'Balanced'
             }
@@ -230,21 +228,6 @@ export default function AnalysisPanel({
           )}
 
           <MetricBar
-            label="Repetition"
-            icon="🔁"
-            helpKey="metric.repetition"
-            value={repetition}
-            displayValue={`${(repetition * 100).toFixed(0)}%`}
-            threshold={repetitionThreshold}
-            higherIsBetter={false}
-            statusText={
-              repetition >= repetitionThreshold
-                ? 'Going in circles'
-                : 'Content is varied'
-            }
-          />
-
-          <MetricBar
             label="Diversity"
             icon="🌐"
             helpKey="metric.diversity"
@@ -274,10 +257,10 @@ export default function AnalysisPanel({
               ? 'Active'
               : `${currentMetrics.stagnationDuration.toFixed(0)}s`
           }
-          threshold={stagnationThresholdNorm}
+          threshold={0.5}
           higherIsBetter={false}
           statusText={
-            currentMetrics.stagnationDuration >= config.THRESHOLD_STAGNATION_SECONDS
+            currentMetrics.stagnationDuration >= 60
               ? `No new ideas for ${currentMetrics.stagnationDuration.toFixed(0)}s`
               : 'New content being introduced'
           }

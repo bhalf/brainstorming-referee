@@ -25,6 +25,7 @@ export default function ChatFeed({ interventions, maxHeight = '100%' }: ChatFeed
         PERSPECTIVE_BROADENING: 'Broadening',
         REACTIVATION: 'Reactivation',
         ALLY_IMPULSE: 'Ally Impulse',
+        NORM_REINFORCEMENT: 'Rule Reminder',
       };
       return intentLabels[intervention.intent] || intervention.intent;
     }
@@ -34,6 +35,7 @@ export default function ChatFeed({ interventions, maxHeight = '100%' }: ChatFeed
       stagnation: 'Stagnation',
       escalation: 'Escalation',
       manual: 'Manual',
+      rule_violation: 'Rule Violation',
     };
     return labels[intervention.trigger] || intervention.trigger;
   };

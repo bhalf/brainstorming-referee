@@ -22,11 +22,17 @@ function computeHealthyExplorationConfidence(m: MetricSnapshot): number {
   const sd = m.semanticDynamics;
   if (!p || !sd) return 0.5;
 
+  // Gate: exploration is only "healthy" when participation is reasonably balanced
+  if (p.participationRiskScore > 0.5) return 0;
+
+  const stagnationPenalty = clamp(m.stagnationDuration / 120, 0, 1);
+
   return (
-    0.25 * (1 - p.participationRiskScore) +
-    0.30 * sd.noveltyRate +
-    0.20 * clamp(sd.semanticExpansionScore + 0.5, 0, 1) +
-    0.25 * sd.explorationElaborationRatio
+    (0.25 * (1 - p.participationRiskScore) +
+      0.30 * sd.noveltyRate +
+      0.20 * clamp(sd.semanticExpansionScore + 0.5, 0, 1) +
+      0.25 * sd.explorationElaborationRatio) *
+    (1 - stagnationPenalty)
   );
 }
 
@@ -49,10 +55,10 @@ function computeHealthyElaborationConfidence(m: MetricSnapshot): number {
 
   return (
     (0.20 * (1 - p.participationRiskScore) +
-     0.25 * (1 - sd.noveltyRate) +
-     0.25 * (1 - sd.explorationElaborationRatio) +
-     0.15 * (1 - concentrationPenalty) +
-     0.15 * expansionBonus) *
+      0.25 * (1 - sd.noveltyRate) +
+      0.25 * (1 - sd.explorationElaborationRatio) +
+      0.15 * (1 - concentrationPenalty) +
+      0.15 * expansionBonus) *
     (1 - stagnationPenalty)
   );
 }

@@ -5,7 +5,7 @@ import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
 // --- Types ---
 
 interface ModeratorRequest {
-  trigger: 'imbalance' | 'repetition' | 'stagnation';
+  trigger: 'imbalance' | 'repetition' | 'stagnation' | 'rule_violation';
   speakerDistribution: string;
   language: string;
   participationImbalance?: number;
@@ -14,8 +14,6 @@ interface ModeratorRequest {
   transcriptExcerpt?: string[];
   totalTurns?: number;
   scenario?: string;
-  currentState?: string;
-  // v2 fields
   intent?: string;
   triggeringState?: string;
   stateConfidence?: number;
@@ -29,6 +27,17 @@ interface ModeratorRequest {
     clusterConcentration?: number;
     explorationElaborationRatio?: number;
     semanticExpansionScore?: number;
+  };
+  // Rule violation fields
+  violationType?: string;
+  violationEvidence?: string;
+  violationSeverity?: string;
+  // Combined intervention (rule + metric)
+  combined?: boolean;
+  ruleViolation?: {
+    rule: string;
+    evidence: string;
+    severity: string;
   };
 }
 
@@ -66,55 +75,7 @@ IMPORTANT RULES:
 Your responses should help the group notice productivity patterns without telling them what to do.`;
 }
 
-const TRIGGER_PROMPTS_EN: Record<string, string> = {
-  imbalance: `The conversation shows participation imbalance. Some voices are dominating while others are quiet.
-Speaker distribution: {speakerDistribution}
-
-Full conversation transcript ({totalTurns} turns total):
-{transcriptExcerpt}
-
-Generate a brief, gentle process reflection to encourage more balanced participation. Do NOT single out individuals by name.`,
-
-  repetition: `The discussion is circling around similar themes with high semantic repetition.
-
-Full conversation transcript ({totalTurns} turns total):
-{transcriptExcerpt}
-
-Generate a brief process reflection to gently encourage exploring new directions or building on existing ideas in fresh ways. Use the full transcript to identify which specific themes have been repeated most.`,
-
-  stagnation: `The conversation has stagnated - there's been a pause in new contributions for a while.
-
-Full conversation transcript ({totalTurns} turns total):
-{transcriptExcerpt}
-
-Generate a brief, energizing process reflection to help restart the creative flow. Use the transcript context to make the prompt feel specific to what this group has already explored.`,
-};
-
-const TRIGGER_PROMPTS_DE: Record<string, string> = {
-  imbalance: `Das Gespräch zeigt ein Ungleichgewicht in der Beteiligung. Einige Stimmen dominieren, während andere still bleiben.
-Verteilung der Sprecher: {speakerDistribution}
-
-Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
-{transcriptExcerpt}
-
-Formuliere eine kurze, sanfte Prozessreflexion, um eine ausgewogenere Beteiligung zu fördern. Nenne KEINE einzelnen Personen beim Namen.`,
-
-  repetition: `Die Diskussion dreht sich um ähnliche Themen mit hoher semantischer Wiederholung.
-
-Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
-{transcriptExcerpt}
-
-Formuliere eine kurze Prozessreflexion, die sanft dazu ermutigt, neue Richtungen zu erkunden oder bestehende Ideen auf frische Weise weiterzuentwickeln. Nutze das vollständige Transkript, um zu erkennen, welche Themen am meisten wiederholt wurden.`,
-
-  stagnation: `Das Gespräch ist ins Stocken geraten — es gab eine Weile keine neuen Beiträge.
-
-Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
-{transcriptExcerpt}
-
-Formuliere eine kurze, energetisierende Prozessreflexion, um den kreativen Fluss wieder anzuregen. Nutze den Transkript-Kontext, damit der Impuls spezifisch zu dem passt, was die Gruppe bereits erkundet hat.`,
-};
-
-// --- v2 Intent-Specific Prompts ---
+// --- Intent-Specific Prompts ---
 
 const INTENT_PROMPTS_EN: Record<string, string> = {
   PARTICIPATION_REBALANCING: `The conversation shows a participation imbalance.
@@ -152,6 +113,26 @@ Full conversation transcript ({totalTurns} turns total):
 Generate a brief, energizing process reflection to restart creative flow.
 Reference what the group has explored so far and invite thinking about
 unexplored dimensions.`,
+
+  NORM_REINFORCEMENT: `A brainstorming rule violation was detected in the session.
+Rule violated: {violationType}
+Evidence from transcript: {violationEvidence}
+Severity: {violationSeverity}
+
+The four brainstorming rules (Osborn's Rules) are:
+1. DEFER JUDGMENT — no criticizing, evaluating, or dismissing ideas during ideation
+2. GO FOR QUANTITY — keep generating ideas, don't narrow or select yet
+3. WILD IDEAS WELCOME — don't dismiss unconventional or unusual thinking
+4. BUILD ON IDEAS — use "yes, and..." to extend ideas, not "yes, but..." to block them
+
+Speaker distribution: {speakerDistribution}
+Recent transcript ({totalTurns} turns):
+{transcriptExcerpt}
+
+Generate a brief, friendly reminder of the violated brainstorming rule.
+Do NOT single out or blame anyone by name. Focus on the process and the rule.
+Frame it positively — remind what TO do, not what NOT to do.
+Keep it to 1-2 sentences maximum.`,
 };
 
 const INTENT_PROMPTS_DE: Record<string, string> = {
@@ -187,6 +168,144 @@ Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
 
 Formuliere eine kurze, energetisierende Prozessreflexion, um den kreativen Fluss wieder anzuregen.
 Verweise auf das, was die Gruppe bisher erkundet hat, und lade dazu ein, über unerforschte Dimensionen nachzudenken.`,
+
+  NORM_REINFORCEMENT: `Ein Brainstorming-Regelverstoss wurde in der Session erkannt.
+Verletzte Regel: {violationType}
+Beleg aus dem Transkript: {violationEvidence}
+Schweregrad: {violationSeverity}
+
+Die vier Brainstorming-Regeln (Osborn's Regeln) sind:
+1. BEWERTUNG ZURÜCKSTELLEN — keine Kritik, Bewertung oder Ablehnung von Ideen während der Ideenfindung
+2. QUANTITÄT VOR QUALITÄT — weiter Ideen generieren, noch nicht eingrenzen oder auswählen
+3. WILDE IDEEN WILLKOMMEN — unkonventionelles Denken nicht abtun
+4. AUF IDEEN AUFBAUEN — "Ja, und..." statt "Ja, aber..."
+
+Verteilung der Sprecher: {speakerDistribution}
+Gesprächstranskript ({totalTurns} Beiträge):
+{transcriptExcerpt}
+
+Formuliere eine kurze, freundliche Erinnerung an die verletzte Brainstorming-Regel.
+Nenne NIEMANDEN beim Namen und weise NIEMANDEN direkt zurecht. Fokussiere auf den Prozess und die Regel.
+Formuliere es positiv — erinnere daran, was man TUN soll, nicht was man NICHT tun soll.
+Maximal 1-2 Sätze.`,
+};
+
+// --- Combined Prompts (rule violation + metric issue) ---
+
+const COMBINED_PROMPTS_EN: Record<string, string> = {
+  PARTICIPATION_REBALANCING: `Two issues need addressing in this brainstorming session:
+
+1. A brainstorming rule was violated:
+   Rule: {violationType}
+   Evidence: {violationEvidence}
+
+2. There is a participation imbalance:
+   Participation risk score: {participationRiskScore}
+   Silent participant ratio: {silentParticipantRatio}
+   Speaker distribution: {speakerDistribution}
+
+Recent transcript ({totalTurns} turns):
+{transcriptExcerpt}
+
+Generate ONE brief message (1-2 sentences) that naturally addresses both:
+- A gentle reminder of the brainstorming rule
+- An invitation for more balanced participation
+Make it flow naturally as one thought, not two separate points.
+Do NOT single out anyone by name.`,
+
+  PERSPECTIVE_BROADENING: `Two issues need addressing in this brainstorming session:
+
+1. A brainstorming rule was violated:
+   Rule: {violationType}
+   Evidence: {violationEvidence}
+
+2. Ideas are converging too narrowly:
+   Cluster concentration: {clusterConcentration}
+   Novelty rate: {noveltyRate}
+
+Recent transcript ({totalTurns} turns):
+{transcriptExcerpt}
+
+Generate ONE brief message (1-2 sentences) that naturally addresses both:
+- A gentle reminder of the brainstorming rule
+- Encouragement to explore fresh directions
+Make it flow naturally as one thought. Do NOT single out anyone.`,
+
+  REACTIVATION: `Two issues need addressing in this brainstorming session:
+
+1. A brainstorming rule was violated:
+   Rule: {violationType}
+   Evidence: {violationEvidence}
+
+2. The discussion has stalled:
+   Stagnation duration: {stagnationDuration}s
+   Novelty rate: {noveltyRate}
+
+Recent transcript ({totalTurns} turns):
+{transcriptExcerpt}
+
+Generate ONE brief message (1-2 sentences) that naturally addresses both:
+- A gentle reminder of the brainstorming rule
+- An energizing nudge to restart creative flow
+Make it flow naturally as one thought. Do NOT single out anyone.`,
+};
+
+const COMBINED_PROMPTS_DE: Record<string, string> = {
+  PARTICIPATION_REBALANCING: `Zwei Punkte sollten in dieser Brainstorming-Session angesprochen werden:
+
+1. Eine Brainstorming-Regel wurde verletzt:
+   Regel: {violationType}
+   Beleg: {violationEvidence}
+
+2. Es gibt ein Ungleichgewicht in der Beteiligung:
+   Partizipations-Risiko-Score: {participationRiskScore}
+   Anteil stiller Teilnehmer: {silentParticipantRatio}
+   Verteilung: {speakerDistribution}
+
+Gesprächstranskript ({totalTurns} Beiträge):
+{transcriptExcerpt}
+
+Formuliere EINE kurze Nachricht (1-2 Sätze), die beides natürlich anspricht:
+- Eine sanfte Erinnerung an die Brainstorming-Regel
+- Eine Einladung zu ausgewogenerer Beteiligung
+Lass es als ein natürlicher Gedanke fliessen, nicht als zwei separate Punkte.
+Nenne NIEMANDEN beim Namen.`,
+
+  PERSPECTIVE_BROADENING: `Zwei Punkte sollten in dieser Brainstorming-Session angesprochen werden:
+
+1. Eine Brainstorming-Regel wurde verletzt:
+   Regel: {violationType}
+   Beleg: {violationEvidence}
+
+2. Die Ideen konvergieren zu stark:
+   Cluster-Konzentration: {clusterConcentration}
+   Neuheitsrate: {noveltyRate}
+
+Gesprächstranskript ({totalTurns} Beiträge):
+{transcriptExcerpt}
+
+Formuliere EINE kurze Nachricht (1-2 Sätze), die beides natürlich anspricht:
+- Eine sanfte Erinnerung an die Brainstorming-Regel
+- Ermutigung, frische Richtungen zu erkunden
+Lass es als ein natürlicher Gedanke fliessen. Nenne NIEMANDEN beim Namen.`,
+
+  REACTIVATION: `Zwei Punkte sollten in dieser Brainstorming-Session angesprochen werden:
+
+1. Eine Brainstorming-Regel wurde verletzt:
+   Regel: {violationType}
+   Beleg: {violationEvidence}
+
+2. Die Diskussion ist ins Stocken geraten:
+   Stagnationsdauer: {stagnationDuration}s
+   Neuheitsrate: {noveltyRate}
+
+Gesprächstranskript ({totalTurns} Beiträge):
+{transcriptExcerpt}
+
+Formuliere EINE kurze Nachricht (1-2 Sätze), die beides natürlich anspricht:
+- Eine sanfte Erinnerung an die Brainstorming-Regel
+- Einen energetisierenden Impuls, um den kreativen Fluss wieder anzuregen
+Lass es als ein natürlicher Gedanke fliessen. Nenne NIEMANDEN beim Namen.`,
 };
 
 // --- Handler ---
@@ -194,7 +313,7 @@ Verweise auf das, was die Gruppe bisher erkundet hat, und lade dazu ein, über u
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as ModeratorRequest;
-    const { trigger, speakerDistribution, language, transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, scenario, intent, participationMetrics, semanticDynamics, stagnationDuration } = body;
+    const { trigger, speakerDistribution, language, transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, scenario, intent, participationMetrics, semanticDynamics, stagnationDuration, violationType, violationEvidence, violationSeverity, combined, ruleViolation } = body;
 
     // Server-side scenario guard: moderator is never appropriate in baseline
     if (scenario === 'baseline') {
@@ -204,15 +323,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Select language-appropriate prompts
+    // Validate: need intent
     const isGerman = language.startsWith('de');
-    const triggerPrompts = isGerman ? TRIGGER_PROMPTS_DE : TRIGGER_PROMPTS_EN;
     const intentPrompts = isGerman ? INTENT_PROMPTS_DE : INTENT_PROMPTS_EN;
+    const combinedPrompts = isGerman ? COMBINED_PROMPTS_DE : COMBINED_PROMPTS_EN;
 
-    // Validate: need either intent (v2) or trigger (v1)
-    if (!intent && (!trigger || !triggerPrompts[trigger])) {
+    if (!intent || !intentPrompts[intent]) {
       return NextResponse.json(
-        { error: 'Invalid trigger or intent type' },
+        { error: 'Invalid intent type' },
         { status: 400 }
       );
     }
@@ -223,32 +341,38 @@ export async function POST(request: NextRequest) {
 
     const routingConfig = loadRoutingConfig();
 
-    // Build prompt — prefer v2 intent-based prompts, fall back to v1 trigger prompts
     const excerptText = transcriptExcerpt.length > 0
       ? transcriptExcerpt.join('\n')
       : 'No recent transcript available';
 
-    let userPrompt: string;
+    // Resolve rule violation fields (from combined body or separate fields)
+    const effectiveViolationType = ruleViolation?.rule ?? violationType ?? 'Unknown';
+    const effectiveViolationEvidence = ruleViolation?.evidence ?? violationEvidence ?? 'Not available';
+    const effectiveViolationSeverity = ruleViolation?.severity ?? violationSeverity ?? 'medium';
 
-    if (intent && intentPrompts[intent]) {
-      userPrompt = intentPrompts[intent]
-        .replace('{speakerDistribution}', speakerDistribution || 'Not available')
-        .replace('{totalTurns}', String(totalTurns))
-        .replace('{transcriptExcerpt}', excerptText)
-        .replace('{participationRiskScore}', String(participationMetrics?.participationRiskScore?.toFixed(2) ?? 'N/A'))
-        .replace('{silentParticipantRatio}', String(participationMetrics?.silentParticipantRatio?.toFixed(2) ?? 'N/A'))
-        .replace('{dominanceStreakScore}', String(participationMetrics?.dominanceStreakScore?.toFixed(2) ?? 'N/A'))
-        .replace('{clusterConcentration}', String(semanticDynamics?.clusterConcentration?.toFixed(2) ?? 'N/A'))
-        .replace('{noveltyRate}', String(semanticDynamics?.noveltyRate?.toFixed(2) ?? 'N/A'))
-        .replace('{explorationRatio}', String(semanticDynamics?.explorationElaborationRatio?.toFixed(2) ?? 'N/A'))
-        .replace('{stagnationDuration}', String(stagnationDuration?.toFixed(0) ?? 'N/A'))
-        .replace('{expansionScore}', String(semanticDynamics?.semanticExpansionScore?.toFixed(2) ?? 'N/A'));
+    // Select prompt template: combined (rule+metric) or single intent
+    let promptTemplate: string;
+    if (combined && ruleViolation && combinedPrompts[intent]) {
+      promptTemplate = combinedPrompts[intent];
     } else {
-      userPrompt = triggerPrompts[trigger]
-        .replace('{speakerDistribution}', speakerDistribution || 'Not available')
-        .replace('{totalTurns}', String(totalTurns))
-        .replace('{transcriptExcerpt}', excerptText);
+      promptTemplate = intentPrompts[intent];
     }
+
+    const userPrompt = promptTemplate
+      .replace('{speakerDistribution}', speakerDistribution || 'Not available')
+      .replace('{totalTurns}', String(totalTurns))
+      .replace('{transcriptExcerpt}', excerptText)
+      .replace('{participationRiskScore}', String(participationMetrics?.participationRiskScore?.toFixed(2) ?? 'N/A'))
+      .replace('{silentParticipantRatio}', String(participationMetrics?.silentParticipantRatio?.toFixed(2) ?? 'N/A'))
+      .replace('{dominanceStreakScore}', String(participationMetrics?.dominanceStreakScore?.toFixed(2) ?? 'N/A'))
+      .replace('{clusterConcentration}', String(semanticDynamics?.clusterConcentration?.toFixed(2) ?? 'N/A'))
+      .replace('{noveltyRate}', String(semanticDynamics?.noveltyRate?.toFixed(2) ?? 'N/A'))
+      .replace('{explorationRatio}', String(semanticDynamics?.explorationElaborationRatio?.toFixed(2) ?? 'N/A'))
+      .replace('{stagnationDuration}', String(stagnationDuration?.toFixed(0) ?? 'N/A'))
+      .replace('{expansionScore}', String(semanticDynamics?.semanticExpansionScore?.toFixed(2) ?? 'N/A'))
+      .replace('{violationType}', effectiveViolationType)
+      .replace('{violationEvidence}', effectiveViolationEvidence)
+      .replace('{violationSeverity}', effectiveViolationSeverity);
 
     try {
       const { text, logEntry } = await callLLM(
@@ -266,20 +390,20 @@ export async function POST(request: NextRequest) {
         text,
         trigger,
         intent,
+        combined: combined ?? false,
         timestamp: Date.now(),
         logEntry,
       });
     } catch (error) {
-      // LLM call failed (after exhausting fallbacks) — return static fallback with HTTP 200
-      // so the client can still commit the state transition. Include fallback:true flag for logging.
       const logEntry = error instanceof LLMError ? error.logEntry : null;
       console.error('Moderator LLM call failed:', error);
 
       return NextResponse.json({
         role: 'moderator',
-        text: getFallbackResponse(trigger, language, intent),
+        text: getFallbackResponse(language, intent),
         trigger,
         intent,
+        combined: combined ?? false,
         timestamp: Date.now(),
         logEntry,
         fallback: true,
@@ -295,25 +419,11 @@ export async function POST(request: NextRequest) {
 }
 
 // --- Fallback Responses ---
-// Used only when the LLM call itself fails (e.g. network error, all models down).
-// NOT used when API key is missing — that returns 503 instead.
 
-function getFallbackResponse(trigger: string, language: string, intent?: string): string {
+function getFallbackResponse(language: string, intent: string): string {
   const isGerman = language.startsWith('de');
 
   const fallbacks: Record<string, { en: string; de: string }> = {
-    imbalance: {
-      en: "I notice some voices we haven't heard from in a while. Would anyone like to add a different perspective?",
-      de: 'Mir fällt auf, dass wir von einigen noch nichts gehört haben. Möchte jemand eine andere Perspektive einbringen?',
-    },
-    repetition: {
-      en: "We've explored some great themes. What if we looked at this from a completely different angle?",
-      de: 'Wir haben einige tolle Themen erkundet. Wie wäre es, das Ganze aus einem völlig anderen Blickwinkel zu betrachten?',
-    },
-    stagnation: {
-      en: "Let's take a moment to reflect. What aspects haven't we considered yet?",
-      de: 'Lasst uns kurz innehalten. Welche Aspekte haben wir noch nicht berücksichtigt?',
-    },
     PARTICIPATION_REBALANCING: {
       en: "It feels like we could benefit from hearing more perspectives. Who else has thoughts to share?",
       de: 'Es wäre bereichernd, noch mehr Perspektiven zu hören. Wer möchte noch etwas beitragen?',
@@ -326,9 +436,12 @@ function getFallbackResponse(trigger: string, language: string, intent?: string)
       en: "Let's pause and think about what territory we haven't explored yet. What dimensions are still open?",
       de: 'Lasst uns kurz überlegen, welche Bereiche wir noch nicht erkundet haben. Welche Dimensionen sind noch offen?',
     },
+    NORM_REINFORCEMENT: {
+      en: "Quick reminder — in brainstorming, all ideas are welcome! Let's save evaluation for later and keep building on each other's thoughts.",
+      de: 'Kurze Erinnerung: Beim Brainstorming sind alle Ideen willkommen! Bewertungen heben wir uns für später auf — lasst uns weiter aufeinander aufbauen.',
+    },
   };
 
-  const key = intent && fallbacks[intent] ? intent : trigger;
-  const fallback = fallbacks[key] || fallbacks.imbalance;
+  const fallback = fallbacks[intent] || fallbacks.PARTICIPATION_REBALANCING;
   return isGerman ? fallback.de : fallback.en;
 }

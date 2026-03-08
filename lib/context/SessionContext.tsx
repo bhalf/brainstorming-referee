@@ -12,25 +12,25 @@ import {
   VoiceSettings,
   SessionLog,
   ModelRoutingLogEntry,
+  Idea,
+  IdeaConnection,
 } from '../types';
 import { DEFAULT_CONFIG } from '../config';
+import { PROMPT_VERSION } from '../config/promptVersion';
 
 // --- Initial States ---
 
 const initialDecisionState: DecisionEngineState = {
-  currentState: 'OBSERVATION',
+  phase: 'MONITORING',
   lastInterventionTime: null,
   interventionCount: 0,
-  persistenceStartTime: null,
   postCheckStartTime: null,
   cooldownUntil: null,
   metricsAtIntervention: null,
-  triggerAtIntervention: null,
-  // v2 fields
-  phase: 'MONITORING',
   confirmingSince: null,
   confirmingState: null,
   postCheckIntent: null,
+  lastRuleViolationTime: null,
 };
 
 const initialVoiceSettings: VoiceSettings = {
@@ -52,6 +52,8 @@ const initialSessionState: SessionState = {
   transcriptSegments: [],
   metricSnapshots: [],
   interventions: [],
+  ideas: [],
+  ideaConnections: [],
   decisionState: initialDecisionState,
   voiceSettings: initialVoiceSettings,
   modelRoutingLog: [],
@@ -73,6 +75,10 @@ type SessionAction =
   | { type: 'UPDATE_DECISION_STATE'; payload: Partial<DecisionEngineState> }
   | { type: 'UPDATE_VOICE_SETTINGS'; payload: Partial<VoiceSettings> }
   | { type: 'ADD_MODEL_ROUTING_LOG'; payload: ModelRoutingLogEntry }
+  | { type: 'ADD_IDEA'; payload: Idea }
+  | { type: 'UPDATE_IDEA'; payload: { id: string; updates: Partial<Idea> } }
+  | { type: 'REMOVE_IDEA'; payload: string }
+  | { type: 'ADD_IDEA_CONNECTION'; payload: IdeaConnection }
   | { type: 'ADD_ERROR'; payload: { message: string; context?: string } }
   | { type: 'CLEAR_ERRORS' }
   | { type: 'RESET_SESSION' };
@@ -94,6 +100,8 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
         transcriptSegments: [],
         metricSnapshots: [],
         interventions: [],
+        ideas: [],
+        ideaConnections: [],
         decisionState: initialDecisionState,
         modelRoutingLog: [],
         errors: [],
@@ -124,9 +132,9 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       }
       return {
         ...state,
-        // Cap at 2000 entries to prevent unbounded memory growth in long sessions
-        transcriptSegments: state.transcriptSegments.length >= 2000
-          ? [...state.transcriptSegments.slice(-1999), action.payload]
+        // Cap at 5000 entries (~60 min of active discussion) to prevent unbounded growth
+        transcriptSegments: state.transcriptSegments.length >= 5000
+          ? [...state.transcriptSegments.slice(-4999), action.payload]
           : [...state.transcriptSegments, action.payload],
       };
     }
@@ -140,15 +148,18 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       };
 
     case 'ADD_METRIC_SNAPSHOT': {
-      // Deduplicate by timestamp (prevents double-add from owner + Realtime)
+      // Deduplicate by ID first, fall back to timestamp (prevents double-add from owner + Realtime)
+      if (action.payload.id && state.metricSnapshots.some(s => s.id === action.payload.id)) {
+        return state;
+      }
       if (state.metricSnapshots.some(s => s.timestamp === action.payload.timestamp)) {
         return state;
       }
       return {
         ...state,
-        // Cap at 200 entries (~16 min at 5s intervals) to prevent unbounded growth
-        metricSnapshots: state.metricSnapshots.length >= 200
-          ? [...state.metricSnapshots.slice(-199), action.payload]
+        // Cap at 720 entries (~60 min at 5s intervals) to prevent unbounded growth
+        metricSnapshots: state.metricSnapshots.length >= 720
+          ? [...state.metricSnapshots.slice(-719), action.payload]
           : [...state.metricSnapshots, action.payload],
       };
     }
@@ -192,16 +203,60 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
     case 'ADD_MODEL_ROUTING_LOG':
       return {
         ...state,
-        modelRoutingLog: [...state.modelRoutingLog, action.payload],
+        // Cap at 500 entries to prevent unbounded growth
+        modelRoutingLog: state.modelRoutingLog.length >= 500
+          ? [...state.modelRoutingLog.slice(-499), action.payload]
+          : [...state.modelRoutingLog, action.payload],
       };
+
+    case 'ADD_IDEA': {
+      if (state.ideas.some(i => i.id === action.payload.id)) {
+        return state;
+      }
+      return {
+        ...state,
+        ideas: state.ideas.length >= 500
+          ? [...state.ideas.slice(-499), action.payload]
+          : [...state.ideas, action.payload],
+      };
+    }
+
+    case 'UPDATE_IDEA':
+      return {
+        ...state,
+        ideas: state.ideas.map((idea) =>
+          idea.id === action.payload.id ? { ...idea, ...action.payload.updates } : idea
+        ),
+      };
+
+    case 'REMOVE_IDEA':
+      return {
+        ...state,
+        ideas: state.ideas.map((idea) =>
+          idea.id === action.payload ? { ...idea, isDeleted: true } : idea
+        ),
+      };
+
+    case 'ADD_IDEA_CONNECTION': {
+      if (state.ideaConnections.some(c => c.id === action.payload.id)) {
+        return state;
+      }
+      return {
+        ...state,
+        // Cap at 1000 entries to prevent unbounded growth
+        ideaConnections: state.ideaConnections.length >= 1000
+          ? [...state.ideaConnections.slice(-999), action.payload]
+          : [...state.ideaConnections, action.payload],
+      };
+    }
 
     case 'ADD_ERROR':
       return {
         ...state,
-        errors: [
-          ...state.errors,
-          { timestamp: Date.now(), message: action.payload.message, context: action.payload.context },
-        ],
+        // Cap at 100 entries to prevent unbounded growth
+        errors: state.errors.length >= 100
+          ? [...state.errors.slice(-99), { timestamp: Date.now(), message: action.payload.message, context: action.payload.context }]
+          : [...state.errors, { timestamp: Date.now(), message: action.payload.message, context: action.payload.context }],
       };
 
     case 'CLEAR_ERRORS':
@@ -227,7 +282,7 @@ interface SessionContextValue {
   // Convenience methods
   startSession: (roomName: string, scenario: Scenario, language: string, config: ExperimentConfig, sessionId?: string) => void;
   setSessionId: (sessionId: string) => void;
-  endSession: () => void;
+  endSession: (sessionId?: string | null) => void;
   updateConfig: (updates: Partial<ExperimentConfig>) => void;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
   updateTranscriptSegment: (id: string, updates: Partial<TranscriptSegment>) => void;
@@ -236,6 +291,10 @@ interface SessionContextValue {
   updateIntervention: (id: string, updates: Partial<Intervention>) => void;
   updateDecisionState: (updates: Partial<DecisionEngineState>) => void;
   updateVoiceSettings: (updates: Partial<VoiceSettings>) => void;
+  addIdea: (idea: Idea) => void;
+  updateIdea: (id: string, updates: Partial<Idea>) => void;
+  removeIdea: (id: string) => void;
+  addIdeaConnection: (connection: IdeaConnection) => void;
   addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
   addError: (message: string, context?: string) => void;
   exportSessionLog: () => SessionLog;
@@ -263,7 +322,16 @@ export function SessionProvider({ children }: SessionProviderProps) {
     dispatch({ type: 'SET_SESSION_ID', payload: sessionId });
   }, []);
 
-  const endSession = useCallback(() => {
+  const endSession = useCallback((sessionId?: string | null) => {
+    // Persist to server if sessionId is provided
+    if (sessionId) {
+      fetch('/api/session', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+        keepalive: true, // Ensures request completes even during navigation
+      }).catch(() => { }); // best-effort
+    }
     dispatch({ type: 'END_SESSION' });
   }, []);
 
@@ -299,6 +367,22 @@ export function SessionProvider({ children }: SessionProviderProps) {
     dispatch({ type: 'UPDATE_VOICE_SETTINGS', payload: updates });
   }, []);
 
+  const addIdea = useCallback((idea: Idea) => {
+    dispatch({ type: 'ADD_IDEA', payload: idea });
+  }, []);
+
+  const updateIdea = useCallback((id: string, updates: Partial<Idea>) => {
+    dispatch({ type: 'UPDATE_IDEA', payload: { id, updates } });
+  }, []);
+
+  const removeIdea = useCallback((id: string) => {
+    dispatch({ type: 'REMOVE_IDEA', payload: id });
+  }, []);
+
+  const addIdeaConnection = useCallback((connection: IdeaConnection) => {
+    dispatch({ type: 'ADD_IDEA_CONNECTION', payload: connection });
+  }, []);
+
   const addError = useCallback((message: string, context?: string) => {
     dispatch({ type: 'ADD_ERROR', payload: { message, context } });
   }, []);
@@ -320,9 +404,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
       transcriptSegments: state.transcriptSegments,
       metricSnapshots: state.metricSnapshots,
       interventions: state.interventions,
+      ideas: state.ideas.filter(i => !i.isDeleted),
+      ideaConnections: state.ideaConnections,
       voiceSettings: state.voiceSettings,
       modelRoutingLog: state.modelRoutingLog,
       errors: state.errors,
+      promptVersion: PROMPT_VERSION,
     };
   }, [state]);
 
@@ -340,6 +427,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
     updateIntervention,
     updateDecisionState,
     updateVoiceSettings,
+    addIdea,
+    updateIdea,
+    removeIdea,
+    addIdeaConnection,
     addModelRoutingLog,
     addError,
     exportSessionLog,

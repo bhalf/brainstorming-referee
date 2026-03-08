@@ -11,6 +11,7 @@ import ExportButton from './ExportButton';
 import ModelRoutingPanel from './ModelRoutingPanel';
 import LiveTuningPanel from './LiveTuningPanel';
 import TranscriptTab from './TranscriptTab';
+import SystemHealthPanel, { SystemHealthProps, computeOverallHealth } from './SystemHealthPanel';
 import Panel from './shared/Panel';
 import SectionHeader from './shared/SectionHeader';
 
@@ -55,12 +56,13 @@ interface OverlayPanelProps {
   interventions: Intervention[];
   sessionLog: SessionLog;
   modelRoutingLog: ModelRoutingLogEntry[];
-  onUpdateConfig?: (key: keyof ExperimentConfig, value: number | [number, number, number, number]) => void;
+  onUpdateConfig?: (key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => void;
   onResetConfig?: () => void;
+  health?: SystemHealthProps;
   children?: ReactNode;
 }
 
-type TabId = 'chat' | 'transcript' | 'analysis' | 'tuning' | 'settings' | 'models' | 'debug';
+type TabId = 'chat' | 'transcript' | 'analysis' | 'tuning' | 'settings' | 'models' | 'health' | 'debug';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'chat', label: 'Chat', icon: '💬' },
@@ -69,6 +71,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'tuning', label: 'Tuning', icon: '🎛️' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
   { id: 'models', label: 'Models', icon: '🤖' },
+  { id: 'health', label: 'Health', icon: '🩺' },
   { id: 'debug', label: 'Debug', icon: '🔧' },
 ];
 
@@ -86,22 +89,45 @@ export default function OverlayPanel({
   modelRoutingLog,
   onUpdateConfig,
   onResetConfig,
+  health,
   children,
 }: OverlayPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('transcript');
 
+  const overallHealth = health ? computeOverallHealth(health) : null;
+
   return (
     <div className="h-full flex flex-col bg-slate-800/90 backdrop-blur-sm rounded-xl border border-slate-700 overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-slate-700">
+      <div className="p-3 sm:p-4 border-b border-slate-700">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold text-white">AI Moderator</h2>
-          <div className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${isSessionActive
-            ? 'bg-green-900/50 text-green-400'
-            : 'bg-slate-700 text-slate-400'
-            }`}>
-            <span className={`w-2 h-2 rounded-full ${isSessionActive ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
-            {isSessionActive ? 'Active' : 'Inactive'}
+          <div className="flex items-center gap-2">
+            {/* System Health Indicator */}
+            {overallHealth && (
+              <button
+                onClick={() => setActiveTab('health')}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${overallHealth === 'healthy' ? 'bg-green-900/30 text-green-400 hover:bg-green-900/50' :
+                    overallHealth === 'degraded' ? 'bg-yellow-900/30 text-yellow-400 hover:bg-yellow-900/50' :
+                      'bg-red-900/30 text-red-400 hover:bg-red-900/50'
+                  }`}
+                title="System Health"
+              >
+                <span className={`w-2 h-2 rounded-full ${overallHealth === 'healthy' ? 'bg-green-400' :
+                    overallHealth === 'degraded' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-red-400 animate-pulse'
+                  }`} />
+                {overallHealth === 'error' ? 'Issues' : overallHealth === 'degraded' ? 'Warning' : 'OK'}
+              </button>
+            )}
+            {/* Session Active Badge */}
+            <div className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${isSessionActive
+              ? 'bg-green-900/50 text-green-400'
+              : 'bg-slate-700 text-slate-400'
+              }`}>
+              <span className={`w-2 h-2 rounded-full ${isSessionActive ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+              {isSessionActive ? 'Active' : 'Inactive'}
+            </div>
           </div>
         </div>
 
@@ -115,18 +141,18 @@ export default function OverlayPanel({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-700">
+      <div className="flex border-b border-slate-700 overflow-x-auto scrollbar-hide">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors ${activeTab === tab.id
+            className={`shrink-0 px-2.5 sm:px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center sm:justify-start gap-1.5 ${activeTab === tab.id
               ? 'bg-slate-700/50 text-white border-b-2 border-blue-500'
               : 'text-slate-400 hover:text-white hover:bg-slate-700/30'
               }`}
           >
-            <span className="mr-1.5">{tab.icon}</span>
-            {tab.label}
+            <span>{tab.icon}</span>
+            <span className="hidden sm:inline">{tab.label}</span>
           </button>
         ))}
       </div>
@@ -194,6 +220,12 @@ export default function OverlayPanel({
           </div>
         )}
 
+        {activeTab === 'health' && health && (
+          <div className="h-full flex flex-col p-3">
+            <SystemHealthPanel health={health} />
+          </div>
+        )}
+
         {activeTab === 'debug' && (
           <div className="h-full flex flex-col p-3">
             <DebugPanel
@@ -208,10 +240,10 @@ export default function OverlayPanel({
       </div>
 
       {/* Footer Controls */}
-      <div className="p-4 border-t border-slate-700">
+      <div className="p-3 sm:p-4 border-t border-slate-700">
         <button
           onClick={onEndSession}
-          className="w-full py-2.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
+          className="w-full py-2.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors min-h-[44px]"
         >
           End Session
         </button>

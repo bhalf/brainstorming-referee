@@ -64,6 +64,7 @@ export function useDecisionOwnership({
 
     const run = async () => {
       const claimed = await claimOrHeartbeat();
+      console.log('[DecisionOwnership] claim result:', claimed, 'sessionId:', sessionId);
       if (isMounted) {
         setIsDecisionOwner(claimed);
       }

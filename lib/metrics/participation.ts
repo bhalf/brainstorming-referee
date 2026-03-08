@@ -8,8 +8,48 @@ const MAX_SEGMENTS = 30;
 
 const isActivityMarker = (seg: TranscriptSegment) => /^\[.*\]$/.test(seg.text.trim());
 
+/**
+ * Backchannel words — short confirmatory/reactive utterances that are real speech
+ * but should not count as substantive turns for participation metrics.
+ * Unlike hallucination filler words, this list is focused on conversational
+ * backchannels commonly seen in brainstorming contexts.
+ */
+const BACKCHANNEL_WORDS = new Set([
+  // German
+  'ja', 'nein', 'genau', 'stimmt', 'ok', 'okay', 'mhm', 'aha', 'richtig',
+  'klar', 'gut', 'hm', 'hmm', 'jap', 'nö', 'ne', 'jo', 'achso', 'ach',
+  'sicher', 'tja', 'doch', 'naja', 'alles', 'super', 'cool', 'toll',
+  // English
+  'yes', 'no', 'yeah', 'yep', 'nope', 'right', 'sure', 'true',
+  'mhm', 'uh-huh', 'wow', 'oh', 'ah', 'hm', 'hmm',
+  'exactly', 'agreed', 'indeed', 'absolutely', 'totally', 'definitely',
+]);
+
+/** Maximum word count for a segment to be considered a backchannel */
+const MAX_BACKCHANNEL_WORDS = 3;
+
+/**
+ * Check if a segment is a backchannel (short confirmatory utterance).
+ * Backchannels are real speech that should remain in the transcript,
+ * but should not count as substantive turns for participation metrics.
+ */
+export function isBackchannel(segment: TranscriptSegment): boolean {
+  const text = segment.text.trim().toLowerCase().replace(/[.!?,;:…]+$/g, '');
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+
+  if (words.length === 0) return true;
+  if (words.length > MAX_BACKCHANNEL_WORDS) return false;
+
+  return words.every(w => BACKCHANNEL_WORDS.has(w));
+}
+
 function getFinalSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return segments.filter(s => s.isFinal && !isActivityMarker(s));
+}
+
+/** Final segments excluding backchannels — used for turn-based metrics */
+function getSubstantiveSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
+  return segments.filter(s => s.isFinal && !isActivityMarker(s) && !isBackchannel(s));
 }
 
 // --- Volume Share ---
@@ -40,7 +80,7 @@ export function computeVolumeShare(segments: TranscriptSegment[]): Record<string
 // Fraction of final segments per speaker.
 
 export function computeTurnShare(segments: TranscriptSegment[]): Record<string, number> {
-  const finalSegs = getFinalSegments(segments);
+  const finalSegs = getSubstantiveSegments(segments);
   const turnCounts: Record<string, number> = {};
 
   for (const seg of finalSegs) {
@@ -89,7 +129,7 @@ export function computeDominanceStreakScore(
   segments: TranscriptSegment[],
   knownParticipantCount?: number,
 ): number {
-  const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
+  const finalSegs = getSubstantiveSegments(segments).slice(-MAX_SEGMENTS);
   if (finalSegs.length < 3) return 0;
 
   const speakers = new Set(finalSegs.map(s => s.speaker));

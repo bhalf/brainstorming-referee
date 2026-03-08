@@ -125,18 +125,16 @@ const sampleMetrics: MetricSnapshot = {
 };
 
 const sampleEngineState: DecisionEngineState = {
-  currentState: 'OBSERVATION',
+  phase: 'MONITORING',
   lastInterventionTime: null,
   interventionCount: 0,
-  persistenceStartTime: null,
   postCheckStartTime: null,
   cooldownUntil: null,
   metricsAtIntervention: null,
-  triggerAtIntervention: null,
-  phase: 'MONITORING',
   confirmingSince: null,
   confirmingState: null,
   postCheckIntent: null,
+  lastRuleViolationTime: null,
 };
 
 const sampleIntervention: Intervention = {

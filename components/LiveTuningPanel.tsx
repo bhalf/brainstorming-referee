@@ -8,7 +8,7 @@ import SectionHeader from './shared/SectionHeader';
 
 interface LiveTuningPanelProps {
   config: ExperimentConfig;
-  onUpdateConfig: (key: keyof ExperimentConfig, value: number | [number, number, number, number]) => void;
+  onUpdateConfig: (key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => void;
   onResetAll: () => void;
 }
 
@@ -241,14 +241,28 @@ export default function LiveTuningPanel({ config, onUpdateConfig, onResetAll }: 
         </p>
       </Panel>
 
-      {/* 1. Detection Thresholds — when to trigger interventions */}
+      {/* Rule Check Toggle */}
+      <Panel>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <div
+            className={`relative w-10 h-5 rounded-full transition-colors ${config.RULE_CHECK_ENABLED ? 'bg-blue-600' : 'bg-slate-600'}`}
+            onClick={() => onUpdateConfig('RULE_CHECK_ENABLED', !config.RULE_CHECK_ENABLED)}
+          >
+            <div
+              className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${config.RULE_CHECK_ENABLED ? 'translate-x-5' : ''}`}
+            />
+          </div>
+          <span className="text-xs text-slate-300">Brainstorming Rule Check</span>
+        </label>
+      </Panel>
+
+      {/* 1. Detection Thresholds */}
       <TuningGroup
         title="Detection Thresholds"
         defaultOpen={true}
         onReset={() => resetGroup([
           'THRESHOLD_PARTICIPATION_RISK', 'THRESHOLD_NOVELTY_RATE',
           'THRESHOLD_CLUSTER_CONCENTRATION', 'THRESHOLD_SILENT_PARTICIPANT',
-          'THRESHOLD_IMBALANCE', 'THRESHOLD_REPETITION', 'THRESHOLD_STAGNATION_SECONDS',
         ])}
       >
         <TuningSlider
@@ -291,30 +305,9 @@ export default function LiveTuningPanel({ config, onUpdateConfig, onResetAll }: 
           description="Below this speaking share, someone is counted as 'silent'"
           onChange={(v) => handleUpdate('THRESHOLD_SILENT_PARTICIPANT', v)}
         />
-        <TuningSlider
-          label="Repetition"
-          value={config.THRESHOLD_REPETITION}
-          defaultValue={DEFAULT_CONFIG.THRESHOLD_REPETITION}
-          min={CONFIG_CONSTRAINTS.THRESHOLD_REPETITION.min}
-          max={CONFIG_CONSTRAINTS.THRESHOLD_REPETITION.max}
-          step={0.05}
-          description="Above this semantic similarity, conversation is going in circles"
-          onChange={(v) => handleUpdate('THRESHOLD_REPETITION', v)}
-        />
-        <TuningSlider
-          label="Stagnation"
-          value={config.THRESHOLD_STAGNATION_SECONDS}
-          defaultValue={DEFAULT_CONFIG.THRESHOLD_STAGNATION_SECONDS}
-          min={CONFIG_CONSTRAINTS.THRESHOLD_STAGNATION_SECONDS.min}
-          max={CONFIG_CONSTRAINTS.THRESHOLD_STAGNATION_SECONDS.max}
-          step={5}
-          unit="s"
-          description="Seconds without new content before stagnation is flagged"
-          onChange={(v) => handleUpdate('THRESHOLD_STAGNATION_SECONDS', v)}
-        />
       </TuningGroup>
 
-      {/* 2. Intervention Timing — how the engine reacts */}
+      {/* 2. Intervention Timing */}
       <TuningGroup
         title="Intervention Timing"
         onReset={() => resetGroup([
@@ -384,11 +377,11 @@ export default function LiveTuningPanel({ config, onUpdateConfig, onResetAll }: 
         onReset={() => resetGroup([
           'NOVELTY_COSINE_THRESHOLD', 'CLUSTER_MERGE_THRESHOLD', 'STAGNATION_NOVELTY_THRESHOLD',
           'EXPLORATION_COSINE_THRESHOLD', 'ELABORATION_COSINE_THRESHOLD',
-          'WINDOW_SECONDS', 'ANALYZE_EVERY_MS', 'PERSISTENCE_SECONDS',
-          'RECOVERY_IMPROVEMENT_THRESHOLD', 'THRESHOLD_IMBALANCE',
+          'WINDOW_SECONDS', 'ANALYZE_EVERY_MS',
+          'RECOVERY_IMPROVEMENT_THRESHOLD',
         ])}
       >
-        <p className="text-[10px] text-yellow-400/70 mb-2">Cosine similarity thresholds calibrated for text-embedding-3-small.</p>
+        <p className="text-[10px] text-yellow-400/70 mb-2">Cosine similarity thresholds calibrated for text-embedding-3-large.</p>
 
         <TuningSlider
           label="Novelty Cosine"
@@ -481,27 +474,6 @@ export default function LiveTuningPanel({ config, onUpdateConfig, onResetAll }: 
             step={0.01}
             description="Improvement needed to count as 'recovered' after intervention"
             onChange={(v) => handleUpdate('RECOVERY_IMPROVEMENT_THRESHOLD', v)}
-          />
-          <TuningSlider
-            label="Balance Threshold"
-            value={config.THRESHOLD_IMBALANCE}
-            defaultValue={DEFAULT_CONFIG.THRESHOLD_IMBALANCE}
-            min={CONFIG_CONSTRAINTS.THRESHOLD_IMBALANCE.min}
-            max={CONFIG_CONSTRAINTS.THRESHOLD_IMBALANCE.max}
-            step={0.05}
-            description="Hoover index above which imbalance is flagged"
-            onChange={(v) => handleUpdate('THRESHOLD_IMBALANCE', v)}
-          />
-          <TuningSlider
-            label="Persistence (Legacy)"
-            value={config.PERSISTENCE_SECONDS}
-            defaultValue={DEFAULT_CONFIG.PERSISTENCE_SECONDS}
-            min={CONFIG_CONSTRAINTS.PERSISTENCE_SECONDS.min}
-            max={CONFIG_CONSTRAINTS.PERSISTENCE_SECONDS.max}
-            step={5}
-            unit="s"
-            description="Legacy v1 threshold duration"
-            onChange={(v) => handleUpdate('PERSISTENCE_SECONDS', v)}
           />
         </div>
       </TuningGroup>

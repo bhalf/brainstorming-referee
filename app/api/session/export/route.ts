@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
-import { segmentRowToApp, interventionRowToApp } from '@/lib/supabase/converters';
+import { segmentRowToApp, interventionRowToApp, ideaRowToApp, connectionRowToApp } from '@/lib/supabase/converters';
 
 // GET — Export full session log from Supabase
 export async function GET(request: NextRequest) {
@@ -13,12 +13,15 @@ export async function GET(request: NextRequest) {
   const supabase = getServiceClient();
 
   // Fetch all data in parallel
-  const [sessionRes, segmentsRes, snapshotsRes, interventionsRes, routingRes] = await Promise.all([
+  const [sessionRes, segmentsRes, snapshotsRes, interventionsRes, routingRes, ideasRes, connectionsRes, annotationsRes] = await Promise.all([
     supabase.from('sessions').select('*').eq('id', sessionId).single(),
     supabase.from('transcript_segments').select('*').eq('session_id', sessionId).order('timestamp'),
     supabase.from('metric_snapshots').select('*').eq('session_id', sessionId).order('timestamp'),
     supabase.from('interventions').select('*').eq('session_id', sessionId).order('timestamp'),
     supabase.from('model_routing_logs').select('*').eq('session_id', sessionId).order('timestamp'),
+    supabase.from('ideas').select('*').eq('session_id', sessionId).eq('is_deleted', false).order('created_at'),
+    supabase.from('idea_connections').select('*').eq('session_id', sessionId).order('created_at'),
+    supabase.from('intervention_annotations').select('*').eq('session_id', sessionId).order('created_at'),
   ]);
 
   if (sessionRes.error || !sessionRes.data) {
@@ -26,6 +29,8 @@ export async function GET(request: NextRequest) {
   }
 
   const session = sessionRes.data;
+  const config = (session.config || {}) as Record<string, unknown>;
+  const experimentMeta = config._experimentMeta as Record<string, unknown> | undefined;
 
   const sessionLog = {
     metadata: {
@@ -37,6 +42,8 @@ export async function GET(request: NextRequest) {
       language: session.language,
     },
     activeConfig: session.config,
+    promptVersion: experimentMeta?.promptVersion ?? null,
+    engineVersion: experimentMeta?.engineVersion ?? null,
     transcriptSegments: (segmentsRes.data || []).map(segmentRowToApp),
     metricSnapshots: (snapshotsRes.data || []).map(s => ({
       ...s.metrics,
@@ -44,6 +51,8 @@ export async function GET(request: NextRequest) {
       timestamp: s.timestamp,
     })),
     interventions: (interventionsRes.data || []).map(interventionRowToApp),
+    ideas: (ideasRes.data || []).map(ideaRowToApp),
+    ideaConnections: (connectionsRes.data || []).map(connectionRowToApp),
     modelRoutingLog: (routingRes.data || []).map(r => ({
       id: r.id,
       timestamp: r.timestamp,
@@ -52,6 +61,16 @@ export async function GET(request: NextRequest) {
       latencyMs: r.latency_ms,
       success: !r.error,
       error: r.error,
+    })),
+    annotations: (annotationsRes.data || []).map(a => ({
+      id: a.id,
+      interventionId: a.intervention_id,
+      rating: a.rating,
+      relevance: a.relevance,
+      effectiveness: a.effectiveness,
+      notes: a.notes,
+      annotator: a.annotator,
+      createdAt: a.created_at,
     })),
   };
 

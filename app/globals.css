@@ -125,3 +125,26 @@ body {
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)) !important;
   }
 }
+
+/* ============================================
+   Responsive Utilities
+   ============================================ */
+
+/* Hide scrollbar but keep scroll functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Bottom tab bar with safe-area support */
+.bottom-tab-bar {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Touch-friendly drag handles */
+.touch-handle {
+  touch-action: none;
+}

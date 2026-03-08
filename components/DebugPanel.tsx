@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { MetricSnapshot, ExperimentConfig, DecisionEngineState } from '@/lib/types';
-import { checkThresholds, ThresholdBreaches } from '@/lib/metrics/computeMetrics';
-import { DECISION_STATE_CONFIG, CONVERSATION_STATE_CONFIG, ENGINE_PHASE_CONFIG } from '@/lib/decision/stateConfig';
+import { CONVERSATION_STATE_CONFIG, ENGINE_PHASE_CONFIG } from '@/lib/decision/stateConfig';
 import { formatTime, formatPercent, formatSeconds } from '@/lib/utils/format';
 import Panel from './shared/Panel';
 import SectionHeader from './shared/SectionHeader';
@@ -37,19 +36,14 @@ export default function DebugPanel({
   const formatTimeOrDash = (timestamp: number | null | undefined): string =>
     timestamp ? formatTime(timestamp) : '—';
 
-  const thresholds: ThresholdBreaches | null = currentMetrics
-    ? checkThresholds(currentMetrics, config)
-    : null;
-
-  const stateColor = DECISION_STATE_CONFIG[decisionState.currentState]?.badgeColor ?? 'bg-slate-600';
   const inferredState = currentMetrics?.inferredState;
   const convStateConfig = inferredState ? CONVERSATION_STATE_CONFIG[inferredState.state] : null;
-  const phase = decisionState.phase ?? 'MONITORING';
+  const phase = decisionState.phase;
   const phaseConfig = ENGINE_PHASE_CONFIG[phase];
 
   return (
     <div className="h-full overflow-y-auto space-y-4 text-sm">
-      {/* Inferred Conversation State (v2) */}
+      {/* Inferred Conversation State */}
       {inferredState && convStateConfig && (
         <Panel>
           <SectionHeader>Conversation State</SectionHeader>
@@ -92,7 +86,7 @@ export default function DebugPanel({
         </Panel>
       )}
 
-      {/* Engine Phase (v2) + Decision Engine State */}
+      {/* Decision Engine */}
       <Panel>
         <SectionHeader>Decision Engine</SectionHeader>
         <div className="space-y-2">
@@ -100,12 +94,6 @@ export default function DebugPanel({
             <span className="text-slate-400">Phase:</span>
             <span className={`px-2 py-0.5 rounded text-xs font-medium text-white ${phaseConfig?.badgeColor ?? 'bg-slate-600'}`}>
               {phaseConfig?.label ?? phase}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-slate-400">Legacy State:</span>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium text-white ${stateColor}`}>
-              {decisionState.currentState}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -130,12 +118,6 @@ export default function DebugPanel({
               </span>
             </div>
           )}
-          {decisionState.persistenceStartTime && !decisionState.confirmingSince && (
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Persistence Timer:</span>
-              <span className="text-blue-400">{Math.ceil((currentTime - decisionState.persistenceStartTime) / 1000)}s / {config.PERSISTENCE_SECONDS}s</span>
-            </div>
-          )}
           {decisionState.postCheckStartTime && (
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Post-Check:</span>
@@ -145,10 +127,14 @@ export default function DebugPanel({
               </span>
             </div>
           )}
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">Rule Check:</span>
+            <span className="text-slate-300 text-xs">{config.RULE_CHECK_ENABLED ? 'Enabled' : 'Disabled'}</span>
+          </div>
         </div>
       </Panel>
 
-      {/* Participation Metrics (v2) */}
+      {/* Participation Metrics */}
       {currentMetrics?.participation && (
         <Panel>
           <SectionHeader>Participation Metrics</SectionHeader>
@@ -172,16 +158,16 @@ export default function DebugPanel({
               isBreached={currentMetrics.participation.dominanceStreakScore > 0.5}
             />
             <DebugMetricRow
-              label="Imbalance (Gini)"
+              label="Imbalance (Hoover)"
               value={formatPercent(currentMetrics.participationImbalance)}
-              threshold={formatPercent(config.THRESHOLD_IMBALANCE)}
-              isBreached={thresholds?.imbalance}
+              threshold="—"
+              isBreached={currentMetrics.participationImbalance > 0.5}
             />
           </div>
         </Panel>
       )}
 
-      {/* Semantic Dynamics (v2) */}
+      {/* Semantic Dynamics */}
       {currentMetrics?.semanticDynamics && (
         <Panel>
           <SectionHeader>Semantic Dynamics</SectionHeader>
@@ -218,22 +204,22 @@ export default function DebugPanel({
         </Panel>
       )}
 
-      {/* Legacy Metrics */}
+      {/* Raw Metrics */}
       <Panel>
-        <SectionHeader>Legacy Metrics</SectionHeader>
+        <SectionHeader>Raw Metrics</SectionHeader>
         {currentMetrics ? (
           <div className="space-y-2">
             <DebugMetricRow
               label="Semantic Repetition"
               value={formatPercent(currentMetrics.semanticRepetitionRate)}
-              threshold={formatPercent(config.THRESHOLD_REPETITION)}
-              isBreached={thresholds?.repetition}
+              threshold="—"
+              isBreached={false}
             />
             <DebugMetricRow
               label="Stagnation Duration"
               value={formatSeconds(currentMetrics.stagnationDuration)}
-              threshold={formatSeconds(config.THRESHOLD_STAGNATION_SECONDS)}
-              isBreached={thresholds?.stagnation}
+              threshold="—"
+              isBreached={currentMetrics.stagnationDuration > 60}
             />
             <DebugMetricRow
               label="Diversity (TTR)"
@@ -293,13 +279,13 @@ export default function DebugPanel({
                       {snapshot.inferredState.state.replace(/_/g, ' ').slice(0, 3)}
                     </span>
                   )}
-                  <span className={snapshot.participationImbalance >= config.THRESHOLD_IMBALANCE ? 'text-red-400' : 'text-slate-400'}>
+                  <span className="text-slate-400">
                     I:{formatPercent(snapshot.participationImbalance)}
                   </span>
-                  <span className={snapshot.semanticRepetitionRate >= config.THRESHOLD_REPETITION ? 'text-red-400' : 'text-slate-400'}>
+                  <span className="text-slate-400">
                     R:{formatPercent(snapshot.semanticRepetitionRate)}
                   </span>
-                  <span className={snapshot.stagnationDuration >= config.THRESHOLD_STAGNATION_SECONDS ? 'text-red-400' : 'text-slate-400'}>
+                  <span className="text-slate-400">
                     S:{snapshot.stagnationDuration.toFixed(0)}s
                   </span>
                 </div>
@@ -317,7 +303,7 @@ export default function DebugPanel({
             {Object.entries(config).map(([key, value]) => (
               <div key={key} className="flex justify-between">
                 <span className="text-slate-500 truncate mr-2">{key}:</span>
-                <span className="text-slate-300">{value}</span>
+                <span className="text-slate-300">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
               </div>
             ))}
           </div>

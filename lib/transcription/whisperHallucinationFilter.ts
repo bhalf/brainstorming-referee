@@ -66,19 +66,40 @@ const HALLUCINATION_PATTERNS = [
   '字幕',
   '請不吝',
   '谢谢观看',
+
+  // Music/sound placeholders
+  '♪',
+  '♫',
+  '[music]',
+  '[applause]',
+  '[laughter]',
+  '[silence]',
+  '[inaudible]',
+  'background noise',
+  'white noise',
+
+  // German Whisper hallucinations on silence
+  // NOTE: Only filter phrases that are NEVER legitimate in brainstorming.
+  // Do NOT filter greetings/farewells — they are valid in meetings.
+
+  // Prompt-echo hallucinations (model repeats its own prompt as text)
+  'transkription eines brainstorming',
+  'transcription of a brainstorming',
 ];
 
-/** Common filler words that Whisper hallucinates in loops */
+/**
+ * Common filler words that Whisper hallucinates in loops.
+ * IMPORTANT: Only include words that are NEVER meaningful on their own
+ * in a brainstorming context. Words like "ja", "nein", "genau", "danke"
+ * are valid meeting utterances and must NOT be filtered.
+ */
 const FILLER_WORDS = new Set([
-  // English
-  'hello', 'hi', 'hey', 'bye', 'goodbye', 'okay', 'ok',
-  'thank', 'thanks', 'you', 'very', 'much', 'so',
-  'yes', 'no', 'yeah', 'well', 'um', 'uh', 'ah',
+  // English — pure noise words only
+  'um', 'uh', 'ah', 'erm', 'hmm',
   'the', 'a', 'an', 'is', 'are', 'and', 'or', 'but',
   'it', 'this', 'that', 'my', 'your', 'i', 'we',
-  // German
-  'hallo', 'tschüss', 'danke', 'bitte', 'ja', 'nein',
-  'gut', 'schön', 'also', 'genau', 'ähm', 'äh',
+  // German — pure noise words only
+  'ähm', 'äh', 'hm',
   'der', 'die', 'das', 'und', 'ist', 'ein', 'eine',
 ]);
 
@@ -103,6 +124,10 @@ export function isWhisperHallucination(text: string): boolean {
 
   const words = lower.replace(/[.,!?;:'"()\-–—]/g, '').split(/\s+/).filter(w => w.length > 0);
   if (words.length === 0) return true;
+
+  // --- Single-word transcripts that are pure filler ---
+  // Only filter single noise words; two-word phrases like "ja genau" are valid
+  if (words.length === 1 && FILLER_WORDS.has(words[0])) return true;
 
   // --- Word-level repetition check ---
   // e.g., "Hello hello hello hello" → unique ratio very low

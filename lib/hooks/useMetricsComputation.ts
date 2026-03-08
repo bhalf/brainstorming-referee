@@ -27,6 +27,8 @@ export function useMetricsComputation({
   const [currentMetrics, setCurrentMetrics] = useState<MetricSnapshot | null>(null);
   const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
   const [stateHistory, setStateHistory] = useState<ConversationStateInference[]>([]);
+  const [lastComputedAt, setLastComputedAt] = useState<number | null>(null);
+  const [computationError, setComputationError] = useState<string | null>(null);
   const isComputingRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
   const currentMetricsRef = useRef<MetricSnapshot | null>(null);
@@ -54,6 +56,49 @@ export function useMetricsComputation({
   // Metrics computation interval (async for embeddings)
   useEffect(() => {
     if (!isActive || !isDecisionOwner) return;
+
+    // Run first computation immediately (don't wait for interval)
+    const computeOnce = async () => {
+      if (isComputingRef.current) return;
+      const segments = transcriptSegmentsRef.current;
+      if (segments.length === 0) return;
+      isComputingRef.current = true;
+
+      try {
+        const now = Date.now();
+        const metrics = await computeMetricsAsync(
+          segments, config, now,
+          speakingTimeRef.current,
+          metricsHistoryRef.current,
+          participantCountRef?.current,
+        );
+        const inference = inferConversationState(metrics, previousInferenceRef.current, now);
+        metrics.inferredState = inference;
+        previousInferenceRef.current = inference;
+        setCurrentMetrics(metrics);
+        setMetricsHistory(prev => [...prev.slice(-50), metrics]);
+        setStateHistory(prev => [...prev.slice(-200), inference]);
+        setLastComputedAt(Date.now());
+        setComputationError(null);
+        if (sessionIdRef.current) {
+          await fetchWithRetry('/api/metrics/snapshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: sessionIdRef.current, snapshot: metrics }),
+            maxRetries: 2,
+            silent: true,
+          });
+        }
+      } catch (error) {
+        console.error('Initial metrics computation error:', error);
+        setComputationError(error instanceof Error ? error.message : 'Unknown error');
+      } finally {
+        isComputingRef.current = false;
+      }
+    };
+
+    // Trigger initial computation after a short delay (wait for first segments)
+    const initialTimeout = setTimeout(computeOnce, 1500);
 
     const interval = setInterval(async () => {
       if (isComputingRef.current) return;
@@ -87,6 +132,8 @@ export function useMetricsComputation({
         setCurrentMetrics(metrics);
         setMetricsHistory(prev => [...prev.slice(-50), metrics]);
         setStateHistory(prev => [...prev.slice(-200), inference]);
+        setLastComputedAt(Date.now());
+        setComputationError(null);
 
         // Persist to Supabase (awaited so Realtime fires reliably for all clients)
         if (sessionIdRef.current) {
@@ -100,12 +147,16 @@ export function useMetricsComputation({
         }
       } catch (error) {
         console.error('Metrics computation error:', error);
+        setComputationError(error instanceof Error ? error.message : 'Unknown error');
       } finally {
         isComputingRef.current = false;
       }
     }, config.ANALYZE_EVERY_MS);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
   }, [isActive, isDecisionOwner, config, transcriptSegmentsRef, speakingTimeRef, participantCountRef]);
 
   return {
@@ -116,5 +167,7 @@ export function useMetricsComputation({
     stateHistory,
     stateHistoryRef,
     currentInferredState: currentMetrics?.inferredState ?? null,
+    lastComputedAt,
+    computationError,
   };
 }

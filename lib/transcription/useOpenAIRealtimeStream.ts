@@ -37,6 +37,19 @@ const WS_CONNECT_TIMEOUT_MS = 10000;
 const PCM_SAMPLE_RATE = 24000;
 const AUDIO_BUFFER_SIZE = 4096;
 
+/**
+ * Minimum RMS energy to send an audio buffer to OpenAI.
+ * Buffers below this threshold are treated as silence and skipped,
+ * preventing the model from hallucinating on near-silent audio.
+ * Typical values: background silence ~0.001-0.005, speech ~0.02-0.3.
+ *
+ * Set conservatively low so quiet speakers are not filtered out.
+ * The adaptive noise floor (computed from the first ~2s of audio)
+ * provides a per-environment baseline on top of this.
+ */
+const MIN_RMS_ENERGY_FLOOR = 0.003;
+const NOISE_CALIBRATION_BUFFERS = 12; // ~2s of audio at 4096-sample buffers @ 24kHz
+
 // --- Helpers ---
 
 /** Convert Float32 PCM samples to 16-bit PCM and Base64-encode */
@@ -76,13 +89,15 @@ export function useOpenAIRealtimeStream({
     const wsRef = useRef<WebSocket | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-    const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
+    const processorNodeRef = useRef<AudioWorkletNode | ScriptProcessorNode | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const reconnectAttemptsRef = useRef(0);
     const isMountedRef = useRef(true);
     const isActiveRef = useRef(isActive);
-    const segmentCounterRef = useRef(0);
     const currentTranscriptRef = useRef('');
+    const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const noiseFloorRef = useRef<number>(MIN_RMS_ENERGY_FLOOR);
+    const calibrationSamplesRef = useRef<number[]>([]);
 
     // Stable refs for callbacks
     const onInterimTranscriptRef = useRef(onInterimTranscript);
@@ -103,16 +118,21 @@ export function useOpenAIRealtimeStream({
         && typeof AudioContext !== 'undefined';
 
     // Fetch ephemeral token from our server
-    const fetchToken = useCallback(async (): Promise<string | null> => {
+    const fetchToken = useCallback(async (): Promise<{ token: string; expiresAt: number } | null> => {
         try {
-            const res = await fetch('/api/transcription/token', { method: 'POST' });
+            const langCode = getLanguageCode(languageRef.current);
+            const res = await fetch('/api/transcription/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ language: langCode }),
+            });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 console.error('[OpenAIStream] Token fetch failed:', data.error || res.status);
                 return null;
             }
-            const { token } = await res.json();
-            return token;
+            const { token, expiresAt } = await res.json();
+            return { token, expiresAt: expiresAt ?? (Date.now() / 1000 + 300) }; // default 5 min if not provided
         } catch (e) {
             console.error('[OpenAIStream] Token fetch error:', e);
             return null;
@@ -121,6 +141,10 @@ export function useOpenAIRealtimeStream({
 
     // Clean up WebSocket
     const cleanupWebSocket = useCallback(() => {
+        if (tokenRefreshTimerRef.current) {
+            clearTimeout(tokenRefreshTimerRef.current);
+            tokenRefreshTimerRef.current = null;
+        }
         if (wsRef.current) {
             if (wsRef.current.readyState === WebSocket.OPEN) {
                 wsRef.current.close();
@@ -151,14 +175,44 @@ export function useOpenAIRealtimeStream({
         setIsRecording(false);
     }, []);
 
+    // Schedule a token refresh before expiry — reconnects WebSocket with new token
+    const scheduleTokenRefresh = useCallback((expiresAtEpochSec: number) => {
+        if (tokenRefreshTimerRef.current) {
+            clearTimeout(tokenRefreshTimerRef.current);
+        }
+        const nowSec = Date.now() / 1000;
+        // Refresh 60 seconds before expiry, minimum 10 seconds from now
+        const refreshInMs = Math.max(10_000, (expiresAtEpochSec - nowSec - 60) * 1000);
+        console.log(`[OpenAIStream] Token refresh scheduled in ${Math.round(refreshInMs / 1000)}s`);
+
+        tokenRefreshTimerRef.current = setTimeout(async () => {
+            if (!isMountedRef.current || !isActiveRef.current) return;
+            console.log('[OpenAIStream] Token expiring soon — reconnecting with fresh token...');
+            reconnectAttemptsRef.current = 0; // Reset reconnect counter for token refresh
+            try {
+                await connectWebSocket();
+                if (streamRef.current) {
+                    startAudioPipeline(streamRef.current);
+                }
+            } catch (e) {
+                console.error('[OpenAIStream] Token refresh reconnect failed:', e);
+                setError('Transcription token refresh failed');
+            }
+        }, refreshInMs);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Connect WebSocket with intent=transcription
     const connectWebSocket = useCallback(async (): Promise<WebSocket> => {
-        const token = await fetchToken();
-        if (!token) {
+        const tokenData = await fetchToken();
+        if (!tokenData) {
             throw new Error('Failed to get OpenAI transcription token');
         }
 
         cleanupWebSocket();
+
+        // Schedule automatic refresh before this token expires
+        scheduleTokenRefresh(tokenData.expiresAt);
 
         // intent=transcription tells OpenAI this is a transcription-only session
         const url = 'wss://api.openai.com/v1/realtime?intent=transcription';
@@ -167,7 +221,7 @@ export function useOpenAIRealtimeStream({
         return new Promise<WebSocket>((resolve, reject) => {
             const ws = new WebSocket(url, [
                 'realtime',
-                `openai-insecure-api-key.${token}`,
+                `openai-insecure-api-key.${tokenData.token}`,
                 'openai-beta.realtime-v1',
             ]);
             wsRef.current = ws;
@@ -191,32 +245,10 @@ export function useOpenAIRealtimeStream({
                 setError(null);
                 reconnectAttemptsRef.current = 0;
 
-                // Configure session for transcription-only mode
-                // Since the ephemeral token creates a realtime session, we use session.update
-                // with modalities: ['text'] to disable audio responses
+                // Session is pre-configured via the token endpoint
+                // No transcription_session.update needed
                 const langCode = getLanguageCode(languageRef.current);
-                const sessionUpdate: OpenAIRealtimeEvent = {
-                    type: 'session.update',
-                    session: {
-                        modalities: ['text'],
-                        input_audio_format: 'pcm16',
-                        input_audio_transcription: {
-                            model: 'gpt-4o-mini-transcribe',
-                            language: langCode,
-                            prompt: langCode === 'de'
-                                ? 'Transkription eines Brainstorming-Meetings auf Deutsch.'
-                                : 'Transcription of a brainstorming meeting.',
-                        },
-                        turn_detection: {
-                            type: 'server_vad',
-                            threshold: 0.5,
-                            prefix_padding_ms: 300,
-                            silence_duration_ms: 500,
-                        },
-                    },
-                };
-                ws.send(JSON.stringify(sessionUpdate));
-                console.log(`[OpenAIStream] Transcription session configured (language: ${langCode})`);
+                console.log(`[OpenAIStream] Transcription session ready (language: ${langCode})`);
 
                 resolve(ws);
             };
@@ -249,7 +281,7 @@ export function useOpenAIRealtimeStream({
                             }
 
                             const segment: TranscriptSegment = {
-                                id: `oai-${Date.now()}-${segmentCounterRef.current++}`,
+                                id: `oai-${crypto.randomUUID()}`,
                                 speaker: speakerRef.current,
                                 text: transcript,
                                 timestamp: Date.now(),
@@ -277,7 +309,12 @@ export function useOpenAIRealtimeStream({
 
                         case 'transcription_session.created':
                         case 'transcription_session.updated':
-                            console.log(`[OpenAIStream] ${msg.type}`);
+                            console.log(`[OpenAIStream] ${msg.type}`, msg.session ? '(configured)' : '');
+                            break;
+
+                        case 'session.created':
+                        case 'session.updated':
+                            // Legacy session events — ignore if using transcription mode
                             break;
 
                         default:
@@ -306,6 +343,23 @@ export function useOpenAIRealtimeStream({
 
                 // Auto-reconnect if still active
                 if (isActiveRef.current && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                    // Salvage any interim transcript before reconnecting
+                    const lostInterim = currentTranscriptRef.current.trim();
+                    if (lostInterim && !isWhisperHallucination(lostInterim)) {
+                        console.log('[OpenAIStream] Salvaging interim transcript on disconnect:', lostInterim.substring(0, 80));
+                        const segment: TranscriptSegment = {
+                            id: `oai-salvage-${crypto.randomUUID()}`,
+                            speaker: speakerRef.current,
+                            text: lostInterim,
+                            timestamp: Date.now(),
+                            isFinal: true,
+                            language: languageRef.current,
+                        };
+                        onFinalSegmentRef.current(segment);
+                    }
+                    currentTranscriptRef.current = '';
+                    onInterimTranscriptRef.current('');
+
                     const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptsRef.current);
                     reconnectAttemptsRef.current++;
                     console.log(`[OpenAIStream] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
@@ -326,10 +380,10 @@ export function useOpenAIRealtimeStream({
                 }
             };
         });
-    }, [fetchToken, cleanupWebSocket]);
+    }, [fetchToken, cleanupWebSocket, scheduleTokenRefresh]);
 
     // Start the audio capture pipeline (mic → PCM 24kHz → Base64 → WebSocket)
-    const startAudioPipeline = useCallback((stream: MediaStream) => {
+    const startAudioPipeline = useCallback(async (stream: MediaStream) => {
         if (processorNodeRef.current) processorNodeRef.current.disconnect();
         if (sourceNodeRef.current) sourceNodeRef.current.disconnect();
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
@@ -342,13 +396,31 @@ export function useOpenAIRealtimeStream({
         const source = audioContext.createMediaStreamSource(stream);
         sourceNodeRef.current = source;
 
-        const processor = audioContext.createScriptProcessor(AUDIO_BUFFER_SIZE, 1, 1);
-        processorNodeRef.current = processor;
-
-        processor.onaudioprocess = (e) => {
+        // Handler for processing audio data (shared between worklet and fallback)
+        const processAudioData = (inputData: Float32Array) => {
             if (wsRef.current?.readyState !== WebSocket.OPEN) return;
 
-            const inputData = e.inputBuffer.getChannelData(0);
+            // Client-side energy gate: skip near-silent buffers to prevent hallucinations
+            let sumSq = 0;
+            for (let i = 0; i < inputData.length; i++) {
+                sumSq += inputData[i] * inputData[i];
+            }
+            const rms = Math.sqrt(sumSq / inputData.length);
+
+            // Adaptive noise floor: learn from first ~2s of audio
+            if (calibrationSamplesRef.current.length < NOISE_CALIBRATION_BUFFERS) {
+                calibrationSamplesRef.current.push(rms);
+                if (calibrationSamplesRef.current.length === NOISE_CALIBRATION_BUFFERS) {
+                    // Set noise floor to 2x the median RMS of calibration period
+                    const sorted = [...calibrationSamplesRef.current].sort((a, b) => a - b);
+                    const median = sorted[Math.floor(sorted.length / 2)];
+                    noiseFloorRef.current = Math.max(MIN_RMS_ENERGY_FLOOR, median * 2);
+                    console.log(`[OpenAIStream] Adaptive noise floor calibrated: ${noiseFloorRef.current.toFixed(5)} (median: ${median.toFixed(5)})`);
+                }
+            }
+
+            if (rms < noiseFloorRef.current) return;
+
             const base64Audio = float32ToPcm16Base64(inputData);
 
             const event: OpenAIRealtimeEvent = {
@@ -358,11 +430,38 @@ export function useOpenAIRealtimeStream({
             wsRef.current.send(JSON.stringify(event));
         };
 
-        source.connect(processor);
-        processor.connect(audioContext.destination);
+        // Try AudioWorklet (modern, runs on audio thread)
+        let useWorklet = false;
+        if (typeof audioContext.audioWorklet !== 'undefined') {
+            try {
+                await audioContext.audioWorklet.addModule('/pcm-capture-processor.js');
+                const workletNode = new AudioWorkletNode(audioContext, 'pcm-capture-processor');
+                workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
+                    processAudioData(e.data);
+                };
+                processorNodeRef.current = workletNode;
+                source.connect(workletNode);
+                workletNode.connect(audioContext.destination);
+                useWorklet = true;
+                console.log(`[OpenAIStream] Audio pipeline started with AudioWorklet (PCM ${PCM_SAMPLE_RATE}Hz)`);
+            } catch (e) {
+                console.warn('[OpenAIStream] AudioWorklet not available, falling back to ScriptProcessor:', e);
+            }
+        }
+
+        // Fallback: ScriptProcessorNode (deprecated but works everywhere)
+        if (!useWorklet) {
+            const processor = audioContext.createScriptProcessor(AUDIO_BUFFER_SIZE, 1, 1);
+            processorNodeRef.current = processor;
+            processor.onaudioprocess = (e) => {
+                processAudioData(e.inputBuffer.getChannelData(0));
+            };
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+            console.log(`[OpenAIStream] Audio pipeline started with ScriptProcessor fallback (PCM ${PCM_SAMPLE_RATE}Hz, buffer ${AUDIO_BUFFER_SIZE})`);
+        }
 
         setIsRecording(true);
-        console.log(`[OpenAIStream] Audio pipeline started (PCM ${PCM_SAMPLE_RATE}Hz, buffer ${AUDIO_BUFFER_SIZE})`);
     }, []);
 
     // Start: get mic → connect WS → start audio pipeline
@@ -386,7 +485,7 @@ export function useOpenAIRealtimeStream({
             streamRef.current = stream;
 
             await connectWebSocket();
-            startAudioPipeline(stream);
+            await startAudioPipeline(stream);
 
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -415,12 +514,33 @@ export function useOpenAIRealtimeStream({
     }, [cleanupAudio, cleanupWebSocket]);
 
     // Auto-start/stop based on isActive
+    // Guard: prevent overlapping start() calls which create duplicate WS + audio pipelines
+    const isStartingRef = useRef(false);
+    const isRecordingRef = useRef(false);
+    useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+
+    const startStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => {
-        if (isActive && !isRecording) {
-            start();
-        } else if (!isActive && isRecording) {
-            stop();
+        if (startStopTimerRef.current) {
+            clearTimeout(startStopTimerRef.current);
         }
+
+        if (isActive && !isRecordingRef.current && !isStartingRef.current) {
+            isStartingRef.current = true;
+            start().finally(() => { isStartingRef.current = false; });
+        } else if (!isActive && (isRecordingRef.current || isStartingRef.current)) {
+            // Delay stop to avoid tearing down on brief toggles
+            startStopTimerRef.current = setTimeout(() => {
+                if (!isActiveRef.current) {
+                    isStartingRef.current = false;
+                    stop();
+                }
+            }, 1500);
+        }
+
+        return () => {
+            if (startStopTimerRef.current) clearTimeout(startStopTimerRef.current);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isActive]);
 

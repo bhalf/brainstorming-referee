@@ -11,6 +11,7 @@ export interface Database {
           host_identity: string;
           started_at: string;
           ended_at: string | null;
+          last_heartbeat: string | null;
           created_at: string;
         };
         Insert: {
@@ -22,10 +23,38 @@ export interface Database {
           host_identity: string;
           started_at?: string;
           ended_at?: string | null;
+          last_heartbeat?: string | null;
           created_at?: string;
         };
         Update: {
           ended_at?: string | null;
+          last_heartbeat?: string | null;
+        };
+      };
+      session_participants: {
+        Row: {
+          id: string;
+          session_id: string;
+          identity: string;
+          display_name: string;
+          role: string;
+          joined_at: string;
+          last_heartbeat: string;
+          left_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          identity: string;
+          display_name: string;
+          role?: string;
+          joined_at?: string;
+          last_heartbeat?: string;
+          left_at?: string | null;
+        };
+        Update: {
+          last_heartbeat?: string;
+          left_at?: string | null;
         };
       };
       transcript_segments: {
@@ -142,6 +171,74 @@ export interface Database {
           decision_heartbeat?: string | null;
           updated_at?: string;
         };
+      };
+      ideas: {
+        Row: {
+          id: string;
+          session_id: string;
+          title: string;
+          description: string | null;
+          author: string;
+          source: string;
+          source_segment_ids: string[];
+          position_x: number;
+          position_y: number;
+          color: string;
+          is_deleted: boolean;
+          idea_type: string;
+          parent_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id: string;
+          session_id: string;
+          title: string;
+          description?: string | null;
+          author: string;
+          source?: string;
+          source_segment_ids?: string[];
+          position_x?: number;
+          position_y?: number;
+          color?: string;
+          is_deleted?: boolean;
+          idea_type?: string;
+          parent_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          title?: string;
+          description?: string | null;
+          position_x?: number;
+          position_y?: number;
+          color?: string;
+          is_deleted?: boolean;
+          idea_type?: string;
+          parent_id?: string | null;
+          updated_at?: string;
+        };
+      };
+      idea_connections: {
+        Row: {
+          id: string;
+          session_id: string;
+          source_idea_id: string;
+          target_idea_id: string;
+          label: string | null;
+          connection_type: string;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          session_id: string;
+          source_idea_id: string;
+          target_idea_id: string;
+          label?: string | null;
+          connection_type?: string;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
       };
       model_routing_logs: {
         Row: {

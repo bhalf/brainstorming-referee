@@ -5,6 +5,10 @@ import type {
   Intervention,
   DecisionEngineState,
   ModelRoutingLogEntry,
+  Idea,
+  IdeaSource,
+  IdeaConnection,
+  IdeaConnectionType,
 } from '@/lib/types';
 
 type SegmentRow = Database['public']['Tables']['transcript_segments']['Row'];
@@ -14,6 +18,10 @@ type InterventionInsert = Database['public']['Tables']['interventions']['Insert'
 type SnapshotInsert = Database['public']['Tables']['metric_snapshots']['Insert'];
 type EngineStateRow = Database['public']['Tables']['engine_state']['Row'];
 type RoutingLogInsert = Database['public']['Tables']['model_routing_logs']['Insert'];
+type IdeaRow = Database['public']['Tables']['ideas']['Row'];
+type IdeaInsert = Database['public']['Tables']['ideas']['Insert'];
+type IdeaConnectionRow = Database['public']['Tables']['idea_connections']['Row'];
+type IdeaConnectionInsert = Database['public']['Tables']['idea_connections']['Insert'];
 
 // --- Transcript Segments ---
 
@@ -118,6 +126,71 @@ export function engineStateRowToApp(row: EngineStateRow): Partial<DecisionEngine
     lastInterventionTime: row.last_intervention_time,
     interventionCount: row.intervention_count,
     postCheckIntent: row.active_intent as DecisionEngineState['postCheckIntent'],
+  };
+}
+
+// --- Ideas ---
+
+export function ideaRowToApp(row: IdeaRow): Idea {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    title: row.title,
+    description: row.description ?? null,
+    author: row.author,
+    source: row.source as IdeaSource,
+    sourceSegmentIds: row.source_segment_ids ?? [],
+    positionX: row.position_x,
+    positionY: row.position_y,
+    color: row.color,
+    isDeleted: row.is_deleted,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+    ideaType: (row.idea_type as Idea['ideaType']) || 'idea',
+    parentId: row.parent_id ?? null,
+  };
+}
+
+export function ideaToInsert(idea: Idea, sessionId: string): IdeaInsert {
+  return {
+    id: idea.id,
+    session_id: sessionId,
+    title: idea.title,
+    description: idea.description ?? null,
+    author: idea.author,
+    source: idea.source,
+    source_segment_ids: idea.sourceSegmentIds,
+    position_x: idea.positionX,
+    position_y: idea.positionY,
+    color: idea.color,
+    is_deleted: idea.isDeleted,
+    idea_type: idea.ideaType || 'idea',
+    parent_id: idea.parentId ?? null,
+  };
+}
+
+// --- Idea Connections ---
+
+export function connectionRowToApp(row: IdeaConnectionRow): IdeaConnection {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    sourceIdeaId: row.source_idea_id,
+    targetIdeaId: row.target_idea_id,
+    label: row.label ?? null,
+    connectionType: row.connection_type as IdeaConnectionType,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+export function connectionToInsert(conn: IdeaConnection, sessionId: string): IdeaConnectionInsert {
+  return {
+    id: conn.id,
+    session_id: sessionId,
+    source_idea_id: conn.sourceIdeaId,
+    target_idea_id: conn.targetIdeaId,
+    label: conn.label ?? null,
+    connection_type: conn.connectionType,
   };
 }
 

@@ -11,8 +11,146 @@ import {
   ConversationStateInference,
   InterventionIntent,
   InterventionTrigger,
+  Intervention,
+  EnginePhase,
 } from '../types';
 import { evaluateRecovery } from './postCheck';
+import type { RuleViolationResult } from './ruleViolationChecker';
+
+// --- Helper: Reset Intervention Count ---
+
+export function resetInterventionCountIfNeeded(
+  currentState: DecisionEngineState,
+  lastResetTime: number,
+  currentTime: number = Date.now()
+): { state: DecisionEngineState; newResetTime: number } {
+  const tenMinutes = 10 * 60 * 1000;
+
+  if (currentTime - lastResetTime >= tenMinutes) {
+    return {
+      state: {
+        ...currentState,
+        interventionCount: 0,
+      },
+      newResetTime: currentTime,
+    };
+  }
+
+  return {
+    state: currentState,
+    newResetTime: lastResetTime,
+  };
+}
+
+// --- Generate Intervention Prompt Context ---
+
+export interface InterventionContext {
+  trigger: InterventionTrigger;
+  metrics: MetricSnapshot | null;
+  speakerDistribution: string;
+}
+
+export function generateInterventionContext(
+  trigger: InterventionTrigger,
+  metrics: MetricSnapshot | null
+): InterventionContext {
+  if (!metrics) {
+    return {
+      trigger,
+      metrics,
+      speakerDistribution: 'No data (analyzing)',
+    };
+  }
+
+  const distribution = Object.entries(metrics.speakingTimeDistribution)
+    .map(([speaker, chars]) => {
+      const total = Object.values(metrics.speakingTimeDistribution).reduce((a, b) => a + b, 0);
+      const percent = total > 0 ? ((chars / total) * 100).toFixed(0) : '0';
+      return `${speaker}: ${percent}%`;
+    })
+    .join(', ');
+
+  return {
+    trigger,
+    metrics,
+    speakerDistribution: distribution || 'No data',
+  };
+}
+
+// --- Intervention History Analysis ---
+
+export interface InterventionHistoryAnalysis {
+  /** Number of consecutive not_recovered interventions (any intent) */
+  consecutiveFailures: number;
+  /** Number of consecutive failures for the same intent as proposed */
+  consecutiveFailuresForIntent: number;
+  /** Whether fatigue mode is active (>=2 consecutive failures) */
+  fatigueActive: boolean;
+  /** Confirmation time multiplier based on history */
+  confirmationMultiplier: number;
+  /** Cooldown multiplier based on history */
+  cooldownMultiplier: number;
+  /** Last recovery result for the proposed intent */
+  lastRecoveryForIntent: 'recovered' | 'not_recovered' | 'partial' | 'pending' | null;
+}
+
+/**
+ * Analyze recent intervention history to inform policy decisions.
+ * Derives fatigue multipliers from consecutive failures — no extra engine state needed.
+ */
+export function analyzeInterventionHistory(
+  recentInterventions: Intervention[],
+  proposedIntent: InterventionIntent | null,
+): InterventionHistoryAnalysis {
+  // Count consecutive failures from the end (any intent)
+  let consecutiveFailures = 0;
+  for (let i = recentInterventions.length - 1; i >= 0; i--) {
+    const r = recentInterventions[i].recoveryResult;
+    if (r === 'not_recovered') {
+      consecutiveFailures++;
+    } else {
+      break;
+    }
+  }
+
+  // Count consecutive failures for the specific proposed intent
+  let consecutiveFailuresForIntent = 0;
+  let lastRecoveryForIntent: InterventionHistoryAnalysis['lastRecoveryForIntent'] = null;
+
+  for (let i = recentInterventions.length - 1; i >= 0; i--) {
+    const intervention = recentInterventions[i];
+    if (intervention.intent === proposedIntent) {
+      if (lastRecoveryForIntent === null) {
+        lastRecoveryForIntent = intervention.recoveryResult ?? null;
+      }
+      if (intervention.recoveryResult === 'not_recovered') {
+        consecutiveFailuresForIntent++;
+      } else {
+        break;
+      }
+    }
+  }
+
+  const fatigueActive = consecutiveFailures >= 2;
+
+  // Fatigue multipliers: 0 failures → 1x, 1 failure → 1.5x, 2+ failures → 2x
+  const confirmationMultiplier = consecutiveFailures === 0 ? 1
+    : consecutiveFailures === 1 ? 1.5
+      : 2;
+
+  const cooldownMultiplier = consecutiveFailures === 0 ? 1
+    : consecutiveFailures === 1 ? 1.5
+      : 2;
+
+  return {
+    consecutiveFailures,
+    consecutiveFailuresForIntent,
+    fatigueActive,
+    confirmationMultiplier,
+    cooldownMultiplier,
+    lastRecoveryForIntent,
+  };
+}
 
 // --- Policy Decision Result ---
 
@@ -28,6 +166,8 @@ export interface PolicyDecision {
   // Recovery info (populated after post-check)
   recoveryResult?: 'pending' | 'recovered' | 'not_recovered' | 'partial';
   recoveryScore?: number;
+  // Combined rule violation info (when rule + metric co-occur)
+  ruleViolation?: RuleViolationResult | null;
 }
 
 // --- Risk States that can trigger interventions ---
@@ -54,27 +194,8 @@ export function intentToTrigger(intent: InterventionIntent): InterventionTrigger
     case 'PERSPECTIVE_BROADENING': return 'repetition';
     case 'REACTIVATION': return 'stagnation';
     case 'ALLY_IMPULSE': return 'escalation';
+    case 'NORM_REINFORCEMENT': return 'rule_violation';
   }
-}
-
-// --- Phase Helpers ---
-
-function phaseToLegacyState(phase: string): 'OBSERVATION' | 'STABILIZATION' | 'ESCALATION' {
-  switch (phase) {
-    case 'MONITORING':
-    case 'CONFIRMING':
-      return 'OBSERVATION';
-    case 'POST_CHECK':
-      return 'STABILIZATION';
-    case 'COOLDOWN':
-      return 'ESCALATION';
-    default:
-      return 'OBSERVATION';
-  }
-}
-
-function getPhase(state: DecisionEngineState): string {
-  return state.phase ?? 'MONITORING';
 }
 
 // --- Minimum Confidence to Consider a State Actionable ---
@@ -91,12 +212,13 @@ export function evaluatePolicy(
   config: ExperimentConfig,
   scenario: Scenario,
   currentTime: number = Date.now(),
+  recentInterventions: Intervention[] = [],
 ): PolicyDecision {
-  const phase = getPhase(engineState);
+  const phase = engineState.phase;
 
-  // Baseline: no interventions
+  // Baseline: log state transitions but never intervene
   if (scenario === 'baseline') {
-    return noIntervention(engineState, 'Baseline scenario — no interventions');
+    return noIntervention(engineState, 'Baseline scenario — logging only');
   }
 
   // Rate limit
@@ -113,7 +235,7 @@ export function evaluatePolicy(
   switch (phase) {
     case 'MONITORING':
     case 'CONFIRMING':
-      return handleMonitoring(inferredState, metrics, metricsHistory, engineState, config, currentTime);
+      return handleMonitoring(inferredState, metrics, metricsHistory, engineState, config, currentTime, recentInterventions);
 
     case 'POST_CHECK':
       return handlePostCheck(inferredState, metrics, engineState, config, scenario, currentTime);
@@ -135,6 +257,7 @@ function handleMonitoring(
   engineState: DecisionEngineState,
   config: ExperimentConfig,
   currentTime: number,
+  recentInterventions: Intervention[] = [],
 ): PolicyDecision {
   const currentStateName = inferredState?.state ?? 'HEALTHY_EXPLORATION';
   const confidence = inferredState?.confidence ?? 0;
@@ -148,9 +271,7 @@ function handleMonitoring(
         stateUpdateOnly: {
           confirmingSince: null,
           confirmingState: null,
-          phase: 'MONITORING' as const,
-          currentState: 'OBSERVATION',
-          persistenceStartTime: null,
+          phase: 'MONITORING' as EnginePhase,
         },
       };
     }
@@ -161,6 +282,10 @@ function handleMonitoring(
   const confirmingState = engineState.confirmingState;
   const confirmingSince = engineState.confirmingSince;
 
+  // Analyze intervention history for the proposed intent
+  const proposedIntent = STATE_TO_INTENT[currentStateName] ?? null;
+  const history = analyzeInterventionHistory(recentInterventions, proposedIntent);
+
   // If we're not confirming yet, or confirming a different state, start/restart confirmation
   if (!confirmingSince || confirmingState !== currentStateName) {
     return {
@@ -168,24 +293,26 @@ function handleMonitoring(
       stateUpdateOnly: {
         confirmingSince: currentTime,
         confirmingState: currentStateName,
-        phase: 'CONFIRMING' as const,
-        currentState: 'OBSERVATION',
-        persistenceStartTime: currentTime,
+        phase: 'CONFIRMING' as EnginePhase,
       },
     };
   }
 
-  // Confirmation in progress — check if enough time has passed
+  // Confirmation in progress — apply fatigue multiplier to required confirmation time
+  const effectiveConfirmationSeconds = config.CONFIRMATION_SECONDS * history.confirmationMultiplier;
   const confirmationDuration = (currentTime - confirmingSince) / 1000;
-  if (confirmationDuration < config.CONFIRMATION_SECONDS) {
+  if (confirmationDuration < effectiveConfirmationSeconds) {
+    const fatigueNote = history.fatigueActive
+      ? ` [fatigue: ${history.confirmationMultiplier}x]`
+      : '';
     return noIntervention(
       engineState,
-      `Confirming ${currentStateName} (${confirmationDuration.toFixed(0)}s / ${config.CONFIRMATION_SECONDS}s)`,
+      `Confirming ${currentStateName} (${confirmationDuration.toFixed(0)}s / ${effectiveConfirmationSeconds.toFixed(0)}s)${fatigueNote}`,
     );
   }
 
   // Persistence check: ≥70% of snapshots in confirmation window must have same inferred state
-  const windowStart = currentTime - config.CONFIRMATION_SECONDS * 1000;
+  const windowStart = currentTime - effectiveConfirmationSeconds * 1000;
   const snapshotsInWindow = metricsHistory.filter(m => m.timestamp >= windowStart);
 
   if (snapshotsInWindow.length > 0) {
@@ -200,9 +327,7 @@ function handleMonitoring(
         stateUpdateOnly: {
           confirmingSince: currentTime,
           confirmingState: currentStateName,
-          phase: 'CONFIRMING' as const,
-          currentState: 'OBSERVATION',
-          persistenceStartTime: currentTime,
+          phase: 'CONFIRMING' as EnginePhase,
         },
       };
     }
@@ -216,25 +341,28 @@ function handleMonitoring(
 
   const trigger = intentToTrigger(intent);
 
+  // Apply fatigue cooldown multiplier
+  const effectiveCooldownMs = config.COOLDOWN_SECONDS * history.cooldownMultiplier * 1000;
+  const fatigueReason = history.fatigueActive
+    ? ` [fatigue: ${history.consecutiveFailures} consecutive failures, ${history.cooldownMultiplier}x cooldown]`
+    : '';
+
   return {
     shouldIntervene: true,
     intent,
     role: 'moderator',
     triggeringState: currentStateName,
     stateConfidence: confidence,
-    reason: `${currentStateName} confirmed — firing ${intent}`,
+    reason: `${currentStateName} confirmed — firing ${intent}${fatigueReason}`,
     nextEngineState: {
       ...engineState,
-      currentState: 'STABILIZATION',
-      phase: 'POST_CHECK' as const,
+      phase: 'POST_CHECK' as EnginePhase,
       confirmingSince: null,
       confirmingState: null,
-      persistenceStartTime: null,
       postCheckStartTime: currentTime,
       postCheckIntent: intent,
-      cooldownUntil: currentTime + config.COOLDOWN_SECONDS * 1000,
+      cooldownUntil: currentTime + effectiveCooldownMs,
       metricsAtIntervention: metrics,
-      triggerAtIntervention: trigger,
     },
     stateUpdateOnly: null,
   };
@@ -257,8 +385,7 @@ function handlePostCheck(
       ...noIntervention(engineState, 'Post-check timer not set'),
       stateUpdateOnly: {
         postCheckStartTime: currentTime,
-        phase: 'POST_CHECK' as const,
-        currentState: 'STABILIZATION',
+        phase: 'POST_CHECK' as EnginePhase,
       },
     };
   }
@@ -275,6 +402,16 @@ function handlePostCheck(
   const intent = engineState.postCheckIntent ?? null;
   const recovery = evaluateRecovery(intent, metrics, engineState.metricsAtIntervention);
 
+  const monitoringState: DecisionEngineState = {
+    ...engineState,
+    phase: 'MONITORING' as EnginePhase,
+    postCheckStartTime: null,
+    postCheckIntent: null,
+    metricsAtIntervention: null,
+    confirmingSince: null,
+    confirmingState: null,
+  };
+
   if (recovery.recovered || recovery.score >= config.RECOVERY_IMPROVEMENT_THRESHOLD) {
     return {
       shouldIntervene: false,
@@ -283,18 +420,7 @@ function handlePostCheck(
       triggeringState: null,
       stateConfidence: inferredState?.confidence ?? 0,
       reason: `Recovery detected (score: ${recovery.score.toFixed(2)})`,
-      nextEngineState: {
-        ...engineState,
-        currentState: 'OBSERVATION',
-        phase: 'MONITORING' as const,
-        postCheckStartTime: null,
-        postCheckIntent: null,
-        metricsAtIntervention: null,
-        triggerAtIntervention: null,
-        confirmingSince: null,
-        confirmingState: null,
-        persistenceStartTime: null,
-      },
+      nextEngineState: monitoringState,
       stateUpdateOnly: null,
       recoveryResult: 'recovered',
       recoveryScore: recovery.score,
@@ -309,18 +435,7 @@ function handlePostCheck(
       triggeringState: null,
       stateConfidence: inferredState?.confidence ?? 0,
       reason: `Partial recovery (score: ${recovery.score.toFixed(2)})`,
-      nextEngineState: {
-        ...engineState,
-        currentState: 'OBSERVATION',
-        phase: 'MONITORING' as const,
-        postCheckStartTime: null,
-        postCheckIntent: null,
-        metricsAtIntervention: null,
-        triggerAtIntervention: null,
-        confirmingSince: null,
-        confirmingState: null,
-        persistenceStartTime: null,
-      },
+      nextEngineState: monitoringState,
       stateUpdateOnly: null,
       recoveryResult: 'partial',
       recoveryScore: recovery.score,
@@ -328,8 +443,8 @@ function handlePostCheck(
   }
 
   // No recovery
-  if (scenario === 'B') {
-    // Escalate to ally
+  if (scenario === 'B' && intent !== 'ALLY_IMPULSE') {
+    // Escalate to ally — ally also gets a POST_CHECK afterward
     return {
       shouldIntervene: true,
       intent: 'ALLY_IMPULSE',
@@ -339,16 +454,13 @@ function handlePostCheck(
       reason: `No recovery (score: ${recovery.score.toFixed(2)}) — escalating to ally`,
       nextEngineState: {
         ...engineState,
-        currentState: 'ESCALATION',
-        phase: 'COOLDOWN' as const,
-        postCheckStartTime: null,
-        postCheckIntent: null,
+        phase: 'POST_CHECK' as EnginePhase,
+        postCheckStartTime: currentTime,
+        postCheckIntent: 'ALLY_IMPULSE',
         cooldownUntil: currentTime + config.COOLDOWN_SECONDS * 1000,
         metricsAtIntervention: metrics,
-        triggerAtIntervention: 'escalation',
         confirmingSince: null,
         confirmingState: null,
-        persistenceStartTime: null,
       },
       stateUpdateOnly: null,
       recoveryResult: 'not_recovered',
@@ -356,25 +468,25 @@ function handlePostCheck(
     };
   }
 
-  // Scenario A: return to monitoring
+  // Scenario A, or ally post-check completed (no further escalation): cooldown → monitoring
   return {
     shouldIntervene: false,
     intent: null,
     role: 'moderator',
     triggeringState: null,
     stateConfidence: inferredState?.confidence ?? 0,
-    reason: `No recovery (score: ${recovery.score.toFixed(2)}) — Scenario A, returning to monitoring`,
+    reason: intent === 'ALLY_IMPULSE'
+      ? `Ally post-check done (score: ${recovery.score.toFixed(2)}) — entering cooldown`
+      : `No recovery (score: ${recovery.score.toFixed(2)}) — Scenario A, entering cooldown`,
     nextEngineState: {
       ...engineState,
-      currentState: 'OBSERVATION',
-      phase: 'MONITORING' as const,
+      phase: 'COOLDOWN' as EnginePhase,
       postCheckStartTime: null,
       postCheckIntent: null,
       metricsAtIntervention: null,
-      triggerAtIntervention: null,
       confirmingSince: null,
       confirmingState: null,
-      persistenceStartTime: currentTime,
+      cooldownUntil: engineState.cooldownUntil ?? (currentTime + config.COOLDOWN_SECONDS * 1000),
     },
     stateUpdateOnly: null,
     recoveryResult: 'not_recovered',
@@ -394,6 +506,16 @@ function handleCooldown(
   }
 
   // Cooldown expired — return to monitoring
+  const monitoringState: Partial<DecisionEngineState> = {
+    phase: 'MONITORING' as EnginePhase,
+    postCheckStartTime: null,
+    postCheckIntent: null,
+    metricsAtIntervention: null,
+    confirmingSince: null,
+    confirmingState: null,
+    cooldownUntil: null,
+  };
+
   return {
     shouldIntervene: false,
     intent: null,
@@ -401,29 +523,8 @@ function handleCooldown(
     triggeringState: null,
     stateConfidence: 0,
     reason: 'Cooldown complete — returning to monitoring',
-    nextEngineState: {
-      ...engineState,
-      currentState: 'OBSERVATION',
-      phase: 'MONITORING' as const,
-      persistenceStartTime: null,
-      postCheckStartTime: null,
-      postCheckIntent: null,
-      metricsAtIntervention: null,
-      triggerAtIntervention: null,
-      confirmingSince: null,
-      confirmingState: null,
-    },
-    stateUpdateOnly: {
-      currentState: 'OBSERVATION',
-      phase: 'MONITORING' as const,
-      persistenceStartTime: null,
-      postCheckStartTime: null,
-      postCheckIntent: null,
-      metricsAtIntervention: null,
-      triggerAtIntervention: null,
-      confirmingSince: null,
-      confirmingState: null,
-    },
+    nextEngineState: { ...engineState, ...monitoringState },
+    stateUpdateOnly: monitoringState,
   };
 }
 

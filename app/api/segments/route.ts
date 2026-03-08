@@ -12,6 +12,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'sessionId and segment required' }, { status: 400 });
     }
 
+    // Validate segment structure
+    if (typeof segment.id !== 'string' || typeof segment.speaker !== 'string' || typeof segment.text !== 'string') {
+      return NextResponse.json({ error: 'segment must have id, speaker, and text as strings' }, { status: 400 });
+    }
+    if (segment.timestamp !== undefined && typeof segment.timestamp !== 'number') {
+      return NextResponse.json({ error: 'segment.timestamp must be a number' }, { status: 400 });
+    }
+
     const supabase = getServiceClient();
     const row = segmentToInsert(segment, sessionId);
 

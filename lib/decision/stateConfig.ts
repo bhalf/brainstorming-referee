@@ -1,38 +1,4 @@
-import { DecisionState, ConversationStateName, EnginePhase } from '@/lib/types';
-
-/**
- * Shared display configuration for decision engine states (v1 — backward compat).
- * Used by AnalysisPanel and DebugPanel.
- */
-export const DECISION_STATE_CONFIG: Record<DecisionState, {
-  label: string;
-  description: string;
-  panelColor: string;
-  dotColor: string;
-  badgeColor: string;
-}> = {
-  OBSERVATION: {
-    label: 'Observation',
-    description: 'Monitoring conversation',
-    panelColor: 'bg-slate-600/60 text-slate-300 border-slate-600',
-    dotColor: 'bg-slate-400',
-    badgeColor: 'bg-green-600',
-  },
-  STABILIZATION: {
-    label: 'Stabilization',
-    description: 'Threshold breached — waiting for persistence',
-    panelColor: 'bg-yellow-900/50 text-yellow-300 border-yellow-700',
-    dotColor: 'bg-yellow-400 animate-pulse',
-    badgeColor: 'bg-yellow-600',
-  },
-  ESCALATION: {
-    label: 'Escalation',
-    description: 'Intervention triggered',
-    panelColor: 'bg-red-900/50 text-red-300 border-red-700',
-    dotColor: 'bg-red-400 animate-pulse',
-    badgeColor: 'bg-red-600',
-  },
-};
+import { ConversationStateName, EnginePhase } from '@/lib/types';
 
 /**
  * Display configuration for inferred conversation states (v2).
@@ -76,7 +42,7 @@ export const CONVERSATION_STATE_CONFIG: Record<ConversationStateName, {
 };
 
 /**
- * Display configuration for engine phases (v2).
+ * Display configuration for engine phases.
  */
 export const ENGINE_PHASE_CONFIG: Record<EnginePhase, {
   label: string;

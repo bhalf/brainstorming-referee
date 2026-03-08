@@ -1,86 +1,54 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { supabase } from '@/lib/supabase/client';
+import { useState, useCallback } from 'react';
+import { useSupabaseChannel } from '@/lib/hooks/sync/useSupabaseChannel';
 import { segmentRowToApp } from '@/lib/supabase/converters';
 import { TranscriptSegment } from '@/lib/types';
 import type { MutableRefObject } from 'react';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface UseRealtimeSegmentsParams {
   sessionId: string | null;
   isActive: boolean;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
   speakingTimeRef: MutableRefObject<Map<string, number>>;
+  onError?: (message: string, context?: string) => void;
 }
-
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_BASE_DELAY_MS = 1000;
 
 export function useRealtimeSegments({
   sessionId,
   isActive,
   addTranscriptSegment,
   speakingTimeRef,
+  onError,
 }: UseRealtimeSegmentsParams) {
-  const addTranscriptSegmentRef = useRef(addTranscriptSegment);
-  useEffect(() => { addTranscriptSegmentRef.current = addTranscriptSegment; }, [addTranscriptSegment]);
+  const [isSubscribed, setIsSubscribed] = useState(false);
 
-  const reconnectAttemptsRef = useRef(0);
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const isMountedRef = useRef(true);
-
-  const subscribe = useCallback((sid: string) => {
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
+  const onPayload = useCallback((row: Record<string, unknown>) => {
+    // Validate required fields before conversion
+    if (!row || typeof row.id !== 'string' || typeof row.speaker !== 'string' || typeof row.text !== 'string') {
+      console.warn('[RealtimeSegments] Invalid segment payload, skipping:', row);
+      return;
     }
+    try {
+      const segment = segmentRowToApp(row as Parameters<typeof segmentRowToApp>[0]);
+      addTranscriptSegment(segment);
+    } catch (e) {
+      console.error('[RealtimeSegments] Failed to process realtime segment:', e);
+    }
+  }, [addTranscriptSegment]);
 
-    const channel: RealtimeChannel = supabase
-      .channel(`segments-${sid}-${Date.now()}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'transcript_segments',
-          filter: `session_id=eq.${sid}`,
-        },
-        (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          const segment = segmentRowToApp(row as Parameters<typeof segmentRowToApp>[0]);
-          addTranscriptSegmentRef.current(segment);
-          reconnectAttemptsRef.current = 0;
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          reconnectAttemptsRef.current = 0;
-        } else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && isMountedRef.current) {
-          console.error(`Realtime segments error (${status}):`, err);
-          if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-            const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptsRef.current);
-            reconnectAttemptsRef.current++;
-            setTimeout(() => {
-              if (isMountedRef.current) subscribe(sid);
-            }, delay);
-          }
-        }
-      });
+  const handleError = useCallback((message: string, context?: string) => {
+    onError?.(message, context);
+    setIsSubscribed(false);
+  }, [onError]);
 
-    channelRef.current = channel;
-  }, []);
+  const result = useSupabaseChannel<Record<string, unknown>>({
+    channelName: 'segments',
+    table: 'transcript_segments',
+    sessionId,
+    isActive,
+    event: 'INSERT',
+    onPayload,
+    onError: handleError,
+  });
 
-  useEffect(() => {
-    if (!sessionId || !isActive) return;
-
-    isMountedRef.current = true;
-    reconnectAttemptsRef.current = 0;
-    subscribe(sessionId);
-
-    return () => {
-      isMountedRef.current = false;
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-    };
-  }, [sessionId, isActive, subscribe, speakingTimeRef]);
+  return { isSubscribed: result.isSubscribed || isSubscribed };
 }

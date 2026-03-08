@@ -7,6 +7,7 @@ import {
   computeHooverIndex,
   computeParticipationRiskScore,
   computeParticipationMetrics,
+  isBackchannel,
 } from '@/lib/metrics/participation';
 import { TranscriptSegment } from '@/lib/types';
 import { DEFAULT_CONFIG } from '@/lib/config';
@@ -214,5 +215,78 @@ describe('computeParticipationMetrics', () => {
     const result = computeParticipationMetrics(segments, DEFAULT_CONFIG, 0.8);
     expect(result.participationRiskScore).toBeGreaterThan(0.4);
     expect(result.dominanceStreakScore).toBeGreaterThan(0.5);
+  });
+});
+
+describe('isBackchannel', () => {
+  it('detects German backchannels', () => {
+    expect(isBackchannel(seg('A', 'ja'))).toBe(true);
+    expect(isBackchannel(seg('A', 'genau'))).toBe(true);
+    expect(isBackchannel(seg('A', 'stimmt'))).toBe(true);
+    expect(isBackchannel(seg('A', 'ok'))).toBe(true);
+    expect(isBackchannel(seg('A', 'mhm'))).toBe(true);
+    expect(isBackchannel(seg('A', 'Ja genau!'))).toBe(true);
+  });
+
+  it('detects English backchannels', () => {
+    expect(isBackchannel(seg('A', 'yes'))).toBe(true);
+    expect(isBackchannel(seg('A', 'right'))).toBe(true);
+    expect(isBackchannel(seg('A', 'exactly'))).toBe(true);
+    expect(isBackchannel(seg('A', 'Yeah sure.'))).toBe(true);
+  });
+
+  it('does not flag substantive content', () => {
+    expect(isBackchannel(seg('A', 'Das ist ein guter Punkt'))).toBe(false);
+    expect(isBackchannel(seg('A', 'I think we should consider another approach'))).toBe(false);
+    expect(isBackchannel(seg('A', 'Maybe we could try something different'))).toBe(false);
+  });
+
+  it('does not flag longer utterances even with backchannel words', () => {
+    expect(isBackchannel(seg('A', 'Ja genau das stimmt total'))).toBe(false); // > 3 words
+  });
+});
+
+describe('backchannel filtering in turn metrics', () => {
+  it('excludes backchannels from turn share', () => {
+    const segments = segs([
+      ['Alice', 'Ich habe eine Idee zum Thema'],
+      ['Bob', 'ja'],
+      ['Bob', 'genau'],
+      ['Alice', 'Wir sollten das anders machen'],
+      ['Bob', 'stimmt'],
+    ]);
+    const shares = computeTurnShare(segments);
+    // Only 2 substantive segments (both Alice), Bob's backchannels filtered
+    expect(shares['Alice']).toBe(1);
+    expect(shares['Bob']).toBeUndefined();
+  });
+
+  it('excludes backchannels from dominance streak', () => {
+    const segments: TranscriptSegment[] = [];
+    // Alice speaks substantively, then Bob says "ja" 5 times, then Alice speaks again
+    segments.push(seg('Alice', 'First important point about the topic', 'a-0'));
+    for (let i = 0; i < 5; i++) segments.push(seg('Bob', 'ja', `b-${i}`));
+    segments.push(seg('Alice', 'Second important point here', 'a-1'));
+    segments.push(seg('Alice', 'Third point to elaborate on', 'a-2'));
+    segments.push(seg('Alice', 'Fourth point about implementation', 'a-3'));
+    segments.push(seg('Bob', 'That is actually a great idea', 'b-5'));
+
+    // Without backchannel filter, Bob's "ja" streaks would distort the metric.
+    // With filter, only substantive segments count: Alice(4), Bob(1)
+    const score = computeDominanceStreakScore(segments);
+    // Alice has 3 consecutive substantive turns (a-1, a-2, a-3), which is high
+    expect(score).toBeGreaterThan(0.3);
+  });
+
+  it('keeps backchannels in volume share (word count naturally handles them)', () => {
+    const segments = segs([
+      ['Alice', 'Eine sehr wichtige Idee zum Thema Brainstorming'],
+      ['Bob', 'ja'],
+    ]);
+    const shares = computeVolumeShare(segments);
+    // Bob's "ja" still appears in volume share but with tiny fraction
+    expect(shares['Bob']).toBeDefined();
+    expect(shares['Bob']).toBeLessThan(0.2);
+    expect(shares['Alice']).toBeGreaterThan(0.8);
   });
 });

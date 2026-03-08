@@ -16,17 +16,27 @@ export async function POST(request: NextRequest) {
     // Check for existing active session with same room name
     const { data: existing } = await supabase
       .from('sessions')
-      .select('id, host_identity')
+      .select('id, host_identity, started_at, created_at')
       .eq('room_name', roomName)
       .is('ended_at', null)
       .limit(1)
       .single();
 
     if (existing) {
-      return NextResponse.json(
-        { error: 'active_session_exists', sessionId: existing.id, hostIdentity: existing.host_identity },
-        { status: 409 }
-      );
+      // Auto-end stale sessions instead of blocking new session creation
+      const sessionAge = Date.now() - new Date(existing.started_at || existing.created_at).getTime();
+      if (sessionAge > MAX_SESSION_AGE_MS) {
+        console.warn(`[Session] Auto-ending stale session ${existing.id} before creating new one (age: ${Math.round(sessionAge / 3600000)}h)`);
+        await supabase
+          .from('sessions')
+          .update({ ended_at: new Date().toISOString() })
+          .eq('id', existing.id);
+      } else {
+        return NextResponse.json(
+          { error: 'active_session_exists', sessionId: existing.id, hostIdentity: existing.host_identity },
+          { status: 409 }
+        );
+      }
     }
 
     const { data, error } = await supabase
@@ -56,6 +66,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Maximum age for a session to be considered "active" (1 hour)
+const MAX_SESSION_AGE_MS = 1 * 60 * 60 * 1000;
+
 // GET — Get active session for a room
 export async function GET(request: NextRequest) {
   const roomName = request.nextUrl.searchParams.get('room');
@@ -76,6 +89,19 @@ export async function GET(request: NextRequest) {
     .single();
 
   if (error || !data) {
+    return NextResponse.json({ error: 'No active session found' }, { status: 404 });
+  }
+
+  // Auto-end stale sessions: if the session is older than 4 hours, it was
+  // likely abandoned (browser closed without proper cleanup). End it and
+  // return 404 so the caller creates a fresh session.
+  const sessionAge = Date.now() - new Date(data.started_at || data.created_at).getTime();
+  if (sessionAge > MAX_SESSION_AGE_MS) {
+    console.warn(`[Session] Auto-ending stale session ${data.id} (age: ${Math.round(sessionAge / 3600000)}h)`);
+    await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString() })
+      .eq('id', data.id);
     return NextResponse.json({ error: 'No active session found' }, { status: 404 });
   }
 
@@ -133,7 +159,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// PATCH — End a session
+// PATCH — End a session (also marks all participants as left)
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -144,10 +170,19 @@ export async function PATCH(request: NextRequest) {
     }
 
     const supabase = getServiceClient();
+    const now = new Date().toISOString();
 
+    // Mark all remaining participants as left
+    await supabase
+      .from('session_participants')
+      .update({ left_at: now })
+      .eq('session_id', sessionId)
+      .is('left_at', null);
+
+    // End the session
     const { error } = await supabase
       .from('sessions')
-      .update({ ended_at: new Date().toISOString() })
+      .update({ ended_at: now })
       .eq('id', sessionId);
 
     if (error) {
@@ -155,6 +190,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to end session' }, { status: 500 });
     }
 
+    console.log(`[Session] Session ${sessionId} ended — all participants marked as left`);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Session end error:', error);

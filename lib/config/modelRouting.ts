@@ -11,13 +11,17 @@ export type ModelTaskKey =
     | 'moderator_intervention'
     | 'ally_intervention'
     | 'embeddings_similarity'
-    | 'transcription_server';
+    | 'transcription_server'
+    | 'idea_extraction'
+    | 'rule_check';
 
 export const MODEL_TASK_KEYS: ModelTaskKey[] = [
     'moderator_intervention',
     'ally_intervention',
     'embeddings_similarity',
     'transcription_server',
+    'idea_extraction',
+    'rule_check',
 ];
 
 export const TASK_LABELS: Record<ModelTaskKey, string> = {
@@ -25,6 +29,8 @@ export const TASK_LABELS: Record<ModelTaskKey, string> = {
     ally_intervention: 'Ally',
     embeddings_similarity: 'Embeddings',
     transcription_server: 'Transcription',
+    idea_extraction: 'Idea Extraction',
+    rule_check: 'Rule Check',
 };
 
 export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
@@ -32,6 +38,8 @@ export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
     ally_intervention: 'Creative impulses during escalation (higher variance)',
     embeddings_similarity: 'Semantic similarity for repetition/novelty detection',
     transcription_server: 'Server-side ASR (disabled by default, uses Web Speech API)',
+    idea_extraction: 'Extract brainstorming ideas from transcript for the idea board',
+    rule_check: 'Classify transcript segments for brainstorming rule violations',
 };
 
 // --- Provider & Model Definitions ---
@@ -60,6 +68,8 @@ export function getModelsForTask(task: ModelTaskKey): ModelOption[] {
     switch (task) {
         case 'moderator_intervention':
         case 'ally_intervention':
+        case 'idea_extraction':
+        case 'rule_check':
             return AVAILABLE_MODELS.filter((m) => m.type === 'chat');
         case 'embeddings_similarity':
             return AVAILABLE_MODELS.filter((m) => m.type === 'embedding');
@@ -110,11 +120,11 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
     },
     embeddings_similarity: {
         provider: 'openai',
-        model: 'text-embedding-3-small',
+        model: 'text-embedding-3-large',
         temperature: 0,
         maxTokens: 0, // Not applicable for embeddings
         timeoutMs: 5000,
-        fallbacks: [{ provider: 'openai', model: 'text-embedding-3-large' }],
+        fallbacks: [{ provider: 'openai', model: 'text-embedding-3-small' }],
         enabled: true, // Uses cosine similarity for repetition/diversity
     },
     transcription_server: {
@@ -123,6 +133,24 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         temperature: 0,
         maxTokens: 0,
         timeoutMs: 15000,
+        fallbacks: [],
+        enabled: true,
+    },
+    idea_extraction: {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        temperature: 0.3,
+        maxTokens: 800,
+        timeoutMs: 15000,
+        fallbacks: [{ provider: 'openai', model: 'gpt-4o' }],
+        enabled: true,
+    },
+    rule_check: {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        maxTokens: 150,
+        timeoutMs: 5000,
         fallbacks: [],
         enabled: true,
     },

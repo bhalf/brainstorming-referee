@@ -9,7 +9,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
  *
  * See: https://developers.openai.com/api/docs/guides/realtime-transcription/
  */
-export async function POST() {
+export async function POST(request: Request) {
     if (!OPENAI_API_KEY) {
         return NextResponse.json(
             { error: 'OPENAI_API_KEY not configured' },
@@ -17,23 +17,45 @@ export async function POST() {
         );
     }
 
+    // Parse optional language from request body
+    let language: string | null = null;
     try {
-        const res = await fetch('https://api.openai.com/v1/realtime/sessions', {
+        const body = await request.json();
+        language = body.language || null;
+    } catch {
+        // No body or invalid JSON — auto-detect language
+    }
+
+    try {
+        const res = await fetch('https://api.openai.com/v1/realtime/transcription_sessions', {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${OPENAI_API_KEY}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'gpt-4o-mini-realtime-preview',
+                input_audio_format: 'pcm16',
+                input_audio_transcription: {
+                    model: 'gpt-4o-mini-transcribe',
+                    language: language || null,
+                },
+                turn_detection: {
+                    type: 'server_vad',
+                    threshold: 0.4,
+                    prefix_padding_ms: 300,
+                    silence_duration_ms: 200,
+                },
+                input_audio_noise_reduction: {
+                    type: 'near_field',
+                },
             }),
         });
 
         if (!res.ok) {
             const errorData = await res.json().catch(() => ({}));
-            console.error('OpenAI ephemeral token creation failed:', res.status, errorData);
+            console.error('OpenAI ephemeral token creation failed:', res.status, JSON.stringify(errorData));
             return NextResponse.json(
-                { error: 'Failed to create transcription session' },
+                { error: 'Failed to create transcription session', detail: errorData },
                 { status: 502 }
             );
         }

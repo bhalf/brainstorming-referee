@@ -12,20 +12,17 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   ANALYZE_EVERY_MS: 5000,
 
   // Trigger Timing
-  PERSISTENCE_SECONDS: 120,
   COOLDOWN_SECONDS: 180,
   POST_CHECK_SECONDS: 90,
-
-  // Thresholds (v1 — kept for backward compat)
-  THRESHOLD_IMBALANCE: 0.65,
-  THRESHOLD_REPETITION: 0.75,
-  THRESHOLD_STAGNATION_SECONDS: 180,
 
   // Safety Limits
   TTS_RATE_LIMIT_SECONDS: 30,
   MAX_INTERVENTIONS_PER_10MIN: 3,
 
-  // v2 thresholds
+  // Brainstorming Rules
+  RULE_CHECK_ENABLED: true,
+
+  // Thresholds
   THRESHOLD_SILENT_PARTICIPANT: 0.05,
   THRESHOLD_PARTICIPATION_RISK: 0.55,
   THRESHOLD_NOVELTY_RATE: 0.3,
@@ -34,8 +31,6 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   RECOVERY_IMPROVEMENT_THRESHOLD: 0.15,
 
   // Computation parameters
-  // Thresholds calibrated for text-embedding-3-small (1536-dim, normalized).
-  // Unrelated sentences typically score ~0.3-0.5 cosine; related ~0.5-0.7; very similar ~0.7+.
   NOVELTY_COSINE_THRESHOLD: 0.65,
   CLUSTER_MERGE_THRESHOLD: 0.60,
   STAGNATION_NOVELTY_THRESHOLD: 0.70,
@@ -54,15 +49,11 @@ export interface ConfigValidation {
 export const CONFIG_CONSTRAINTS = {
   WINDOW_SECONDS: { min: 30, max: 600 },
   ANALYZE_EVERY_MS: { min: 1000, max: 30000 },
-  PERSISTENCE_SECONDS: { min: 5, max: 300 },
   COOLDOWN_SECONDS: { min: 10, max: 600 },
   POST_CHECK_SECONDS: { min: 5, max: 300 },
-  THRESHOLD_IMBALANCE: { min: 0.1, max: 1.0 },
-  THRESHOLD_REPETITION: { min: 0.1, max: 1.0 },
-  THRESHOLD_STAGNATION_SECONDS: { min: 15, max: 600 },
   TTS_RATE_LIMIT_SECONDS: { min: 10, max: 120 },
   MAX_INTERVENTIONS_PER_10MIN: { min: 1, max: 20 },
-  // v2
+  // Thresholds
   THRESHOLD_SILENT_PARTICIPANT: { min: 0.01, max: 0.3 },
   THRESHOLD_PARTICIPATION_RISK: { min: 0.1, max: 1.0 },
   THRESHOLD_NOVELTY_RATE: { min: 0.05, max: 0.8 },
@@ -76,6 +67,7 @@ export const CONFIG_CONSTRAINTS = {
   EXPLORATION_COSINE_THRESHOLD: { min: 0.20, max: 0.85 },
   ELABORATION_COSINE_THRESHOLD: { min: 0.40, max: 0.95 },
   // PARTICIPATION_RISK_WEIGHTS validated separately (must sum to 1)
+  // RULE_CHECK_ENABLED is boolean, not numeric — validated separately
 } as const;
 
 export function validateConfig(config: ExperimentConfig): ConfigValidation {
