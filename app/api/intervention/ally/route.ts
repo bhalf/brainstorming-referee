@@ -54,6 +54,7 @@ Your goal is to break patterns and open new creative pathways without doing the 
 }
 
 const USER_PROMPT_EN = `The brainstorming session is stuck despite earlier moderation attempts. The group needs a creative spark.
+Session topic: {topic}
 
 Previous interventions tried: {previousInterventions}
 
@@ -63,6 +64,7 @@ Full conversation transcript ({totalTurns} turns total):
 Generate a brief, unexpected creative impulse to energize the discussion. Use the full transcript to avoid repeating themes already covered and to make the impulse feel specific to this group's conversation.`;
 
 const USER_PROMPT_DE = `Die Brainstorming-Sitzung steckt trotz früherer Moderationsversuche fest. Die Gruppe braucht einen kreativen Funken.
+Thema der Session: {topic}
 
 Bisherige Interventionen: {previousInterventions}
 
@@ -73,6 +75,7 @@ Formuliere einen kurzen, unerwarteten kreativen Impuls, um die Diskussion zu bel
 
 // v2: Enhanced prompt with state context
 const USER_PROMPT_V2_EN = `The brainstorming session is stuck despite earlier moderation.
+Session topic: {topic}
 The moderator tried to address: {triggeringState}
 Previous interventions: {previousInterventions}
 
@@ -87,6 +90,7 @@ Full conversation transcript ({totalTurns} turns total):
 Generate a brief, unexpected creative impulse. Make it specific to what this group has discussed. Avoid repeating themes from previous interventions.`;
 
 const USER_PROMPT_V2_DE = `Die Brainstorming-Sitzung steckt trotz früherer Moderation fest.
+Thema der Session: {topic}
 Der Moderator versuchte Folgendes anzusprechen: {triggeringState}
 Bisherige Interventionen: {previousInterventions}
 
@@ -105,7 +109,7 @@ Formuliere einen kurzen, unerwarteten kreativen Impuls. Mache ihn spezifisch fü
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AllyRequest;
-    const { language, scenario, previousInterventions = [], transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, triggeringState, participationMetrics, semanticDynamics } = body;
+    const { language, scenario, topic, previousInterventions = [], transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, triggeringState, participationMetrics, semanticDynamics } = body;
 
     // Server-side scenario guard: ally is only permitted in Scenario B
     if (scenario && scenario !== 'B') {
@@ -135,8 +139,11 @@ export async function POST(request: NextRequest) {
 
     // Use v2 prompt if triggeringState is available, otherwise v1
     let userPrompt: string;
+    const topicText = topic || 'Not specified';
+
     if (triggeringState) {
       userPrompt = (isGerman ? USER_PROMPT_V2_DE : USER_PROMPT_V2_EN)
+        .replace('{topic}', topicText)
         .replace('{triggeringState}', triggeringState)
         .replace('{previousInterventions}', interventionContext)
         .replace('{totalTurns}', String(totalTurns))
@@ -146,6 +153,7 @@ export async function POST(request: NextRequest) {
         .replace('{clusterConcentration}', String(semanticDynamics?.clusterConcentration?.toFixed(2) ?? 'N/A'));
     } else {
       userPrompt = (isGerman ? USER_PROMPT_DE : USER_PROMPT_EN)
+        .replace('{topic}', topicText)
         .replace('{previousInterventions}', interventionContext)
         .replace('{totalTurns}', String(totalTurns))
         .replace('{transcriptExcerpt}', excerptText);
