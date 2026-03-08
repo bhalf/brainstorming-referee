@@ -122,6 +122,12 @@ export default function CallPage() {
     lastLocalSpeakingTimeRef.current = Date.now();
   }, []);
 
+  // Track mic mute to pause OpenAI transcription when muted
+  const [isLocalMicMuted, setIsLocalMicMuted] = useState(false);
+  const handleLocalMicMuteChange = useCallback((muted: boolean) => {
+    setIsLocalMicMuted(muted);
+  }, []);
+
 
   // --- WebRTC Sync (LiveKit DataChannel) ---
   const broadcastInterimRef = useRef<((text: string, lang?: string) => void) | null>(null);
@@ -172,8 +178,8 @@ export default function CallPage() {
 
   // --- Transcription Manager (local mic only — remote segments arrive via Supabase Realtime) ---
   const transcription = useTranscriptionManager({
-    language,
-    isSessionActive: state.isActive,
+    language: state.language || language,
+    isSessionActive: state.isActive && !isLocalMicMuted,
     displayName: isParticipant ? participantName : 'Researcher',
     lastLocalSpeakingTimeRef,
     addTranscriptSegment,
@@ -643,10 +649,11 @@ export default function CallPage() {
     router.push('/');
   }, [endSession, router, isParticipant, participantName]);
 
-  // --- LiveKit Disconnect handler (tolerant — does NOT end session) ---
+  // --- LiveKit Disconnect handler (user clicked Leave or connection lost) ---
   const handleLiveKitDisconnect = useCallback(() => {
-    console.warn('[LiveKit] Disconnected — session stays active, LiveKit will auto-reconnect');
-  }, []);
+    console.warn('[LiveKit] Disconnected — cleaning up and navigating away');
+    handleEndSession();
+  }, [handleEndSession]);
 
   // --- System Health ---
   const healthProps = useMemo((): SystemHealthProps => ({
@@ -762,6 +769,7 @@ export default function CallPage() {
                 onParticipantsChange={setParticipants}
                 onRemoteSpeakersChange={setRemoteSpeakers}
                 onLocalSpeakingUpdate={handleLocalSpeakingUpdate}
+                onLocalMicMuteChange={handleLocalMicMuteChange}
                 onDisconnected={handleLiveKitDisconnect}
                 speakingTimeRef={speakingTimeRef}
                 broadcastInterimRef={broadcastInterimRef}
@@ -849,6 +857,7 @@ export default function CallPage() {
                   onParticipantsChange={setParticipants}
                   onRemoteSpeakersChange={setRemoteSpeakers}
                   onLocalSpeakingUpdate={handleLocalSpeakingUpdate}
+                  onLocalMicMuteChange={handleLocalMicMuteChange}
                   onDisconnected={handleLiveKitDisconnect}
                   speakingTimeRef={speakingTimeRef}
                   broadcastInterimRef={broadcastInterimRef}
