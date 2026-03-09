@@ -107,6 +107,8 @@ export function useOpenAIRealtimeStream({
     const calibrationSamplesRef = useRef<number[]>([]);
     const silentChunksRef = useRef<number>(0);
     const MAX_SILENT_CHUNKS_TO_SEND = 60; // ~10s of silence @ 4096/24000Hz — generous budget so OpenAI VAD always gets enough trailing silence to finalize
+    // Keepalive: send one tiny silent frame every ~15s to prevent OpenAI idle timeout (code 1005)
+    const KEEPALIVE_INTERVAL_CHUNKS = 90; // ~15s @ 4096/24000Hz per chunk (~0.17s each)
 
     // Stable refs for callbacks
     const onInterimTranscriptRef = useRef(onInterimTranscript);
@@ -373,6 +375,7 @@ export function useOpenAIRealtimeStream({
                 const closeCodeMap: Record<number, string> = {
                     1000: 'Normal closure',
                     1001: 'Going away (page unload)',
+                    1005: 'No status received (server dropped connection — likely idle timeout or network blip)',
                     1006: 'Abnormal closure (no close frame — network issue or server crash)',
                     1008: 'Policy violation (could be concurrency/rate limit)',
                     1011: 'Server error',
@@ -505,7 +508,13 @@ export function useOpenAIRealtimeStream({
                 // We MUST send some silence so OpenAI's Server VAD knows speech stopped,
                 // otherwise it hangs waiting for data and causes a massive 5s+ transcription delay.
                 if (silentChunksRef.current > MAX_SILENT_CHUNKS_TO_SEND) {
-                    return;
+                    // Keepalive: send one tiny silent buffer periodically to prevent
+                    // OpenAI from killing the connection due to idle timeout (code 1005).
+                    const chunksSinceLastSend = silentChunksRef.current - MAX_SILENT_CHUNKS_TO_SEND;
+                    if (chunksSinceLastSend % KEEPALIVE_INTERVAL_CHUNKS !== 0) {
+                        return;
+                    }
+                    // Fall through to send this one frame as a keepalive
                 }
             } else {
                 silentChunksRef.current = 0;
