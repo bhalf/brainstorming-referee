@@ -79,7 +79,7 @@ export function useLiveKitSync({
     // Broadcast functions
     const broadcastInterimTranscript = useCallback(
         async (text: string, language?: string) => {
-            if (!localParticipant || text.trim() === '') return;
+            if (!localParticipant) return;
             const payload: SyncInterimPayload = {
                 speakerId: localParticipant.identity,
                 speakerName: localParticipant.name || localParticipant.identity,

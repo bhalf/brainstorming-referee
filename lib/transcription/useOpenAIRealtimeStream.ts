@@ -195,13 +195,14 @@ export function useOpenAIRealtimeStream({
 
         tokenRefreshTimerRef.current = setTimeout(async () => {
             if (!isMountedRef.current || !isActiveRef.current) return;
-            console.log('[OpenAIStream] Token expiring soon — reconnecting with fresh token...');
+            console.log('[OpenAIStream] Token expiring soon — reconnecting WebSocket with fresh token...');
             reconnectAttemptsRef.current = 0; // Reset reconnect counter for token refresh
             try {
+                // IMPORTANT: We only reconnect the WebSocket. 
+                // We do NOT restart the audio pipeline because creating a new AudioContext 
+                // without a direct user interaction (like a click) will cause the browser 
+                // to start it in a "suspended" state, muting the microphone secretly.
                 await connectWebSocket();
-                if (streamRef.current) {
-                    startAudioPipeline(streamRef.current);
-                }
             } catch (e) {
                 console.error('[OpenAIStream] Token refresh reconnect failed:', e);
                 setError('Transcription token refresh failed');
@@ -381,10 +382,9 @@ export function useOpenAIRealtimeStream({
                     setTimeout(async () => {
                         if (isMountedRef.current && isActiveRef.current) {
                             try {
+                                // Reconnect WebSocket only. The existing audio pipeline
+                                // will automatically stream to the new socket once open.
                                 await connectWebSocket();
-                                if (streamRef.current) {
-                                    startAudioPipeline(streamRef.current);
-                                }
                             } catch (e) {
                                 console.error('[OpenAIStream] Reconnect failed:', e);
                                 // Propagate error to UI so user knows transcription stopped
@@ -408,6 +408,10 @@ export function useOpenAIRealtimeStream({
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
             audioContextRef.current.close();
         }
+
+        // Reset adaptive noise floor calibration state
+        calibrationSamplesRef.current = [];
+        noiseFloorRef.current = MIN_RMS_ENERGY_FLOOR;
 
         const audioContext = new AudioContext({ sampleRate: PCM_SAMPLE_RATE });
         audioContextRef.current = audioContext;
