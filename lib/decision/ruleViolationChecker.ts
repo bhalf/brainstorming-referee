@@ -46,7 +46,7 @@ export async function checkRuleViolations(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
 
     const data = await apiPost<{ violated: boolean; rule?: string; severity?: string; evidence?: string }>(
       '/api/rule-check',
