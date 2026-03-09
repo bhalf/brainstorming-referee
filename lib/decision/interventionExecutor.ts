@@ -49,7 +49,42 @@ export interface InterventionContext {
     isTTSSupported: boolean;
 }
 
-const INTERVENTION_TIMEOUT_MS = 12_000;
+// --- Client-side fallback texts ---
+// Mirrors the server-side fallbacks so interventions always succeed.
+const CLIENT_FALLBACKS: Record<string, { en: string; de: string }> = {
+    PARTICIPATION_REBALANCING: {
+        en: "It feels like we could benefit from hearing more perspectives. Who else has thoughts to share?",
+        de: 'Es wäre bereichernd, noch mehr Perspektiven zu hören. Wer möchte noch etwas beitragen?',
+    },
+    PERSPECTIVE_BROADENING: {
+        en: "We've built strong ideas around a few themes. What completely different direction could we explore?",
+        de: 'Wir haben starke Ideen zu einigen Themen entwickelt. Welche völlig andere Richtung könnten wir erkunden?',
+    },
+    REACTIVATION: {
+        en: "Let's pause and think about what territory we haven't explored yet. What dimensions are still open?",
+        de: 'Lasst uns kurz überlegen, welche Bereiche wir noch nicht erkundet haben. Welche Dimensionen sind noch offen?',
+    },
+    NORM_REINFORCEMENT: {
+        en: "Quick reminder — in brainstorming, all ideas are welcome! Let's save evaluation for later and keep building on each other's thoughts.",
+        de: 'Kurze Erinnerung: Beim Brainstorming sind alle Ideen willkommen! Bewertungen heben wir uns für später auf — lasst uns weiter aufeinander aufbauen.',
+    },
+    ALLY_DEFAULT: {
+        en: "What if we tried looking at this from a completely unexpected angle?",
+        de: 'Was wäre, wenn wir das Ganze aus einem völlig unerwarteten Blickwinkel betrachten?',
+    },
+};
+
+function getClientFallbackText(intent: string, role: 'moderator' | 'ally', language?: string): string {
+    const isGerman = language?.startsWith('de') ?? true; // Default to German for UZH experiments
+    if (role === 'ally') {
+        const fb = CLIENT_FALLBACKS.ALLY_DEFAULT;
+        return isGerman ? fb.de : fb.en;
+    }
+    const fb = CLIENT_FALLBACKS[intent] || CLIENT_FALLBACKS.PARTICIPATION_REBALANCING;
+    return isGerman ? fb.de : fb.en;
+}
+
+const INTERVENTION_TIMEOUT_MS = 20_000;
 
 /**
  * Fire a single intervention (moderator or ally).
@@ -64,7 +99,13 @@ export async function executeIntervention(
     const timeoutId = setTimeout(() => controller.abort(), INTERVENTION_TIMEOUT_MS);
 
     try {
-        const data = await apiPost<any>(params.endpoint, params.body, { signal: controller.signal });
+        const data = await apiPost<any>(params.endpoint, params.body, {
+            signal: controller.signal,
+            // Don't retry at this level — callLLM already handles retries via its
+            // model fallback chain. Double-retry compounds latency and can exceed
+            // the abort timeout, causing spurious AbortErrors.
+            maxRetries: 0,
+        });
         clearTimeout(timeoutId);
 
         // Update engine state
@@ -130,16 +171,62 @@ export async function executeIntervention(
     } catch (error: any) {
         clearTimeout(timeoutId);
 
-        if (error.status === 503) {
-            callbacks.addError('LLM unavailable — check OPENAI_API_KEY configuration', 'intervention');
-        } else if (error.name === 'AbortError') {
-            callbacks.addError('Intervention timed out', 'intervention');
-        } else {
-            callbacks.addError(`Intervention API error: ${error.status || error.message}`, 'intervention');
+        const errorDesc = error.name === 'AbortError'
+            ? 'timeout'
+            : error.status === 503 ? 'LLM unavailable' : (error.message || 'unknown');
+        console.warn(`[InterventionExecutor] API failed (${errorDesc}) — using client-side fallback`);
+
+        // --- CLIENT-SIDE FALLBACK ---
+        // Interventions are critical for the experiment — they must ALWAYS be delivered.
+        // If the API call failed (timeout, network error, LLM down), we use a hardcoded
+        // fallback text so the brainstorming session is never left without guidance.
+        const fallbackText = getClientFallbackText(params.intent, params.role, params.body?.language as string);
+
+        callbacks.updateDecisionState(params.nextEngineState);
+
+        const interventionId = generateId('int');
+        const intervention: Intervention = {
+            id: interventionId,
+            timestamp: Date.now(),
+            type: params.role,
+            trigger: params.trigger,
+            text: fallbackText,
+            spoken: false,
+            metricsAtTrigger: params.metrics,
+            intent: params.intent as Intervention['intent'],
+            triggeringState: params.triggeringState as Intervention['triggeringState'],
+            stateConfidence: params.stateConfidence,
+            recoveryResult: 'pending',
+            modelUsed: 'fallback',
+            latencyMs: 0,
+        };
+
+        // TTS
+        if (ctx.voiceSettings.enabled && ctx.isTTSSupported) {
+            intervention.spoken = callbacks.speak(fallbackText);
         }
 
-        console.error('Intervention execution failed:', error);
-        return { success: false, interventionId: null };
+        callbacks.addIntervention(intervention);
+
+        if (callbacks.broadcastIntervention) {
+            callbacks.broadcastIntervention(intervention);
+        }
+
+        // Persist to Supabase
+        if (ctx.sessionId) {
+            persistInterventionApi(
+                ctx.sessionId,
+                intervention,
+                params.nextEngineState,
+                params.ruleViolation ? {
+                    rule: params.ruleViolation.rule,
+                    evidence: params.ruleViolation.evidence,
+                    severity: params.ruleViolation.severity,
+                } : null,
+            );
+        }
+
+        return { success: true, interventionId };
     }
 }
 

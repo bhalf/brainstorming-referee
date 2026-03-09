@@ -103,12 +103,15 @@ export function useOpenAIRealtimeStream({
     const isIntentionalCloseRef = useRef(false);
     const currentTranscriptRef = useRef('');
     const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const lastAudioSentRef = useRef<number>(Date.now());
     const noiseFloorRef = useRef<number>(MIN_RMS_ENERGY_FLOOR);
     const calibrationSamplesRef = useRef<number[]>([]);
     const silentChunksRef = useRef<number>(0);
     const MAX_SILENT_CHUNKS_TO_SEND = 60; // ~10s of silence @ 4096/24000Hz — generous budget so OpenAI VAD always gets enough trailing silence to finalize
-    // Keepalive: send one tiny silent frame every ~15s to prevent OpenAI idle timeout (code 1005)
-    const KEEPALIVE_INTERVAL_CHUNKS = 90; // ~15s @ 4096/24000Hz per chunk (~0.17s each)
+    // Keepalive: send one tiny silent frame every ~9s to prevent OpenAI idle timeout (code 1005)
+    const KEEPALIVE_INTERVAL_CHUNKS = 55; // ~9s @ 4096/24000Hz per chunk (~0.17s each)
+    const KEEPALIVE_SETINTERVAL_MS = 10_000; // 10s — dedicated setInterval keepalive, independent of audio pipeline
 
     // Stable refs for callbacks
     const onInterimTranscriptRef = useRef(onInterimTranscript);
@@ -162,6 +165,10 @@ export function useOpenAIRealtimeStream({
         if (tokenRefreshTimerRef.current) {
             clearTimeout(tokenRefreshTimerRef.current);
             tokenRefreshTimerRef.current = null;
+        }
+        if (keepaliveIntervalRef.current) {
+            clearInterval(keepaliveIntervalRef.current);
+            keepaliveIntervalRef.current = null;
         }
         if (wsRef.current) {
             // Mark as intentional so onclose handler doesn't auto-reconnect
@@ -267,6 +274,27 @@ export function useOpenAIRealtimeStream({
                 reconnectAttemptsRef.current = 0;
                 silentChunksRef.current = 0; // Reset so reconnect doesn't inherit stale count
                 isIntentionalCloseRef.current = false;
+                lastAudioSentRef.current = Date.now();
+
+                // Dedicated keepalive: send a tiny silent audio frame every 10s
+                // if no audio has been sent recently. This is independent of the
+                // audio pipeline (which may be throttled in background tabs).
+                if (keepaliveIntervalRef.current) clearInterval(keepaliveIntervalRef.current);
+                keepaliveIntervalRef.current = setInterval(() => {
+                    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+                    const msSinceLastSend = Date.now() - lastAudioSentRef.current;
+                    if (msSinceLastSend >= KEEPALIVE_SETINTERVAL_MS - 1000) {
+                        // Generate a tiny silent PCM16 frame (240 samples = 10ms @ 24kHz)
+                        const silentFrame = new Float32Array(240); // all zeros = silence
+                        const base64 = float32ToPcm16Base64(silentFrame);
+                        wsRef.current!.send(JSON.stringify({
+                            type: 'input_audio_buffer.append',
+                            audio: base64,
+                        }));
+                        lastAudioSentRef.current = Date.now();
+                        console.log('[OpenAIStream] 💓 Keepalive sent (setInterval)');
+                    }
+                }, KEEPALIVE_SETINTERVAL_MS);
 
                 // Session is pre-configured via the token endpoint
                 // No transcription_session.update needed
@@ -408,6 +436,11 @@ export function useOpenAIRealtimeStream({
                     return;
                 }
 
+                // Code 1005 = idle timeout, not a real error. Don't burn reconnect attempts.
+                if (event.code === 1005) {
+                    reconnectAttemptsRef.current = Math.max(0, reconnectAttemptsRef.current - 1);
+                }
+
                 // Auto-reconnect if still active
                 if (isActiveRef.current && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
                     // Salvage any interim transcript before reconnecting
@@ -525,6 +558,7 @@ export function useOpenAIRealtimeStream({
 
             const base64Audio = float32ToPcm16Base64(inputData);
 
+            lastAudioSentRef.current = Date.now(); // Track for setInterval keepalive
             const event: OpenAIRealtimeEvent = {
                 type: 'input_audio_buffer.append',
                 audio: base64Audio,

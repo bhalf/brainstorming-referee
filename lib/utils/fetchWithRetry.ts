@@ -40,12 +40,20 @@ export async function fetchWithRetry(
       // Server error (5xx) — retry
       lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
     } catch (error) {
+      // AbortError means intentional cancellation — never retry
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error;
+      }
       // Network error — retry
       lastError = error instanceof Error ? error : new Error(String(error));
     }
 
     // Don't delay after the last attempt
     if (attempt < maxRetries) {
+      // Check if the signal was aborted during the request — no point retrying
+      if (fetchOptions.signal?.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
       const delay = Math.min(initialDelayMs * Math.pow(2, attempt), maxDelayMs);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
