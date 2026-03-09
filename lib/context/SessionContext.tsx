@@ -169,14 +169,11 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       if (state.interventions.some(i => i.id === action.payload.id)) {
         return state;
       }
+      // Note: interventionCount is managed by the decision engine via UPDATE_DECISION_STATE.
+      // Do NOT increment it here — that would double-count (engine + reducer).
       return {
         ...state,
         interventions: [...state.interventions, action.payload],
-        decisionState: {
-          ...state.decisionState,
-          lastInterventionTime: action.payload.timestamp,
-          interventionCount: state.decisionState.interventionCount + 1,
-        },
       };
     }
 

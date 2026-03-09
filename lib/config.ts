@@ -13,7 +13,7 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
 
   // Trigger Timing
   COOLDOWN_SECONDS: 180,
-  POST_CHECK_SECONDS: 90,
+  POST_CHECK_SECONDS: 180,
 
   // Safety Limits
   TTS_RATE_LIMIT_SECONDS: 30,

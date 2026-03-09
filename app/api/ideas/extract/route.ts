@@ -38,9 +38,10 @@ REGELN:
 4. Nur echte inhaltliche Ideen — keine Begrüßungen, Prozesskommentare, Metadiskussionen oder einzelne Wörter/Verben.
 5. Verbindungen zwischen Ideen: "builds_on", "contrasts", "supports", "leads_to", "related".
 6. Bei Connections verwende die ID bestehender Ideen in "targetId"/"sourceId".
-7. Kategorien: NUR wenn ein Sprecher EXPLIZIT ein übergeordnetes Thema benennt (z.B. "Ich habe Ideen für eine Baumschule"), erstelle eine Idee mit type "category". Kinder-Ideen referenzieren dann "parentTitle" oder "parentId".
-8. Antworte auf Deutsch.
-9. Beachte: Die Transkription kann Fehler enthalten (z.B. fehlende Satzzeichen, verschluckte Wörter). Versuche den gemeinten Sinn zu verstehen, aber erfinde nichts dazu.
+7. CROSS-SPEAKER CONNECTIONS (WICHTIG): Wenn ein Sprecher auf die Idee eines anderen Sprechers Bezug nimmt, sie erweitert oder darauf aufbaut, erstelle IMMER eine Connection. Beispiel: Researcher sagt "Baumschule", Observer sagt "mit Workshops" → Connection "builds_on" von Observer-Idee zu Researcher-Idee. Achte besonders auf "ja, und...", "dazu könnte man...", "aufbauend darauf..." oder inhaltliche Bezüge.
+8. Kategorien: NUR wenn ein Sprecher EXPLIZIT ein übergeordnetes Thema benennt (z.B. "Ich habe Ideen für eine Baumschule"), erstelle eine Idee mit type "category". Kinder-Ideen referenzieren dann "parentTitle" oder "parentId".
+9. Antworte auf Deutsch.
+10. Beachte: Die Transkription kann Fehler enthalten (z.B. fehlende Satzzeichen, verschluckte Wörter). Versuche den gemeinten Sinn zu verstehen, aber erfinde nichts dazu.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
 {"ideas": [{"title": "Kurzer Titel", "description": "Was gesagt wurde", "author": "Sprechername", "sourceSegmentIds": ["seg-id"], "type": "idea", "parentTitle": null, "parentId": null}], "connections": [{"sourceTitle": "A", "targetTitle": "B", "sourceId": null, "targetId": null, "label": "kurze Beschreibung", "type": "related"}]}`;
@@ -70,9 +71,10 @@ RULES:
 4. Only real substantive ideas — no greetings, process comments, meta-discussion, or single words/verbs.
 5. Connections between ideas: "builds_on", "contrasts", "supports", "leads_to", "related".
 6. For connections, use the ID of existing ideas in "targetId"/"sourceId".
-7. Categories: ONLY when a speaker EXPLICITLY names a higher-level topic (e.g. "I have ideas for a tree nursery"), create an idea with type "category". Child ideas should reference "parentTitle" or "parentId".
-8. Respond in English.
-9. Note: Transcription may contain errors (missing punctuation, dropped words). Try to understand the intended meaning, but do not invent anything.
+7. CROSS-SPEAKER CONNECTIONS (IMPORTANT): When a speaker references, extends, or builds on another speaker's idea, ALWAYS create a connection. Example: Researcher says "tree nursery", Observer says "with workshops" → Connection "builds_on" from Observer's idea to Researcher's idea. Watch for "yes, and...", "building on that...", "we could also..." or any thematic reference.
+8. Categories: ONLY when a speaker EXPLICITLY names a higher-level topic (e.g. "I have ideas for a tree nursery"), create an idea with type "category". Child ideas should reference "parentTitle" or "parentId".
+9. Respond in English.
+10. Note: Transcription may contain errors (missing punctuation, dropped words). Try to understand the intended meaning, but do not invent anything.
 
 Respond ONLY with a JSON object:
 {"ideas": [{"title": "Short Title", "description": "What was said", "author": "Speaker Name", "sourceSegmentIds": ["seg-id"], "type": "idea", "parentTitle": null, "parentId": null}], "connections": [{"sourceTitle": "A", "targetTitle": "B", "sourceId": null, "targetId": null, "label": "short description", "type": "related"}]}`;

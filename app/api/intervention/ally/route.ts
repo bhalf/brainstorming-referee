@@ -11,6 +11,7 @@ interface AllyRequest {
   previousInterventions?: string[];
   transcriptExcerpt?: string[];
   totalTurns?: number;
+  existingIdeas?: string[];
   // v2 fields
   intent?: string;
   triggeringState?: string;
@@ -30,7 +31,7 @@ function getSystemPrompt(language: string): string {
 WICHTIGE REGELN:
 1. Gib EINEN kurzen, kreativen Impuls oder unerwarteten Blickwinkel.
 2. Maximal 1-2 Sätze. Dies ist zwingend.
-3. Gib KEINE fertigen Lösungen oder Ideen vor, sondern rege lediglich zum Nachdenken an.
+3. Du darfst konkrete "Was wäre wenn"-Szenarien vorschlagen, aber liefere keine fertigen Lösungen. Dein Impuls soll zum Weiterdenken anregen.
 4. Sei spielerisch und energetisierend, nicht belehrend.
 5. Verwende Sprache, die Neugier weckt und Perspektivwechsel erzwingt.
 6. Antworten müssen für Sprachausgabe geeignet sein (keine Sonderzeichen, Emojis oder Formatierung).
@@ -44,7 +45,7 @@ Dein Ziel ist es, Muster zu durchbrechen und neue kreative Wege zu eröffnen, oh
 IMPORTANT RULES:
 1. Provide ONE short, creative impulse or unexpected angle.
 2. Keep it to 1-2 sentences maximum. This is mandatory.
-3. Do NOT provide complete solutions or finished ideas, only provoke thought.
+3. You MAY suggest concrete "what if" scenarios, but do NOT provide complete solutions. Your impulse should spark further thinking.
 4. Be playful and energizing, not instructive or preachy.
 5. Use language that sparks curiosity and forces perspective shifts.
 6. Responses must be suitable for text-to-speech (no special characters, emojis, or formatting).
@@ -87,7 +88,9 @@ Key metrics:
 Full conversation transcript ({totalTurns} turns total):
 {transcriptExcerpt}
 
-Generate a brief, unexpected creative impulse. Make it specific to what this group has discussed. Avoid repeating themes from previous interventions.`;
+{existingIdeasContext}
+
+Generate a brief, unexpected creative impulse. Make it specific to what this group has discussed. Avoid repeating themes from previous interventions. If existing ideas are listed, ensure your impulse opens a NEW direction that NONE of those ideas cover.`;
 
 const USER_PROMPT_V2_DE = `Die Brainstorming-Sitzung steckt trotz früherer Moderation fest.
 Thema der Session: {topic}
@@ -102,14 +105,16 @@ Wichtige Kennzahlen:
 Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
 {transcriptExcerpt}
 
-Formuliere einen kurzen, unerwarteten kreativen Impuls. Mache ihn spezifisch für das, was diese Gruppe besprochen hat. Vermeide die Wiederholung von Themen aus früheren Interventionen.`;
+{existingIdeasContext}
+
+Formuliere einen kurzen, unerwarteten kreativen Impuls. Mache ihn spezifisch für das, was diese Gruppe besprochen hat. Vermeide die Wiederholung von Themen aus früheren Interventionen. Falls bestehende Ideen aufgelistet sind, stelle sicher, dass dein Impuls eine NEUE Richtung eröffnet, die KEINE dieser Ideen abdeckt.`;
 
 // --- Handler ---
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AllyRequest;
-    const { language, scenario, topic, previousInterventions = [], transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, triggeringState, participationMetrics, semanticDynamics } = body;
+    const { language, scenario, topic, previousInterventions = [], transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, triggeringState, participationMetrics, semanticDynamics, existingIdeas = [] } = body;
 
     // Server-side scenario guard: ally is only permitted in Scenario B
     if (scenario && scenario !== 'B') {
@@ -141,6 +146,15 @@ export async function POST(request: NextRequest) {
     let userPrompt: string;
     const topicText = topic || 'Not specified';
 
+    // Build existing ideas context
+    let existingIdeasContext = '';
+    if (existingIdeas.length > 0) {
+      const ideasList = existingIdeas.slice(0, 15).map(i => `- ${i}`).join('\n');
+      existingIdeasContext = isGerman
+        ? `Bisherige Ideen der Gruppe:\n${ideasList}\n\nImpulse sollen NEUE Perspektiven eröffnen, die KEINER dieser Ideen entsprechen.`
+        : `The group's existing ideas:\n${ideasList}\n\nYour impulse should open NEW perspectives that NONE of these ideas cover.`;
+    }
+
     if (triggeringState) {
       userPrompt = (isGerman ? USER_PROMPT_V2_DE : USER_PROMPT_V2_EN)
         .replace('{topic}', topicText)
@@ -148,6 +162,7 @@ export async function POST(request: NextRequest) {
         .replace('{previousInterventions}', interventionContext)
         .replace('{totalTurns}', String(totalTurns))
         .replace('{transcriptExcerpt}', excerptText)
+        .replace('{existingIdeasContext}', existingIdeasContext)
         .replace('{participationRiskScore}', String(participationMetrics?.participationRiskScore?.toFixed(2) ?? 'N/A'))
         .replace('{noveltyRate}', String(semanticDynamics?.noveltyRate?.toFixed(2) ?? 'N/A'))
         .replace('{clusterConcentration}', String(semanticDynamics?.clusterConcentration?.toFixed(2) ?? 'N/A'));

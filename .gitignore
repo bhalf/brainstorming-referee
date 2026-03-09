@@ -46,3 +46,4 @@ next-env.d.ts
 # build artifacts
 lint-output.txt
 bachelorarbeit.md
+generate_thesis.py

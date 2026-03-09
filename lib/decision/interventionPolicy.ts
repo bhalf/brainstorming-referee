@@ -390,11 +390,15 @@ function handlePostCheck(
     };
   }
 
+  const isAlly = engineState.postCheckIntent === 'ALLY_IMPULSE';
+  // Ally post-check is shorter (max 60s) to avoid 3.5 minutes total wait in Scenario B
+  const requiredSeconds = isAlly ? Math.min(60, config.POST_CHECK_SECONDS) : config.POST_CHECK_SECONDS;
+
   const elapsed = (currentTime - postCheckStart) / 1000;
-  if (elapsed < config.POST_CHECK_SECONDS) {
+  if (elapsed < requiredSeconds) {
     return noIntervention(
       engineState,
-      `Post-check in progress (${elapsed.toFixed(0)}s / ${config.POST_CHECK_SECONDS}s)`,
+      `Post-check in progress (${elapsed.toFixed(0)}s / ${requiredSeconds}s)`,
     );
   }
 

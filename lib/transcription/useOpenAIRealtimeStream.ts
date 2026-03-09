@@ -16,6 +16,8 @@ export interface UseOpenAIRealtimeStreamParams {
     language: string;
     speaker: string;
     isActive: boolean;
+    /** When true, keeps the WebSocket alive but stops sending audio (e.g. mic mute) */
+    isMuted?: boolean;
     onInterimTranscript: (text: string) => void;
     onFinalSegment: (segment: TranscriptSegment) => void;
 }
@@ -79,6 +81,7 @@ export function useOpenAIRealtimeStream({
     language,
     speaker,
     isActive,
+    isMuted = false,
     onInterimTranscript,
     onFinalSegment,
 }: UseOpenAIRealtimeStreamParams): UseOpenAIRealtimeStreamReturn {
@@ -94,6 +97,7 @@ export function useOpenAIRealtimeStream({
     const reconnectAttemptsRef = useRef(0);
     const isMountedRef = useRef(true);
     const isActiveRef = useRef(isActive);
+    const isIntentionalCloseRef = useRef(false);
     const currentTranscriptRef = useRef('');
     const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const noiseFloorRef = useRef<number>(MIN_RMS_ENERGY_FLOOR);
@@ -109,7 +113,9 @@ export function useOpenAIRealtimeStream({
     useEffect(() => { onFinalSegmentRef.current = onFinalSegment; }, [onFinalSegment]);
     useEffect(() => { speakerRef.current = speaker; }, [speaker]);
     useEffect(() => { languageRef.current = language; }, [language]);
+    const isMutedRef = useRef(isMuted);
     useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
     const isSupported = typeof window !== 'undefined'
         && typeof navigator !== 'undefined'
@@ -146,6 +152,8 @@ export function useOpenAIRealtimeStream({
             tokenRefreshTimerRef.current = null;
         }
         if (wsRef.current) {
+            // Mark as intentional so onclose handler doesn't auto-reconnect
+            isIntentionalCloseRef.current = true;
             if (wsRef.current.readyState === WebSocket.OPEN) {
                 wsRef.current.close();
             }
@@ -244,6 +252,7 @@ export function useOpenAIRealtimeStream({
                 setIsConnected(true);
                 setError(null);
                 reconnectAttemptsRef.current = 0;
+                isIntentionalCloseRef.current = false;
 
                 // Session is pre-configured via the token endpoint
                 // No transcription_session.update needed
@@ -335,11 +344,17 @@ export function useOpenAIRealtimeStream({
             ws.onclose = (event) => {
                 clearTimeout(connectTimeout);
                 if (!isMountedRef.current) return;
-                console.log(`[OpenAIStream] WebSocket closed (code=${event.code}, reason=${event.reason || 'none'})`);
+                console.log(`[OpenAIStream] WebSocket closed (code=${event.code}, reason=${event.reason || 'none'}, intentional=${isIntentionalCloseRef.current})`);
                 setIsConnected(false);
 
                 // Reject if the promise hasn't resolved yet
                 reject(new Error(`WebSocket closed (code=${event.code})`));
+
+                // Skip auto-reconnect if this was an intentional close (token refresh, stop, cleanup)
+                if (isIntentionalCloseRef.current) {
+                    isIntentionalCloseRef.current = false;
+                    return;
+                }
 
                 // Auto-reconnect if still active
                 if (isActiveRef.current && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
@@ -403,6 +418,8 @@ export function useOpenAIRealtimeStream({
         // Handler for processing audio data (shared between worklet and fallback)
         const processAudioData = (inputData: Float32Array) => {
             if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+            // When muted, skip sending audio but keep the connection alive
+            if (isMutedRef.current) return;
 
             // Client-side energy gate: skip near-silent buffers to prevent hallucinations
             let sumSq = 0;

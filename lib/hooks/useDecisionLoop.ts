@@ -333,11 +333,11 @@ export function useDecisionLoop({
       const cooldownActive = decisionStateRef.current.cooldownUntil != null && now < decisionStateRef.current.cooldownUntil;
 
       // Determine what to fire
-      const shouldFireViolation = pendingViolation && !violationCooldownActive && !cooldownActive;
+      const shouldFireViolation = pendingViolation && !violationCooldownActive;
       const shouldFireMetric = metricIntervention && !cooldownActive;
 
       if (pendingViolation && !shouldFireViolation) {
-        console.log(`[DecisionLoop] Violation pending but blocked — violationCooldown: ${violationCooldownActive}, generalCooldown: ${cooldownActive}`);
+        console.log(`[DecisionLoop] Violation pending but blocked by violationCooldown`);
       }
 
       if (!shouldFireViolation && !shouldFireMetric) {
@@ -446,7 +446,7 @@ export function useDecisionLoop({
       }
     };
 
-    const interval = setInterval(runDecisionEngine, 2000);
+    const interval = setInterval(runDecisionEngine, 1000);
     return () => clearInterval(interval);
   }, [isActive, isDecisionOwner, addIntervention, updateIntervention, addModelRoutingLog, addError, updateDecisionState,
     currentMetricsRef, metricsHistoryRef, transcriptSegmentsRef, interventionsRef, stateHistoryRef]);

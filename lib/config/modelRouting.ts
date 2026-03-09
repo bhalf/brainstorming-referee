@@ -107,7 +107,7 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         provider: 'openai',
         model: 'gpt-5',
         temperature: 0.4,
-        maxTokens: 100,
+        maxTokens: 250,
         timeoutMs: 8000,
         fallbacks: [{ provider: 'openai', model: 'gpt-5-mini' }],
         enabled: true,
@@ -116,18 +116,18 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         provider: 'openai',
         model: 'gpt-5',
         temperature: 0.9,
-        maxTokens: 80,
+        maxTokens: 200,
         timeoutMs: 10000,
         fallbacks: [{ provider: 'openai', model: 'gpt-5-mini' }],
         enabled: true,
     },
     embeddings_similarity: {
         provider: 'openai',
-        model: 'text-embedding-3-large',
+        model: 'text-embedding-3-small',
         temperature: 0,
         maxTokens: 0, // Not applicable for embeddings
         timeoutMs: 5000,
-        fallbacks: [{ provider: 'openai', model: 'text-embedding-3-small' }],
+        fallbacks: [{ provider: 'openai', model: 'text-embedding-3-large' }],
         enabled: true, // Uses cosine similarity for repetition/diversity
     },
     transcription_server: {

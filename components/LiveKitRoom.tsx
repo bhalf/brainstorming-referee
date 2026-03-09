@@ -14,7 +14,7 @@ import {
 } from '@livekit/components-react';
 import '@livekit/components-styles';
 import { ConnectionState, Track } from 'livekit-client';
-import { useLiveKitSync, SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload, SyncTranscriptionControlPayload } from '@/lib/hooks/useLiveKitSync';
+import { useLiveKitSync, SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload } from '@/lib/hooks/useLiveKitSync';
 import { useLiveKitErrorSuppression } from '@/lib/hooks/useLiveKitErrorSuppression';
 import { TranscriptSegment, Intervention } from '@/lib/types';
 
@@ -66,11 +66,9 @@ interface LiveKitRoomProps {
   broadcastInterimRef?: MutableRefObject<((text: string, language?: string) => void) | null>;
   broadcastFinalRef?: MutableRefObject<((segment: TranscriptSegment) => void) | null>;
   broadcastInterventionRef?: MutableRefObject<((intervention: Intervention) => void) | null>;
-  broadcastTranscriptionControlRef?: MutableRefObject<((action: 'start' | 'stop') => void) | null>;
   onInterimTranscriptReceived?: (payload: SyncInterimPayload) => void;
   onFinalSegmentReceived?: (payload: SyncFinalSegmentPayload) => void;
   onInterventionReceived?: (payload: SyncInterventionPayload) => void;
-  onTranscriptionControlReceived?: (payload: SyncTranscriptionControlPayload) => void;
 }
 
 // Inner component that runs inside LiveKit context
@@ -86,11 +84,9 @@ function LiveKitSession({
   broadcastInterimRef,
   broadcastFinalRef,
   broadcastInterventionRef,
-  broadcastTranscriptionControlRef,
   onInterimTranscriptReceived,
   onFinalSegmentReceived,
   onInterventionReceived,
-  onTranscriptionControlReceived,
 }: Omit<LiveKitRoomProps, 'roomName'>) {
   // Suppress known benign LiveKit errors (cleaned up on unmount)
   useLiveKitErrorSuppression();
@@ -127,15 +123,13 @@ function LiveKitSession({
     onInterimTranscriptReceived,
     onFinalSegmentReceived,
     onInterventionReceived,
-    onTranscriptionControlReceived,
   });
 
   useEffect(() => {
     if (broadcastInterimRef) broadcastInterimRef.current = sync.broadcastInterimTranscript;
     if (broadcastFinalRef) broadcastFinalRef.current = sync.broadcastFinalTranscript;
     if (broadcastInterventionRef) broadcastInterventionRef.current = sync.broadcastIntervention;
-    if (broadcastTranscriptionControlRef) broadcastTranscriptionControlRef.current = sync.broadcastTranscriptionControl;
-  }, [sync, broadcastInterimRef, broadcastFinalRef, broadcastInterventionRef, broadcastTranscriptionControlRef]);
+  }, [sync, broadcastInterimRef, broadcastFinalRef, broadcastInterventionRef]);
 
   // Track participants
   useEffect(() => {
@@ -211,11 +205,9 @@ export default function LiveKitRoomComponent({
   broadcastInterimRef,
   broadcastFinalRef,
   broadcastInterventionRef,
-  broadcastTranscriptionControlRef,
   onInterimTranscriptReceived,
   onFinalSegmentReceived,
   onInterventionReceived,
-  onTranscriptionControlReceived,
 }: LiveKitRoomProps) {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -324,11 +316,9 @@ export default function LiveKitRoomComponent({
           broadcastInterimRef={broadcastInterimRef}
           broadcastFinalRef={broadcastFinalRef}
           broadcastInterventionRef={broadcastInterventionRef}
-          broadcastTranscriptionControlRef={broadcastTranscriptionControlRef}
           onInterimTranscriptReceived={onInterimTranscriptReceived}
           onFinalSegmentReceived={onFinalSegmentReceived}
           onInterventionReceived={onInterventionReceived}
-          onTranscriptionControlReceived={onTranscriptionControlReceived}
         />
       </LKRoom>
     </div>

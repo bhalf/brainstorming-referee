@@ -7,8 +7,6 @@ import { TranscriptSegment, Intervention } from '@/lib/types';
 export const LK_TOPIC_TRANSCRIPT_INTERIM = 'transcript_interim';
 export const LK_TOPIC_TRANSCRIPT_FINAL = 'transcript_final';
 export const LK_TOPIC_INTERVENTION = 'intervention';
-export const LK_TOPIC_TRANSCRIPTION_CONTROL = 'transcription_control';
-
 export interface SyncInterimPayload {
     speakerId: string;
     speakerName: string;
@@ -24,23 +22,16 @@ export interface SyncInterventionPayload {
     intervention: Intervention;
 }
 
-export interface SyncTranscriptionControlPayload {
-    action: 'start' | 'stop';
-    identity: string;
-}
-
 interface UseLiveKitSyncParams {
     onInterimTranscriptReceived?: (payload: SyncInterimPayload) => void;
     onFinalSegmentReceived?: (payload: SyncFinalSegmentPayload) => void;
     onInterventionReceived?: (payload: SyncInterventionPayload) => void;
-    onTranscriptionControlReceived?: (payload: SyncTranscriptionControlPayload) => void;
 }
 
 export function useLiveKitSync({
     onInterimTranscriptReceived,
     onFinalSegmentReceived,
     onInterventionReceived,
-    onTranscriptionControlReceived,
 }: UseLiveKitSyncParams = {}) {
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
@@ -76,9 +67,6 @@ export function useLiveKitSync({
                 case LK_TOPIC_INTERVENTION:
                     if (onInterventionReceived) onInterventionReceived(parsed as SyncInterventionPayload);
                     break;
-                case LK_TOPIC_TRANSCRIPTION_CONTROL:
-                    if (onTranscriptionControlReceived) onTranscriptionControlReceived(parsed as SyncTranscriptionControlPayload);
-                    break;
             }
         };
 
@@ -86,7 +74,7 @@ export function useLiveKitSync({
         return () => {
             room.off('dataReceived', handleDataReceived);
         };
-    }, [room, onInterimTranscriptReceived, onFinalSegmentReceived, onInterventionReceived, onTranscriptionControlReceived]);
+    }, [room, onInterimTranscriptReceived, onFinalSegmentReceived, onInterventionReceived]);
 
     // Broadcast functions
     const broadcastInterimTranscript = useCallback(
@@ -148,32 +136,9 @@ export function useLiveKitSync({
         [localParticipant]
     );
 
-    const broadcastTranscriptionControl = useCallback(
-        async (action: 'start' | 'stop') => {
-            if (!localParticipant) return;
-            const payload: SyncTranscriptionControlPayload = {
-                action,
-                identity: localParticipant.name || localParticipant.identity,
-            };
-            const encoder = new TextEncoder();
-            const data = encoder.encode(JSON.stringify(payload));
-            try {
-                await localParticipant.publishData(data, {
-                    topic: LK_TOPIC_TRANSCRIPTION_CONTROL,
-                    reliable: true,
-                });
-                console.log(`[LiveKitSync] Broadcasted transcription ${action}`);
-            } catch (e) {
-                console.warn('[LiveKitSync] Failed to broadcast transcription control', e);
-            }
-        },
-        [localParticipant]
-    );
-
     return {
         broadcastInterimTranscript,
         broadcastFinalTranscript,
         broadcastIntervention,
-        broadcastTranscriptionControl,
     };
 }

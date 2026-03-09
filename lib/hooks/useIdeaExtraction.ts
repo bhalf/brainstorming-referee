@@ -15,8 +15,12 @@ interface UseIdeaExtractionParams {
   addError: (message: string, context?: string) => void;
 }
 
-const EXTRACTION_INTERVAL_MS = 5_000;
-const MIN_NEW_SEGMENTS = 2;
+const EXTRACTION_INTERVAL_MS = 4_000;
+const MIN_NEW_SEGMENTS_DEFAULT = 2;
+const MIN_NEW_SEGMENTS_CATCHUP = 1;
+const CATCHUP_THRESHOLD_MS = 10_000;
+const STALE_REQUEST_MS = 8_000;
+const STAGGER_DELAY_MS = 300;
 const CONTEXT_WINDOW_SEGMENTS = 5;
 
 const IDEA_COLORS = [
@@ -103,6 +107,8 @@ export function useIdeaExtraction({
   const sessionIdRef = useRef(sessionId);
   const ideasRef = useRef(ideas);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastSuccessfulExtractionRef = useRef(Date.now());
+  const extractionStartTimeRef = useRef<number | null>(null);
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { ideasRef.current = ideas; }, [ideas]);
@@ -127,19 +133,39 @@ export function useIdeaExtraction({
     console.log('[IdeaExtraction] Starting extraction interval (every', EXTRACTION_INTERVAL_MS / 1000, 's)');
 
     const interval = setInterval(async () => {
-      if (isExtractingRef.current) {
-        console.log('[IdeaExtraction] Skipping — already extracting');
-        return;
+      // Abort stale requests that have been running too long
+      if (isExtractingRef.current && extractionStartTimeRef.current) {
+        const elapsed = Date.now() - extractionStartTimeRef.current;
+        if (elapsed > STALE_REQUEST_MS) {
+          console.log('[IdeaExtraction] Aborting stale request after', (elapsed / 1000).toFixed(1), 's');
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+          }
+          isExtractingRef.current = false;
+          extractionStartTimeRef.current = null;
+        } else {
+          return; // Still processing, not stale yet
+        }
       }
+
+      if (isExtractingRef.current) return;
 
       const segments = transcriptSegmentsRef.current;
       const newCount = segments.length - lastProcessedIndexRef.current;
 
-      console.log('[IdeaExtraction] Tick — total segments:', segments.length, 'lastProcessed:', lastProcessedIndexRef.current, 'new:', newCount, 'needed:', MIN_NEW_SEGMENTS);
+      // Adaptive threshold: lower to 1 segment when falling behind
+      const timeSinceLastSuccess = Date.now() - lastSuccessfulExtractionRef.current;
+      const minSegments = timeSinceLastSuccess > CATCHUP_THRESHOLD_MS
+        ? MIN_NEW_SEGMENTS_CATCHUP
+        : MIN_NEW_SEGMENTS_DEFAULT;
 
-      if (newCount < MIN_NEW_SEGMENTS) return;
+      console.log('[IdeaExtraction] Tick — total segments:', segments.length, 'lastProcessed:', lastProcessedIndexRef.current, 'new:', newCount, 'needed:', minSegments, 'timeSinceSuccess:', (timeSinceLastSuccess / 1000).toFixed(0) + 's');
+
+      if (newCount < minSegments) return;
 
       isExtractingRef.current = true;
+      extractionStartTimeRef.current = Date.now();
       console.log('[IdeaExtraction] Extracting ideas from', newCount, 'new segments...');
 
       try {
@@ -194,13 +220,14 @@ export function useIdeaExtraction({
           titleToId.set(idea.title.toLowerCase().trim(), idea.id);
         }
 
-        // Process extracted ideas
+        // Process extracted ideas with staggered output
         const newIdeaIds: Array<{ title: string; id: string }> = [];
 
         if (data.ideas && Array.isArray(data.ideas)) {
           const sid = sessionIdRef.current;
+          const ideaCount = data.ideas.length;
 
-          for (let i = 0; i < data.ideas.length; i++) {
+          for (let i = 0; i < ideaCount; i++) {
             const extracted = data.ideas[i];
 
             // Resolve parentId: prefer explicit parentId, fall back to parentTitle matching
@@ -235,7 +262,12 @@ export function useIdeaExtraction({
               parentId: resolvedParentId,
             };
 
-            console.log('[IdeaExtraction] Adding idea:', idea.title, '(by', idea.author + ')');
+            // Stagger idea output: add 300ms delay between ideas when multiple are extracted
+            if (i > 0 && ideaCount > 1) {
+              await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY_MS));
+            }
+
+            console.log('[IdeaExtraction] Adding idea:', idea.title, '(by', idea.author + ')', `[${i + 1}/${ideaCount}]`);
             addIdea(idea);
             newIdeaIds.push({ title: extracted.title, id: idea.id });
             titleToId.set(extracted.title.toLowerCase().trim(), idea.id);
@@ -276,6 +308,7 @@ export function useIdeaExtraction({
         }
 
         lastProcessedIndexRef.current = segments.length;
+        lastSuccessfulExtractionRef.current = Date.now();
       } catch (error) {
         // Don't report aborted requests as errors
         if (error instanceof DOMException && error.name === 'AbortError') {

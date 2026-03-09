@@ -9,6 +9,8 @@ const ECHO_GATE_MS = 3000;
 interface UseTranscriptionManagerParams {
   language: string;
   isSessionActive: boolean;
+  /** When true, keeps the WebSocket alive but pauses audio sending (mic mute) */
+  isMuted?: boolean;
   displayName: string;
   /** Updated by LiveKit when local participant is speaking — used to filter echo */
   lastLocalSpeakingTimeRef?: MutableRefObject<number | null>;
@@ -23,6 +25,7 @@ interface UseTranscriptionManagerParams {
 export function useTranscriptionManager({
   language,
   isSessionActive,
+  isMuted = false,
   displayName,
   lastLocalSpeakingTimeRef,
   addTranscriptSegment,
@@ -51,6 +54,7 @@ export function useTranscriptionManager({
     language,
     speaker: displayName,
     isActive: isSessionActive && isRealtimeEnabled,
+    isMuted,
     onInterimTranscript: (text) => {
       setRealtimeInterimTranscript(text);
       if (broadcastInterimTranscript) {

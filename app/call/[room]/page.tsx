@@ -21,7 +21,7 @@ import { useRealtimeVoiceSettings } from '@/lib/hooks/useRealtimeVoiceSettings';
 import { useRealtimeIdeas } from '@/lib/hooks/useRealtimeIdeas';
 import { useRealtimeConnections } from '@/lib/hooks/useRealtimeConnections';
 import { useIdeaExtraction } from '@/lib/hooks/useIdeaExtraction';
-import { SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload, SyncTranscriptionControlPayload } from '@/lib/hooks/useLiveKitSync';
+import { SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload } from '@/lib/hooks/useLiveKitSync';
 import type { InterimEntry } from '@/components/TranscriptFeed';
 import LiveKitRoom from '@/components/LiveKitRoom';
 import OverlayPanel from '@/components/OverlayPanel';
@@ -134,7 +134,6 @@ export default function CallPage() {
   const broadcastInterimRef = useRef<((text: string, lang?: string) => void) | null>(null);
   const broadcastFinalRef = useRef<((segment: TranscriptSegment) => void) | null>(null);
   const broadcastInterventionRef = useRef<((intervention: Intervention) => void) | null>(null);
-  const broadcastTranscriptionControlRef = useRef<((action: 'start' | 'stop') => void) | null>(null);
 
   // Track peer interim transcripts with timestamps for stale cleanup
   const [peerInterims, setPeerInterims] = useState<Map<string, { text: string; speakerName: string; timestamp: number }>>(new Map());
@@ -169,19 +168,6 @@ export default function CallPage() {
     }
   }, [addIntervention, state.voiceSettings.enabled, isTTSSupported, speak]);
 
-  // Handle transcription start/stop from peers
-  const handleTranscriptionControlReceived = useCallback((payload: SyncTranscriptionControlPayload) => {
-    console.log(`[Sync] Received transcription ${payload.action} from ${payload.identity}`);
-    // When a peer starts transcription, the session is already active (no-op for us)
-    // When a peer stops, we also stop our own transcription
-    if (payload.action === 'stop') {
-      // This will deactivate the transcription stream on our side too
-      transcription.setIsRealtimeEnabled(false);
-    } else if (payload.action === 'start') {
-      transcription.setIsRealtimeEnabled(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Stale peer interim cleanup (clear entries older than 8 seconds)
   useEffect(() => {
@@ -215,7 +201,8 @@ export default function CallPage() {
   // --- Transcription Manager (local mic only — remote segments arrive via Supabase Realtime) ---
   const transcription = useTranscriptionManager({
     language: state.language || language,
-    isSessionActive: state.isActive && !isLocalMicMuted,
+    isSessionActive: state.isActive,
+    isMuted: isLocalMicMuted,
     displayName: isParticipant ? participantName : 'Researcher',
     lastLocalSpeakingTimeRef,
     addTranscriptSegment,
@@ -821,11 +808,11 @@ export default function CallPage() {
                 broadcastInterimRef={broadcastInterimRef}
                 broadcastFinalRef={broadcastFinalRef}
                 broadcastInterventionRef={broadcastInterventionRef}
-                broadcastTranscriptionControlRef={broadcastTranscriptionControlRef}
+
                 onInterimTranscriptReceived={handleInterimTranscriptReceived}
                 onFinalSegmentReceived={handleFinalSegmentReceived}
                 onInterventionReceived={handleInterventionReceived}
-                onTranscriptionControlReceived={handleTranscriptionControlReceived}
+
               />
             }
             bottomLeft={
@@ -910,11 +897,11 @@ export default function CallPage() {
                   broadcastInterimRef={broadcastInterimRef}
                   broadcastFinalRef={broadcastFinalRef}
                   broadcastInterventionRef={broadcastInterventionRef}
-                  broadcastTranscriptionControlRef={broadcastTranscriptionControlRef}
+  
                   onInterimTranscriptReceived={handleInterimTranscriptReceived}
                   onFinalSegmentReceived={handleFinalSegmentReceived}
                   onInterventionReceived={handleInterventionReceived}
-                  onTranscriptionControlReceived={handleTranscriptionControlReceived}
+  
                 />
               </div>
 
