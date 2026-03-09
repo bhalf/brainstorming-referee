@@ -22,7 +22,9 @@ interface UseIdeaExtractionParams {
 const MIN_NEW_SEGMENTS_DEFAULT = 2;
 const MIN_NEW_SEGMENTS_CATCHUP = 1;
 const CATCHUP_THRESHOLD_MS = 10_000;
-const STALE_REQUEST_MS = 8_000;
+// LLM extraction calls on Vercel typically take 10-25s.
+// 8s was far too short — every request was being aborted as "stale".
+const STALE_REQUEST_MS = 30_000;
 const STAGGER_DELAY_MS = 300;
 const CONTEXT_WINDOW_SEGMENTS = 15;
 
