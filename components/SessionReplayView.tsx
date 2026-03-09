@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Panel from '@/components/shared/Panel';
 import MetricBar from '@/components/shared/MetricBar';
+import TimelineEventRow from '@/components/replay/TimelineEventRow';
 import type {
   TranscriptSegment,
   MetricSnapshot,
@@ -12,10 +13,18 @@ import type {
   ExperimentConfig,
   ConversationStateName,
   InterventionAnnotation,
-  AnnotationRelevance,
-  AnnotationEffectiveness,
 } from '@/lib/types';
-import { formatTime, formatPercent } from '@/lib/utils/format';
+import { formatTime } from '@/lib/utils/format';
+import {
+  type TimelineEvent,
+  type TimelineEventType,
+  type FilterSet,
+  formatDuration,
+  formatRelativeTime,
+  STATE_BG_COLORS,
+  getSpeakerColor,
+} from '@/components/replay/replayHelpers';
+import { formatPercent } from '@/lib/utils/format';
 
 // --- Types ---
 
@@ -46,69 +55,7 @@ interface SessionExport {
   }>;
 }
 
-type TimelineEventType = 'segment' | 'intervention' | 'state_change';
-
-interface TimelineEvent {
-  type: TimelineEventType;
-  timestamp: number;
-  segment?: TranscriptSegment;
-  intervention?: Intervention;
-  stateChange?: { state: ConversationStateName; confidence: number };
-}
-
-type FilterSet = Set<TimelineEventType>;
-
-// --- Helpers ---
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}m ${s.toString().padStart(2, '0')}s`;
-}
-
-function formatRelativeTime(timestamp: number, startTime: number): string {
-  const elapsed = Math.max(0, timestamp - startTime);
-  const totalSec = Math.floor(elapsed / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-const STATE_COLORS: Record<ConversationStateName, string> = {
-  HEALTHY_EXPLORATION: 'text-green-400',
-  HEALTHY_ELABORATION: 'text-emerald-400',
-  DOMINANCE_RISK: 'text-red-400',
-  CONVERGENCE_RISK: 'text-yellow-400',
-  STALLED_DISCUSSION: 'text-orange-400',
-};
-
-const STATE_BG_COLORS: Record<ConversationStateName, string> = {
-  HEALTHY_EXPLORATION: 'bg-green-500/20 border-green-500/40',
-  HEALTHY_ELABORATION: 'bg-emerald-500/20 border-emerald-500/40',
-  DOMINANCE_RISK: 'bg-red-500/20 border-red-500/40',
-  CONVERGENCE_RISK: 'bg-yellow-500/20 border-yellow-500/40',
-  STALLED_DISCUSSION: 'bg-orange-500/20 border-orange-500/40',
-};
-
-const RECOVERY_BADGE: Record<string, { text: string; color: string }> = {
-  recovered: { text: 'Recovered', color: 'bg-green-500/30 text-green-300' },
-  partial: { text: 'Partial', color: 'bg-yellow-500/30 text-yellow-300' },
-  not_recovered: { text: 'Not recovered', color: 'bg-red-500/30 text-red-300' },
-  pending: { text: 'Pending', color: 'bg-slate-500/30 text-slate-300' },
-};
-
-// --- Speaker Colors ---
-
-const SPEAKER_COLORS = [
-  'text-blue-300', 'text-purple-300', 'text-cyan-300', 'text-pink-300',
-  'text-amber-300', 'text-lime-300', 'text-rose-300', 'text-teal-300',
-];
-
-function getSpeakerColor(speaker: string, speakerList: string[]): string {
-  const idx = speakerList.indexOf(speaker);
-  return SPEAKER_COLORS[idx % SPEAKER_COLORS.length];
-}
+// --- Helpers, types, and sub-components now imported from components/replay/ ---
 
 // --- Component ---
 
@@ -568,231 +515,5 @@ function FilterButton({ label, active, onClick, color }: {
   );
 }
 
-function TimelineEventRow({ event, startTime, speakers, expanded, onToggle, annotation, onSaveAnnotation, isSaving }: {
-  event: TimelineEvent;
-  startTime: number;
-  speakers: string[];
-  expanded: boolean;
-  onToggle?: () => void;
-  annotation?: InterventionAnnotation;
-  onSaveAnnotation?: (interventionId: string, updates: Partial<Pick<InterventionAnnotation, 'rating' | 'relevance' | 'effectiveness' | 'notes'>>) => void;
-  isSaving?: boolean;
-}) {
-  const relTime = formatRelativeTime(event.timestamp, startTime);
 
-  if (event.type === 'segment' && event.segment) {
-    const seg = event.segment;
-    return (
-      <div className="flex gap-3 py-1 px-2 hover:bg-slate-800/30 rounded group">
-        <span className="text-xs text-slate-600 font-mono w-12 shrink-0 pt-0.5">{relTime}</span>
-        <span className="text-xs text-slate-600 w-0.5 shrink-0 bg-blue-500/30 rounded" />
-        <div className="min-w-0">
-          <span className={`text-xs font-medium ${getSpeakerColor(seg.speaker, speakers)}`}>
-            {seg.speaker}
-          </span>
-          <span className="text-sm text-slate-300 ml-2">{seg.text}</span>
-        </div>
-      </div>
-    );
-  }
 
-  if (event.type === 'intervention' && event.intervention) {
-    const int = event.intervention;
-    const recoveryInfo = int.recoveryResult ? RECOVERY_BADGE[int.recoveryResult] : null;
-    const hasAnnotation = annotation && (annotation.rating || annotation.relevance || annotation.effectiveness);
-    return (
-      <div className="my-2">
-        <button
-          onClick={onToggle}
-          className="w-full flex gap-3 py-2 px-3 bg-purple-500/10 border border-purple-500/30 rounded-lg hover:bg-purple-500/15 transition-colors text-left"
-        >
-          <span className="text-xs text-slate-500 font-mono w-12 shrink-0 pt-0.5">{relTime}</span>
-          <span className="text-xs text-slate-600 w-0.5 shrink-0 bg-purple-500/50 rounded" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-xs font-medium text-purple-300 uppercase">
-                {int.type}
-              </span>
-              {int.intent && (
-                <span className="text-xs text-purple-400/70">
-                  {int.intent.replace(/_/g, ' ')}
-                </span>
-              )}
-              {recoveryInfo && (
-                <span className={`text-xs px-1.5 py-0.5 rounded ${recoveryInfo.color}`}>
-                  {recoveryInfo.text}
-                </span>
-              )}
-              {hasAnnotation && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">
-                  Annotated
-                </span>
-              )}
-              {int.modelUsed && (
-                <span className="text-xs text-slate-600">{int.modelUsed}</span>
-              )}
-            </div>
-            <p className="text-sm text-slate-200">{int.text}</p>
-            {expanded && (
-              <div className="mt-2 space-y-3">
-                {/* Technical details */}
-                <div className="text-xs text-slate-500 space-y-1">
-                  <div>Trigger: {int.trigger} | Spoken: {int.spoken ? 'Yes' : 'No'}</div>
-                  {int.latencyMs !== undefined && <div>Latency: {int.latencyMs}ms</div>}
-                  {int.triggeringState && <div>Triggering state: {int.triggeringState} ({formatPercent(int.stateConfidence ?? 0)})</div>}
-                  {int.recoveryCheckedAt && <div>Recovery checked: {formatRelativeTime(int.recoveryCheckedAt, startTime)}</div>}
-                </div>
-
-                {/* Annotation Form */}
-                {onSaveAnnotation && (
-                  <AnnotationForm
-                    interventionId={int.id}
-                    annotation={annotation}
-                    onSave={onSaveAnnotation}
-                    isSaving={isSaving ?? false}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        </button>
-      </div>
-    );
-  }
-
-  if (event.type === 'state_change' && event.stateChange) {
-    const sc = event.stateChange;
-    return (
-      <div className="flex gap-3 py-1.5 px-2">
-        <span className="text-xs text-slate-600 font-mono w-12 shrink-0 pt-0.5">{relTime}</span>
-        <span className="text-xs text-slate-600 w-0.5 shrink-0 bg-emerald-500/30 rounded" />
-        <div className={`text-xs font-medium ${STATE_COLORS[sc.state]}`}>
-          {sc.state.replace(/_/g, ' ')}
-          <span className="opacity-60 ml-1">({formatPercent(sc.confidence)})</span>
-        </div>
-      </div>
-    );
-  }
-
-  return null;
-}
-
-// --- Annotation Form ---
-
-const RATING_LABELS = ['', 'Poor', 'Below Avg', 'Average', 'Good', 'Excellent'];
-
-const RELEVANCE_OPTIONS: { value: AnnotationRelevance; label: string }[] = [
-  { value: 'relevant', label: 'Relevant' },
-  { value: 'partially_relevant', label: 'Partial' },
-  { value: 'not_relevant', label: 'Not relevant' },
-];
-
-const EFFECTIVENESS_OPTIONS: { value: AnnotationEffectiveness; label: string }[] = [
-  { value: 'effective', label: 'Effective' },
-  { value: 'partially_effective', label: 'Partial' },
-  { value: 'not_effective', label: 'Not effective' },
-];
-
-function AnnotationForm({ interventionId, annotation, onSave, isSaving }: {
-  interventionId: string;
-  annotation?: InterventionAnnotation;
-  onSave: (id: string, updates: Partial<Pick<InterventionAnnotation, 'rating' | 'relevance' | 'effectiveness' | 'notes'>>) => void;
-  isSaving: boolean;
-}) {
-  const [notes, setNotes] = useState(annotation?.notes ?? '');
-  const [notesTimer, setNotesTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleNotesChange = (value: string) => {
-    setNotes(value);
-    if (notesTimer) clearTimeout(notesTimer);
-    setNotesTimer(setTimeout(() => {
-      onSave(interventionId, { notes: value });
-    }, 800));
-  };
-
-  return (
-    <div
-      className="bg-slate-800/60 rounded-md p-3 border border-slate-600/50 space-y-2"
-      onClick={e => e.stopPropagation()}
-    >
-      <div className="text-xs font-medium text-slate-400 uppercase tracking-wide">
-        Annotation {isSaving && <span className="text-blue-400 ml-1">Saving...</span>}
-      </div>
-
-      {/* Rating */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500 w-16 shrink-0">Rating:</span>
-        <div className="flex gap-1">
-          {[1, 2, 3, 4, 5].map(r => (
-            <button
-              key={r}
-              onClick={() => onSave(interventionId, { rating: r })}
-              title={RATING_LABELS[r]}
-              className={`w-6 h-6 rounded text-xs font-medium transition-colors ${
-                annotation?.rating === r
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-              }`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-        {annotation?.rating && (
-          <span className="text-xs text-slate-500">{RATING_LABELS[annotation.rating]}</span>
-        )}
-      </div>
-
-      {/* Relevance */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500 w-16 shrink-0">Relevance:</span>
-        <div className="flex gap-1">
-          {RELEVANCE_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => onSave(interventionId, { relevance: opt.value })}
-              className={`px-2 py-1 rounded text-xs transition-colors ${
-                annotation?.relevance === opt.value
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Effectiveness */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500 w-16 shrink-0">Effect:</span>
-        <div className="flex gap-1">
-          {EFFECTIVENESS_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => onSave(interventionId, { effectiveness: opt.value })}
-              className={`px-2 py-1 rounded text-xs transition-colors ${
-                annotation?.effectiveness === opt.value
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Notes */}
-      <div>
-        <textarea
-          value={notes}
-          onChange={e => handleNotesChange(e.target.value)}
-          placeholder="Notes (optional)..."
-          rows={2}
-          className="w-full bg-slate-700/50 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-        />
-      </div>
-    </div>
-  );
-}

@@ -7,7 +7,7 @@ interface CreateSessionParams {
     roomName: string;
     scenario: Scenario;
     language: string;
-    config: ExperimentConfig;
+    config: ExperimentConfig | Record<string, unknown>;
     hostIdentity: string;
 }
 
@@ -21,6 +21,14 @@ interface SessionInfo {
     startedAt: string;
 }
 
+interface JoinSessionResponse {
+    sessionId: string;
+    scenario: Scenario;
+    language: string;
+    config?: Record<string, unknown>;
+    resolvedName?: string;
+}
+
 // --- Service Functions ---
 
 export async function createSession(params: CreateSessionParams): Promise<{ sessionId: string }> {
@@ -31,17 +39,14 @@ export async function getSession(roomName: string): Promise<SessionInfo> {
     return apiGet('/api/session', { room: roomName });
 }
 
+export async function joinSession(roomName: string, participantName: string): Promise<JoinSessionResponse> {
+    return apiPost('/api/session/join', { roomName, participantName });
+}
+
 export async function endSession(sessionId: string): Promise<void> {
     await apiPatch('/api/session', { sessionId });
 }
 
-export async function joinSession(roomName: string, participantName: string): Promise<SessionInfo | null> {
-    try {
-        return await apiGet('/api/session', { room: roomName });
-    } catch {
-        return null;
-    }
-}
 
 export async function registerParticipant(
     sessionId: string,

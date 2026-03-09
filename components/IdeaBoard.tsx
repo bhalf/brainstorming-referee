@@ -19,6 +19,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Idea, IdeaConnection } from '@/lib/types';
 import { persistIdea, updateIdea as updateIdeaApi } from '@/lib/services/ideaService';
+import { downloadIdeaBoard } from './IdeaBoardExport';
 
 interface IdeaBoardProps {
   ideas: Idea[];
@@ -30,6 +31,7 @@ interface IdeaBoardProps {
   displayName: string;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  roomName?: string;
 }
 
 // --- Color mapping ---
@@ -52,32 +54,61 @@ function getColor(color: string) {
 
 // --- Connection type → edge style ---
 
-const EDGE_STYLES: Record<string, { stroke: string; label: string; animated: boolean; icon: string }> = {
-  builds_on: { stroke: '#22c55e', label: 'builds on', animated: true, icon: '→' },
-  contrasts: { stroke: '#ef4444', label: 'contrasts', animated: false, icon: '↔' },
-  supports: { stroke: '#3b82f6', label: 'supports', animated: true, icon: '✦' },
-  leads_to: { stroke: '#a855f7', label: 'leads to', animated: true, icon: '⟶' },
-  related: { stroke: '#94a3b8', label: 'related', animated: false, icon: '∼' },
+const EDGE_STYLES: Record<string, {
+  stroke: string; label: string; labelDE: string; desc: string;
+  animated: boolean; strokeDash?: string; strokeWidth: number;
+}> = {
+  builds_on: { stroke: '#22c55e', label: 'builds on', labelDE: 'Baut auf', desc: 'erweitert eine Idee', animated: true, strokeWidth: 2.5 },
+  supports: { stroke: '#3b82f6', label: 'supports', labelDE: 'Unterstützt', desc: 'bestätigt eine Idee', animated: true, strokeWidth: 2.5 },
+  leads_to: { stroke: '#a855f7', label: 'leads to', labelDE: 'Führt zu', desc: 'folgt logisch draus', animated: true, strokeWidth: 2.5 },
+  contrasts: { stroke: '#f97316', label: 'contrasts', labelDE: 'Kontrastiert', desc: 'Alternative / Gegensatz', animated: false, strokeDash: '8 4', strokeWidth: 2 },
+  related: { stroke: '#64748b', label: 'related', labelDE: 'Verwandt', desc: 'thematisch ähnlich', animated: false, strokeDash: '4 4', strokeWidth: 1.5 },
 };
 
 // --- Connection Legend ---
 
 const ConnectionLegend = memo(function ConnectionLegend() {
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
       {Object.entries(EDGE_STYLES).map(([key, style]) => (
-        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <div style={{
-            width: 16, height: 2, backgroundColor: style.stroke,
-            borderRadius: 1,
-            ...(key === 'contrasts' || key === 'related' ? {} : { animation: 'pulse-line 1.5s infinite' }),
-          }} />
-          <span style={{ fontSize: 9, color: '#94a3b8' }}>{style.label}</span>
+        <div key={key} style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          backgroundColor: 'rgba(15,23,42,0.7)',
+          border: `1px solid ${style.stroke}44`,
+          borderRadius: 20,
+          padding: '2px 8px 2px 5px',
+        }}>
+          {/* Line sample */}
+          <svg width="18" height="10" viewBox="0 0 18 10">
+            <line
+              x1="0" y1="5" x2="18" y2="5"
+              stroke={style.stroke}
+              strokeWidth={style.strokeWidth}
+              strokeDasharray={style.strokeDash || 'none'}
+            />
+            {style.animated && (
+              <polygon points="14,2 18,5 14,8" fill={style.stroke} />
+            )}
+          </svg>
+          <span style={{ fontSize: 10, fontWeight: 600, color: style.stroke }}>
+            {style.labelDE}
+          </span>
+          <span style={{ fontSize: 9, color: '#64748b' }}>— {style.desc}</span>
         </div>
       ))}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-        <div style={{ width: 16, height: 0, borderTop: '2px dashed #334155', borderRadius: 1 }} />
-        <span style={{ fontSize: 9, color: '#94a3b8' }}>contains</span>
+      {/* Contains (parent→child) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 5,
+        backgroundColor: 'rgba(15,23,42,0.7)',
+        border: '1px solid #33415544',
+        borderRadius: 20,
+        padding: '2px 8px 2px 5px',
+      }}>
+        <svg width="18" height="10" viewBox="0 0 18 10">
+          <line x1="0" y1="5" x2="18" y2="5" stroke="#334155" strokeWidth="1.5" strokeDasharray="6 3" />
+        </svg>
+        <span style={{ fontSize: 10, fontWeight: 600, color: '#475569' }}>Enthält</span>
+        <span style={{ fontSize: 9, color: '#64748b' }}>— Kategorie-Unteridee</span>
       </div>
     </div>
   );
@@ -269,8 +300,10 @@ export default function IdeaBoard({
   displayName,
   isCollapsed,
   onToggleCollapse,
+  roomName = 'session',
 }: IdeaBoardProps) {
   const [nodes, setNodes] = useState<Node<StickyNoteData>[]>([]);
+  const [showLegend, setShowLegend] = useState(false);
   const draggingNodeRef = useRef<string | null>(null);
   const newIdeaIdsRef = useRef<Set<string>>(new Set());
 
@@ -360,9 +393,9 @@ export default function IdeaBoard({
       .filter(c => ideaIds.has(c.sourceIdeaId) && ideaIds.has(c.targetIdeaId))
       .map(conn => {
         const style = EDGE_STYLES[conn.connectionType] || EDGE_STYLES.related;
-        // Truncate long labels to prevent overlap
-        const rawLabel = conn.label || style.label;
-        const label = rawLabel.length > 30 ? rawLabel.slice(0, 28) + '…' : rawLabel;
+        // Always show the German label so users know what the connection means
+        const rawLabel = conn.label || style.labelDE;
+        const label = rawLabel.length > 28 ? rawLabel.slice(0, 26) + '…' : rawLabel;
         return {
           id: conn.id,
           source: conn.sourceIdeaId,
@@ -370,11 +403,15 @@ export default function IdeaBoard({
           label,
           animated: style.animated,
           type: 'smoothstep',
-          style: { stroke: style.stroke, strokeWidth: 2.5 },
-          labelStyle: { fontSize: 11, fontWeight: 500, fill: '#94a3b8' },
-          labelBgStyle: { fill: '#0f172a', fillOpacity: 0.9 },
+          style: {
+            stroke: style.stroke,
+            strokeWidth: style.strokeWidth,
+            strokeDasharray: style.strokeDash || undefined,
+          },
+          labelStyle: { fontSize: 10, fontWeight: 700, fill: style.stroke },
+          labelBgStyle: { fill: '#0f172a', fillOpacity: 0.92 },
           labelBgPadding: [5, 4] as [number, number],
-          labelBgBorderRadius: 5,
+          labelBgBorderRadius: 6,
         };
       });
 
@@ -461,34 +498,49 @@ export default function IdeaBoard({
           </svg>
           <span className="text-white text-sm font-medium">Idea Board</span>
           <span className="text-xs text-slate-400">
-            ({activeIdeas.length} idea{activeIdeas.length !== 1 ? 's' : ''}
-            {connections.length > 0 ? `, ${connections.length} connection${connections.length !== 1 ? 's' : ''}` : ''})
+            ({activeIdeas.length} {activeIdeas.length !== 1 ? 'Ideen' : 'Idee'}
+            {connections.length > 0 ? `, ${connections.length} Verbindung${connections.length !== 1 ? 'en' : ''}` : ''})
           </span>
         </div>
 
-        {/* Compact connection legend */}
-        {!isCollapsed && connections.length > 0 && (
-          <div className="hidden md:flex">
-            <ConnectionLegend />
-          </div>
-        )}
-
         <div className="flex items-center gap-2">
           {!isCollapsed && (
-            <button
-              onClick={handleAddIdea}
-              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors min-h-[44px]"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Idea
-            </button>
+            <>
+              <button
+                onClick={() => downloadIdeaBoard(ideas, connections, roomName)}
+                className="text-xs text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded border border-slate-700 hover:border-slate-500 hidden md:flex items-center gap-1"
+                title="Idea Board als Markdown exportieren"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export
+              </button>
+              <button
+                onClick={() => setShowLegend(v => !v)}
+                className="text-xs text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded border border-slate-700 hover:border-slate-500 hidden md:flex items-center gap-1"
+                title="Verbindungslegende ein-/ausblenden"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Legende
+              </button>
+              <button
+                onClick={handleAddIdea}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors min-h-[44px]"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Idee hinzufügen
+              </button>
+            </>
           )}
           <button
             onClick={onToggleCollapse}
             className="text-slate-400 hover:text-white transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
-            title={isCollapsed ? 'Expand idea board' : 'Collapse idea board'}
+            title={isCollapsed ? 'Idea Board ausklappen' : 'Idea Board einklappen'}
           >
             <svg
               className={`w-4 h-4 transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`}
@@ -501,6 +553,13 @@ export default function IdeaBoard({
           </button>
         </div>
       </div>
+
+      {/* Legend strip — collapsible, always available */}
+      {!isCollapsed && showLegend && (
+        <div className="hidden md:block px-3 py-2 bg-slate-900/60 border-b border-slate-700/60 shrink-0">
+          <ConnectionLegend />
+        </div>
+      )}
 
       {/* React Flow Canvas */}
       {!isCollapsed && (

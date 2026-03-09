@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { useSupabaseChannel } from '@/lib/hooks/sync/useSupabaseChannel';
 import { interventionRowToApp } from '@/lib/supabase/converters';
 import { Intervention } from '@/lib/types';
@@ -29,15 +30,10 @@ export function useRealtimeInterventions({
   voiceEnabled,
   isTTSSupported,
 }: UseRealtimeInterventionsParams) {
-  const isDecisionOwnerRef = useRef(isDecisionOwner);
-  useEffect(() => { isDecisionOwnerRef.current = isDecisionOwner; }, [isDecisionOwner]);
-
-  const speakRef = useRef(speak);
-  const voiceEnabledRef = useRef(voiceEnabled);
-  const isTTSSupportedRef = useRef(isTTSSupported);
-  useEffect(() => { speakRef.current = speak; }, [speak]);
-  useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
-  useEffect(() => { isTTSSupportedRef.current = isTTSSupported; }, [isTTSSupported]);
+  const isDecisionOwnerRef = useLatestRef(isDecisionOwner);
+  const speakRef = useLatestRef(speak);
+  const voiceEnabledRef = useLatestRef(voiceEnabled);
+  const isTTSSupportedRef = useLatestRef(isTTSSupported);
 
   const onPayload = useCallback((row: Parameters<typeof interventionRowToApp>[0]) => {
     const intervention = interventionRowToApp(row);

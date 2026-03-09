@@ -11,14 +11,11 @@ import {
 } from './embeddingCache';
 import { computeParticipationMetrics } from './participation';
 import { computeSemanticDynamicsMetrics, computeSemanticDynamicsFallback } from './semanticDynamics';
+import { isActivityMarker } from '../utils/transcript';
+import { STOPWORDS } from '../utils/stopwords';
+import { generateId } from '../utils/generateId';
 
-// --- Utility: Generate unique ID ---
-const generateId = (): string => {
-  return `metric-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
 
-// --- Utility: Detect system activity markers like [speaking] ---
-const isActivityMarker = (seg: TranscriptSegment) => /^\[.*\]$/.test(seg.text.trim());
 
 // Number of recent segments used for repetition / diversity computation.
 // Must match MAX_PAIRWISE_SEGMENTS in embeddingCache.ts so the Jaccard fallback
@@ -86,21 +83,7 @@ export function computeParticipationImbalance(
   return maxDeviation > 0 ? deviationSum / maxDeviation : 0;
 }
 
-// Stopwords for Jaccard-based metrics (prevents common function words from inflating similarity)
-const STOPWORDS = new Set([
-  // English
-  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was',
-  'one', 'our', 'out', 'has', 'have', 'that', 'this', 'with', 'they', 'from', 'been',
-  'will', 'also', 'just', 'more', 'some', 'than', 'them', 'then', 'very', 'what', 'when',
-  'who', 'how', 'its', 'let', 'into', 'about', 'would', 'could', 'should', 'there',
-  'their', 'which', 'other', 'were', 'does', 'done', 'being', 'these', 'those',
-  // German
-  'der', 'die', 'das', 'und', 'ist', 'ein', 'eine', 'für', 'von', 'mit', 'auf', 'den',
-  'dem', 'des', 'sich', 'als', 'auch', 'nach', 'wie', 'über', 'nicht', 'noch', 'bei',
-  'aber', 'aus', 'dass', 'hat', 'ich', 'wir', 'sie', 'man', 'mir', 'uns', 'was', 'war',
-  'wird', 'haben', 'sind', 'oder', 'nur', 'schon', 'dann', 'eben', 'also', 'wenn',
-  'doch', 'kann', 'hier', 'gibt', 'zum', 'zur', 'einen', 'einer', 'einem', 'eines',
-]);
+// Stopwords imported from shared utils (lib/utils/stopwords.ts)
 
 // --- Semantic Repetition Rate ---
 // Uses Jaccard similarity between recent segments
@@ -306,90 +289,79 @@ export async function computeMetricsAsync(
   }
   const participationImbalance = computeParticipationImbalance(speakingTimeDistribution, knownParticipantCount);
 
-  // Try embeddings for repetition + diversity + semantic stagnation
+  // Try embeddings for repetition + diversity + semantic stagnation + semantic dynamics
+  // IMPORTANT: Fetch embeddings ONCE and reuse for all embedding-based computations.
   let semanticRepetitionRate: number;
   let diversityDevelopment: number;
   let stagnationDuration: number;
+  let semanticDynamicsResult;
 
   // Exclude system activity markers ([speaking], etc.) from embedding analysis —
   // near-identical embeddings would produce false repetition and stagnation signals.
   const finalSegments = windowedSegments.filter(
-    s => s.isFinal && s.text.trim().length > 3 && !/^\[.*\]$/.test(s.text.trim())
+    s => s.isFinal && s.text.trim().length > 3 && !isActivityMarker(s)
+  );
+
+  // --- v2: Compute new participation metrics ---
+  // Use a longer cumulative window for participation to avoid "dominance amnesia"
+  const cumulativeWindowStart = currentTime - config.CUMULATIVE_WINDOW_SECONDS * 1000;
+  const cumulativeSegments = segments.filter(s => s.timestamp >= cumulativeWindowStart);
+
+  const participation = computeParticipationMetrics(
+    windowedSegments,
+    config,
+    participationImbalance,
+    knownParticipantCount,
+    cumulativeSegments,
   );
 
   if (finalSegments.length >= 2) {
     try {
+      // Single embedding fetch — reused for repetition, diversity, stagnation AND semantic dynamics
       const embeddings = await getOrFetchEmbeddings(
         finalSegments.map(s => ({ id: s.id, text: s.text }))
       );
 
-      // Check if we got enough embeddings back
       const embeddingCount = finalSegments.filter(s => embeddings.has(s.id)).length;
 
       if (embeddingCount >= 2) {
         const segmentIds = finalSegments.map(s => s.id);
         semanticRepetitionRate = computeEmbeddingRepetition(embeddings, segmentIds);
         diversityDevelopment = computeEmbeddingDiversity(embeddings, segmentIds);
-        // Semantic stagnation: uses embedding novelty
         stagnationDuration = computeStagnationDurationSemantic(
           windowedSegments, embeddings, currentTime, config.STAGNATION_NOVELTY_THRESHOLD,
+        );
+        // Reuse same embeddings for semantic dynamics
+        semanticDynamicsResult = computeSemanticDynamicsMetrics(
+          windowedSegments,
+          embeddings,
+          previousSnapshots ?? [],
+          config,
         );
       } else {
         // Fallback to Jaccard + time-based stagnation
         semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
         diversityDevelopment = computeDiversityDevelopment(windowedSegments);
         stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
-      }
-    } catch {
-      // Fallback to Jaccard on error
-      semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
-      diversityDevelopment = computeDiversityDevelopment(windowedSegments);
-      stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
-    }
-  } else {
-    semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
-    diversityDevelopment = computeDiversityDevelopment(windowedSegments);
-    stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
-  }
-
-  // --- v2: Compute new participation metrics ---
-  const participation = computeParticipationMetrics(
-    windowedSegments,
-    config,
-    participationImbalance,
-    knownParticipantCount,
-  );
-
-  // --- v2: Compute new semantic dynamics metrics ---
-  let semanticDynamicsResult;
-  if (finalSegments.length >= 2) {
-    try {
-      // Reuse the embedding fetch path (cache will serve from memory if already fetched above)
-      const embeddingsForDynamics = await getOrFetchEmbeddings(
-        finalSegments.map(s => ({ id: s.id, text: s.text }))
-      );
-      const embCount = finalSegments.filter(s => embeddingsForDynamics.has(s.id)).length;
-
-      if (embCount >= 2) {
-        semanticDynamicsResult = computeSemanticDynamicsMetrics(
-          windowedSegments,
-          embeddingsForDynamics,
-          previousSnapshots ?? [],
-          config,
-        );
-      } else {
         semanticDynamicsResult = computeSemanticDynamicsFallback(
           windowedSegments,
           previousSnapshots ?? [],
         );
       }
     } catch {
+      // Fallback to Jaccard on error
+      semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
+      diversityDevelopment = computeDiversityDevelopment(windowedSegments);
+      stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
       semanticDynamicsResult = computeSemanticDynamicsFallback(
         windowedSegments,
         previousSnapshots ?? [],
       );
     }
   } else {
+    semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
+    diversityDevelopment = computeDiversityDevelopment(windowedSegments);
+    stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
     semanticDynamicsResult = computeSemanticDynamicsFallback(
       windowedSegments,
       previousSnapshots ?? [],
@@ -397,7 +369,7 @@ export async function computeMetricsAsync(
   }
 
   return {
-    id: generateId(),
+    id: generateId('metric'),
     timestamp: currentTime,
     speakingTimeDistribution,
     participationImbalance,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, MutableRefObject } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import {
   TranscriptSegment,
   MetricSnapshot,
@@ -12,9 +13,10 @@ import {
   ConversationStateInference,
 } from '@/lib/types';
 import { evaluatePolicy, intentToTrigger, resetInterventionCountIfNeeded, generateInterventionContext } from '@/lib/decision/interventionPolicy';
-import { apiFireAndForget } from '@/lib/services/apiClient';
-import { persistIntervention as persistInterventionApi } from '@/lib/services/interventionService';
 import { checkRuleViolations, RULE_CHECK_INTERVAL_MS, RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
+import { buildTranscriptContext } from '@/lib/decision/transcriptContext';
+import { executeIntervention, persistEngineState, persistRecoveryResult } from '@/lib/decision/interventionExecutor';
+import { DECISION_TICK_MS } from '@/lib/decision/tickConfig';
 
 interface UseDecisionLoopParams {
   isActive: boolean;
@@ -63,15 +65,15 @@ export function useDecisionLoop({
   updateDecisionState,
   broadcastIntervention,
 }: UseDecisionLoopParams) {
-  // Stable refs to prevent interval recreation
-  const decisionStateRef = useRef(decisionState);
-  const configRef = useRef(config);
-  const voiceSettingsRef = useRef(voiceSettings);
-  const scenarioRef = useRef<Scenario>(scenario);
-  const languageRef = useRef(language);
-  const speakRef = useRef(speak);
-  const isTTSSupportedRef = useRef(isTTSSupported);
-  const sessionIdRef = useRef(sessionId);
+  // Stable refs — useLatestRef keeps them in sync automatically
+  const decisionStateRef = useLatestRef(decisionState);
+  const configRef = useLatestRef(config);
+  const voiceSettingsRef = useLatestRef(voiceSettings);
+  const scenarioRef = useLatestRef(scenario);
+  const languageRef = useLatestRef(language);
+  const speakRef = useLatestRef(speak);
+  const isTTSSupportedRef = useLatestRef(isTTSSupported);
+  const sessionIdRef = useLatestRef(sessionId);
   const isProcessingRef = useRef(false);
   const interventionCountResetTimeRef = useRef(Date.now());
   const lastInterventionIdRef = useRef<string | null>(null);
@@ -80,146 +82,18 @@ export function useDecisionLoop({
   // Store pending rule violation for combining with metric interventions
   const pendingRuleViolationRef = useRef<RuleViolationResult | null>(null);
 
-  // Keep refs in sync
-  useEffect(() => { decisionStateRef.current = decisionState; }, [decisionState]);
-  useEffect(() => { configRef.current = config; }, [config]);
-  useEffect(() => { voiceSettingsRef.current = voiceSettings; }, [voiceSettings]);
-  useEffect(() => { scenarioRef.current = scenario; }, [scenario]);
-  useEffect(() => { languageRef.current = language; }, [language]);
-  useEffect(() => { speakRef.current = speak; }, [speak]);
-  useEffect(() => { isTTSSupportedRef.current = isTTSSupported; }, [isTTSSupported]);
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
-
-  // Engine state persist with retry
-  const persistEngineState = (newState: DecisionEngineState) => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    apiFireAndForget('/api/engine-state', {
-      method: 'PUT',
-      body: JSON.stringify({ sessionId: sid, state: newState }),
-    }, 2);
+  // --- Helper: Persist engine state shorthand ---
+  const saveEngineState = (state: DecisionEngineState) => {
+    persistEngineState(sessionIdRef.current, state);
   };
 
-  // --- Shared: Build transcript context for LLM ---
-  const buildTranscriptContext = () => {
-    const segments = transcriptSegmentsRef.current;
-    const allFinalSegments = segments.filter(
-      s => s.isFinal && !/^\[.*\]$/.test(s.text.trim())
-    );
-    return {
-      transcriptExcerpt: allFinalSegments.slice(-200).map(s => `${s.speaker}: ${s.text}`),
-      totalTurns: allFinalSegments.length,
-      previousInterventions: interventionsRef.current.slice(-3).map(i => i.text),
-    };
-  };
-
-  // --- Shared: Fire an intervention (moderator or ally) ---
-  const fireIntervention = async (params: {
-    endpoint: string;
-    body: Record<string, unknown>;
-    intent: string;
-    trigger: InterventionTrigger;
-    role: 'moderator' | 'ally';
-    metrics: MetricSnapshot | null;
-    triggeringState?: string;
-    stateConfidence?: number;
-    nextEngineState: DecisionEngineState;
-    ruleViolation?: RuleViolationResult | null;
-  }) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-    try {
-      const response = await fetch(params.endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params.body),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-
-        // Update engine state
-        updateDecisionState(params.nextEngineState);
-        decisionStateRef.current = params.nextEngineState;
-        persistEngineState(params.nextEngineState);
-
-        const interventionId = `int-${Date.now()}`;
-        const intervention: Intervention = {
-          id: interventionId,
-          timestamp: Date.now(),
-          type: params.role,
-          trigger: params.trigger,
-          text: data.text,
-          spoken: false,
-          metricsAtTrigger: params.metrics,
-          intent: params.intent as Intervention['intent'],
-          triggeringState: params.triggeringState as Intervention['triggeringState'],
-          stateConfidence: params.stateConfidence,
-          recoveryResult: 'pending',
-          modelUsed: data.logEntry?.model,
-          latencyMs: data.logEntry?.latencyMs,
-        };
-
-        if (voiceSettingsRef.current.enabled && isTTSSupportedRef.current) {
-          intervention.spoken = speakRef.current(data.text);
-        }
-
-        addIntervention(intervention);
-        lastInterventionIdRef.current = interventionId;
-
-        if (broadcastIntervention) {
-          broadcastIntervention(intervention);
-        }
-
-        // Persist to Supabase (include rule violation details if present)
-        if (sessionIdRef.current) {
-          persistInterventionApi(
-            sessionIdRef.current,
-            intervention,
-            decisionStateRef.current,
-            params.ruleViolation ? {
-              rule: params.ruleViolation.rule,
-              evidence: params.ruleViolation.evidence,
-              severity: params.ruleViolation.severity,
-            } : null,
-          );
-        }
-
-        if (data.logEntry) {
-          addModelRoutingLog(data.logEntry);
-          if (sessionIdRef.current) {
-            apiFireAndForget('/api/model-routing-log', {
-              method: 'POST',
-              body: JSON.stringify({
-                sessionId: sessionIdRef.current,
-                entry: data.logEntry,
-              }),
-            }, 2);
-          }
-        }
-
-        return true;
-      } else {
-        if (response.status === 503) {
-          addError('LLM unavailable — check OPENAI_API_KEY configuration', 'intervention');
-        } else {
-          addError(`Intervention API error: ${response.status}`, 'intervention');
-        }
-        return false;
-      }
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === 'AbortError') {
-        addError('Intervention request timed out after 12s', 'intervention');
-      } else {
-        addError('Failed to generate intervention', 'intervention');
-      }
-      return false;
-    }
+  // --- Helper: Apply a partial state update atomically to both React state and the stable ref ---
+  // This prevents the race window where React's asynchronous re-render hasn't propagated
+  // the new value back into the ref yet, causing the next decision tick to read stale data.
+  const applyStateUpdate = (updates: Partial<DecisionEngineState>) => {
+    updateDecisionState(updates);
+    decisionStateRef.current = { ...decisionStateRef.current, ...updates };
+    saveEngineState(decisionStateRef.current);
   };
 
   // Decision engine interval
@@ -235,16 +109,15 @@ export function useDecisionLoop({
       const lang = languageRef.current;
 
       // --- 1. Periodically reset the intervention count (every 10 minutes) ---
-      const currentDecisionState = decisionStateRef.current;
       const resetResult = resetInterventionCountIfNeeded(
-        currentDecisionState,
+        decisionStateRef.current,
         interventionCountResetTimeRef.current,
         now
       );
       if (resetResult.newResetTime !== interventionCountResetTimeRef.current) {
         interventionCountResetTimeRef.current = resetResult.newResetTime;
-        updateDecisionState({ interventionCount: 0 });
-        decisionStateRef.current = { ...currentDecisionState, interventionCount: 0 };
+        // Use applyStateUpdate to keep ref and React state in sync atomically
+        applyStateUpdate({ interventionCount: 0 });
       }
 
       // --- 2. Rule Violation Check (every 15s, detection only) ---
@@ -293,36 +166,29 @@ export function useDecisionLoop({
           interventionsRef.current.slice(-5),
         );
 
-        // Apply safe state updates (timers, phase transitions)
         if (decision.stateUpdateOnly) {
-          updateDecisionState(decision.stateUpdateOnly);
-          decisionStateRef.current = { ...decisionStateRef.current, ...decision.stateUpdateOnly };
-          persistEngineState(decisionStateRef.current);
+          applyStateUpdate(decision.stateUpdateOnly);
         }
 
-        // Handle recovery result from post-check
         if (decision.recoveryResult && lastInterventionIdRef.current) {
           updateIntervention(lastInterventionIdRef.current, {
             recoveryResult: decision.recoveryResult,
             recoveryCheckedAt: now,
           });
 
-          // Persist recovery result to DB
-          if (sessionIdRef.current) {
-            apiFireAndForget('/api/interventions', {
-              method: 'PATCH',
-              body: JSON.stringify({
-                id: lastInterventionIdRef.current,
-                recovery_result: decision.recoveryResult,
-                recovery_checked_at: now,
-              }),
-            }, 2);
-          }
+          // Persist recovery result to DB via executor
+          persistRecoveryResult(
+            sessionIdRef.current,
+            lastInterventionIdRef.current,
+            decision.recoveryResult,
+            now,
+          );
 
           if (!decision.shouldIntervene && decision.recoveryResult !== undefined) {
-            updateDecisionState(decision.nextEngineState);
+            // Transition to next engine state atomically
             decisionStateRef.current = decision.nextEngineState;
-            persistEngineState(decision.nextEngineState);
+            updateDecisionState(decision.nextEngineState);
+            saveEngineState(decision.nextEngineState);
             lastInterventionIdRef.current = null;
           }
         }
@@ -353,8 +219,15 @@ export function useDecisionLoop({
       const cooldownActive = decisionStateRef.current.cooldownUntil != null && now < decisionStateRef.current.cooldownUntil;
 
       // Determine what to fire
-      // Rule violations ALWAYS fire immediately — no cooldown check
-      const shouldFireViolation = !!pendingViolation;
+      // Rule violations fire immediately — BUT with a soft cooldown to prevent budget exhaustion
+      const lastRuleViolationTime = decisionStateRef.current.lastRuleViolationTime ?? 0;
+      const ruleViolationCooldownActive = (now - lastRuleViolationTime) < cfg.RULE_VIOLATION_COOLDOWN_MS;
+      const shouldFireViolation = !!pendingViolation && !ruleViolationCooldownActive;
+
+      if (pendingViolation && ruleViolationCooldownActive) {
+        console.log(`[DecisionLoop] Rule violation suppressed (cooldown: ${Math.ceil((cfg.RULE_VIOLATION_COOLDOWN_MS - (now - lastRuleViolationTime)) / 1000)}s remaining)`);
+        pendingRuleViolationRef.current = null; // Drop silently
+      }
       // Metric interventions respect the global cooldown
       const shouldFireMetric = metricIntervention && !cooldownActive;
 
@@ -366,7 +239,10 @@ export function useDecisionLoop({
       isProcessingRef.current = true;
 
       try {
-        const { transcriptExcerpt, totalTurns, previousInterventions } = buildTranscriptContext();
+        const { transcriptExcerpt, totalTurns, previousInterventions } = buildTranscriptContext(
+          transcriptSegmentsRef.current,
+          interventionsRef.current,
+        );
         const trigger = shouldFireMetric ? intentToTrigger(decision!.intent!) : 'rule_violation';
         const intent = shouldFireMetric ? decision!.intent! : 'NORM_REINFORCEMENT';
         const metricsForContext = metrics;
@@ -412,24 +288,20 @@ export function useDecisionLoop({
         }
 
         // Compute next engine state
-        const cooldownUntil = now + cfg.COOLDOWN_SECONDS * 1000;
         let nextEngineState: DecisionEngineState;
 
         if (shouldFireMetric) {
-          // Metric intervention: use policy engine's next state
           nextEngineState = {
             ...decision!.nextEngineState,
             lastInterventionTime: now,
             interventionCount: decisionStateRef.current.interventionCount + 1,
           };
         } else {
-          // Rule-only intervention: NO cooldown applied, stay in current phase
           nextEngineState = {
             ...decisionStateRef.current,
             lastRuleViolationTime: now,
             lastInterventionTime: now,
             interventionCount: decisionStateRef.current.interventionCount + 1,
-            // Rule-only interventions do NOT set cooldownUntil
           };
         }
 
@@ -437,18 +309,45 @@ export function useDecisionLoop({
           nextEngineState.lastRuleViolationTime = now;
         }
 
-        await fireIntervention({
-          endpoint,
-          body,
-          intent,
-          trigger: trigger as InterventionTrigger,
-          role: shouldFireMetric ? decision!.role : 'moderator',
-          metrics,
-          triggeringState: decision?.triggeringState ?? undefined,
-          stateConfidence: decision?.stateConfidence,
-          nextEngineState,
-          ruleViolation: shouldFireViolation ? pendingViolation : null,
-        });
+        const result = await executeIntervention(
+          {
+            endpoint,
+            body,
+            intent,
+            trigger: trigger as InterventionTrigger,
+            role: shouldFireMetric ? decision!.role : 'moderator',
+            metrics,
+            triggeringState: decision?.triggeringState ?? undefined,
+            stateConfidence: decision?.stateConfidence,
+            nextEngineState,
+            ruleViolation: shouldFireViolation ? pendingViolation : null,
+          },
+          {
+            updateDecisionState: (state) => {
+              updateDecisionState(state);
+              decisionStateRef.current = typeof state === 'object' ? { ...decisionStateRef.current, ...state } : state;
+              saveEngineState(decisionStateRef.current);
+            },
+            addIntervention,
+            addModelRoutingLog,
+            addError,
+            speak: speakRef.current,
+            broadcastIntervention,
+          },
+          {
+            sessionId: sessionIdRef.current,
+            voiceSettings: voiceSettingsRef.current,
+            isTTSSupported: isTTSSupportedRef.current,
+          },
+        );
+
+        if (result.interventionId) {
+          lastInterventionIdRef.current = result.interventionId;
+        } else {
+          // Bug 2 fix: API call failed — clear the stale ID so the next tick's recovery check
+          // does not accidentally update the wrong (previous) intervention with a new result.
+          lastInterventionIdRef.current = null;
+        }
 
         // Clear pending violation after firing
         pendingRuleViolationRef.current = null;
@@ -458,7 +357,7 @@ export function useDecisionLoop({
       }
     };
 
-    const interval = setInterval(runDecisionEngine, 1000);
+    const interval = setInterval(runDecisionEngine, DECISION_TICK_MS);
     return () => clearInterval(interval);
   }, [isActive, isDecisionOwner, addIntervention, updateIntervention, addModelRoutingLog, addError, updateDecisionState,
     currentMetricsRef, metricsHistoryRef, transcriptSegmentsRef, interventionsRef, stateHistoryRef]);

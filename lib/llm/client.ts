@@ -7,6 +7,7 @@
 
 import type { ModelRoutingLogEntry } from '@/lib/types';
 import type { ModelTaskKey, ModelRoutingConfig, TaskModelConfig } from '@/lib/config/modelRouting';
+import { generateId } from '@/lib/utils/generateId';
 
 // --- Types ---
 
@@ -332,7 +333,7 @@ function createLogEntry(
     }
 ): ModelRoutingLogEntry {
     return {
-        id: `llm-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        id: generateId('llm'),
         timestamp: Date.now(),
         task,
         provider,

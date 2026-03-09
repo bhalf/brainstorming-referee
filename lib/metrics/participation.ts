@@ -3,10 +3,9 @@
 // ============================================
 
 import { TranscriptSegment, ParticipationMetrics, ExperimentConfig } from '../types';
+import { isActivityMarker } from '../utils/transcript';
 
 const MAX_SEGMENTS = 30;
-
-const isActivityMarker = (seg: TranscriptSegment) => /^\[.*\]$/.test(seg.text.trim());
 
 /**
  * Backchannel words — short confirmatory/reactive utterances that are real speech
@@ -19,6 +18,9 @@ const BACKCHANNEL_WORDS = new Set([
   'ja', 'nein', 'genau', 'stimmt', 'ok', 'okay', 'mhm', 'aha', 'richtig',
   'klar', 'gut', 'hm', 'hmm', 'jap', 'nö', 'ne', 'jo', 'achso', 'ach',
   'sicher', 'tja', 'doch', 'naja', 'alles', 'super', 'cool', 'toll',
+  // Swiss German
+  'gell', 'gäll', 'voll', 'ähm', 'also', 'halt', 'eben', 'oder', 'weisch',
+  'scho', 'moll', 'gopf', 'auso', 'gnau', 'aso',
   // English
   'yes', 'no', 'yeah', 'yep', 'nope', 'right', 'sure', 'true',
   'mhm', 'uh-huh', 'wow', 'oh', 'ah', 'hm', 'hmm',
@@ -208,6 +210,7 @@ export function computeParticipationMetrics(
   config: ExperimentConfig,
   hooverImbalance: number,
   knownParticipantCount?: number,
+  cumulativeSegments?: TranscriptSegment[],
 ): ParticipationMetrics {
   const volumeShare = computeVolumeShare(segments);
   const turnShare = computeTurnShare(segments);
@@ -225,11 +228,23 @@ export function computeParticipationMetrics(
     config.PARTICIPATION_RISK_WEIGHTS,
   );
 
+  // Cumulative participation imbalance over longer window (default: 600s)
+  // Falls back to the short-window Hoover index if no cumulative segments are provided.
+  // Uses word counts (not shares) so Hoover can compute deviations correctly.
+  let cumulativeParticipationImbalance = hooverImbalance;
+  if (cumulativeSegments && cumulativeSegments.length > 0) {
+    const cumulativeVolume = computeVolumeShare(cumulativeSegments);
+    // volumeShare returns fractions summing to 1 — Hoover needs raw magnitudes,
+    // but since Hoover normalizes internally, shares work identically.
+    cumulativeParticipationImbalance = computeHooverIndex(Object.values(cumulativeVolume));
+  }
+
   return {
     volumeShare,
     turnShare,
     silentParticipantRatio,
     dominanceStreakScore,
     participationRiskScore,
+    cumulativeParticipationImbalance,
   };
 }

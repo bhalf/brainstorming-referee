@@ -141,3 +141,15 @@ export async function apiPatch<T>(
         options,
     );
 }
+
+export async function apiDelete<T = void>(
+    url: string,
+    body?: unknown,
+    options?: ApiOptions,
+): Promise<T> {
+    return apiRequest<T>(
+        url,
+        { method: 'DELETE', body: body !== undefined ? JSON.stringify(body) : undefined },
+        options,
+    );
+}

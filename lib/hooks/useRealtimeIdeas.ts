@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { supabase } from '@/lib/supabase/client';
 import { ideaRowToApp } from '@/lib/supabase/converters';
 import { Idea } from '@/lib/types';
@@ -27,11 +28,8 @@ export function useRealtimeIdeas({
   addIdea,
   updateIdea,
 }: UseRealtimeIdeasParams) {
-  const addIdeaRef = useRef(addIdea);
-  useEffect(() => { addIdeaRef.current = addIdea; }, [addIdea]);
-
-  const updateIdeaRef = useRef(updateIdea);
-  useEffect(() => { updateIdeaRef.current = updateIdea; }, [updateIdea]);
+  const addIdeaRef = useLatestRef(addIdea);
+  const updateIdeaRef = useLatestRef(updateIdea);
 
   const reconnectAttemptsRef = useRef(0);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -89,6 +87,7 @@ export function useRealtimeIdeas({
     channelRef.current = channel;
   }, []);
 
+  // subscribeRef kept as useRef since it's a self-referencing callback
   useEffect(() => { subscribeRef.current = subscribe; }, [subscribe]);
 
   useEffect(() => {

@@ -1,6 +1,9 @@
 import { useEffect, useRef, MutableRefObject } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { TranscriptSegment, Idea, IdeaConnection } from '@/lib/types';
 import { persistIdea, persistConnection } from '@/lib/services/ideaService';
+import { apiPost } from '@/lib/services/apiClient';
+import { EXTRACTION_TICK_MS, STAGGER_EXTRACTION_MS } from '@/lib/decision/tickConfig';
 
 interface UseIdeaExtractionParams {
   isActive: boolean;
@@ -15,7 +18,7 @@ interface UseIdeaExtractionParams {
   addError: (message: string, context?: string) => void;
 }
 
-const EXTRACTION_INTERVAL_MS = 4_000;
+
 const MIN_NEW_SEGMENTS_DEFAULT = 2;
 const MIN_NEW_SEGMENTS_CATCHUP = 1;
 const CATCHUP_THRESHOLD_MS = 10_000;
@@ -42,61 +45,77 @@ function getColorForAuthor(author: string): string {
   return IDEA_COLORS[hashCode(author) % IDEA_COLORS.length];
 }
 
-function calculatePosition(existingIdeas: Idea[], index: number, parentIdea?: Idea): { x: number; y: number } {
-  const CELL_W = 320;
-  const CELL_H = 260;
+function calculatePosition(existingIdeas: Idea[], index: number, parentIdea?: Idea, ideaId?: string): { x: number; y: number } {
+  const CELL_W = 380;  // card width 200 + 180 breathing room
+  const CELL_H = 300;
   const MAX_COLS = 4;
-  const CHILD_COLS = 3;
-  const CHILD_INDENT = 40;
+  const CANVAS_OFFSET_X = 40;
+  const CANVAS_OFFSET_Y = 40;
 
-  // Children: grid below the parent
+  // Deterministic jitter based on idea ID so it looks natural but is reproducible
+  function jitter(seed: string): { dx: number; dy: number } {
+    if (!seed) return { dx: 0, dy: 0 };
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) {
+      h = ((h << 5) - h) + seed.charCodeAt(i);
+      h |= 0;
+    }
+    const dx = ((Math.abs(h) % 31) - 15); // ±15px
+    const dy = ((Math.abs(h * 7) % 31) - 15);
+    return { dx, dy };
+  }
+
+  // Children: placed to the RIGHT of the parent (1 column over), stacking vertically
   if (parentIdea) {
     const existingSiblings = existingIdeas.filter(i => !i.isDeleted && i.parentId === parentIdea.id).length;
     const siblingIndex = existingSiblings + index;
-    const offsetCol = siblingIndex % CHILD_COLS;
-    const offsetRow = Math.floor(siblingIndex / CHILD_COLS) + 1;
+    const j = jitter(ideaId || '');
     return {
-      x: parentIdea.positionX + CHILD_INDENT + offsetCol * (CELL_W * 0.75),
-      y: parentIdea.positionY + offsetRow * CELL_H,
+      x: parentIdea.positionX + CELL_W + j.dx,
+      y: parentIdea.positionY + siblingIndex * (CELL_H * 0.75) + j.dy,
     };
   }
 
-  // Top-level ideas: spread horizontally first, then wrap to next row
+  // Top-level ideas: fill grid left-to-right, then wrap to the next row
   const occupiedCells = new Set<string>();
   for (const idea of existingIdeas) {
-    if (idea.isDeleted) continue;
-    const col = Math.round(idea.positionX / CELL_W);
-    const row = Math.round(idea.positionY / CELL_H);
+    if (idea.isDeleted || idea.parentId) continue;
+    const col = Math.round((idea.positionX - CANVAS_OFFSET_X) / CELL_W);
+    const row = Math.round((idea.positionY - CANVAS_OFFSET_Y) / CELL_H);
     occupiedCells.add(`${col},${row}`);
   }
 
-  // Count the total placed top-level ideas (non-deleted, no parent)
   const placedCount = existingIdeas.filter(i => !i.isDeleted && !i.parentId).length + index;
-
-  // Simple grid: fill columns left-to-right, then wrap to next row
   const targetCol = placedCount % MAX_COLS;
   const targetRow = Math.floor(placedCount / MAX_COLS);
 
-  // If that cell is already taken, scan forward
+  const j = jitter(ideaId || '');
+
   if (!occupiedCells.has(`${targetCol},${targetRow}`)) {
-    return { x: targetCol * CELL_W, y: targetRow * CELL_H };
+    return {
+      x: CANVAS_OFFSET_X + targetCol * CELL_W + j.dx,
+      y: CANVAS_OFFSET_Y + targetRow * CELL_H + j.dy,
+    };
   }
 
-  // Fallback: find any free cell (row by row, column by column)
+  // Fallback: find any free cell
   const maxRow = Math.max(targetRow + 1, existingIdeas.reduce((max, i) => {
-    if (i.isDeleted) return max;
-    return Math.max(max, Math.round(i.positionY / CELL_H));
+    if (i.isDeleted || i.parentId) return max;
+    return Math.max(max, Math.round((i.positionY - CANVAS_OFFSET_Y) / CELL_H));
   }, 0));
 
   for (let r = 0; r <= maxRow + 1; r++) {
     for (let c = 0; c < MAX_COLS; c++) {
       if (!occupiedCells.has(`${c},${r}`)) {
-        return { x: c * CELL_W, y: r * CELL_H };
+        return {
+          x: CANVAS_OFFSET_X + c * CELL_W + j.dx,
+          y: CANVAS_OFFSET_Y + r * CELL_H + j.dy,
+        };
       }
     }
   }
 
-  return { x: 0, y: (maxRow + 1) * CELL_H };
+  return { x: CANVAS_OFFSET_X + j.dx, y: CANVAS_OFFSET_Y + (maxRow + 1) * CELL_H + j.dy };
 }
 
 export function useIdeaExtraction({
@@ -113,14 +132,11 @@ export function useIdeaExtraction({
 }: UseIdeaExtractionParams) {
   const lastProcessedIndexRef = useRef(0);
   const isExtractingRef = useRef(false);
-  const sessionIdRef = useRef(sessionId);
-  const ideasRef = useRef(ideas);
+  const sessionIdRef = useLatestRef(sessionId);
+  const ideasRef = useLatestRef(ideas);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastSuccessfulExtractionRef = useRef(Date.now());
   const extractionStartTimeRef = useRef<number | null>(null);
-
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
-  useEffect(() => { ideasRef.current = ideas; }, [ideas]);
 
   // Reset extraction index when session changes and abort pending requests
   useEffect(() => {
@@ -139,7 +155,7 @@ export function useIdeaExtraction({
       return;
     }
 
-    console.log('[IdeaExtraction] Starting extraction interval (every', EXTRACTION_INTERVAL_MS / 1000, 's)');
+    console.log('[IdeaExtraction] Starting extraction interval (every', EXTRACTION_TICK_MS / 1000, 's)');
 
     const interval = setInterval(async () => {
       // Abort stale requests that have been running too long
@@ -197,30 +213,23 @@ export function useIdeaExtraction({
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
-        const response = await fetch('/api/ideas/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            segments: newSegments.map(s => ({ id: s.id, speaker: s.speaker, text: s.text })),
-            contextSegments: contextSegments.map(s => ({ id: s.id, speaker: s.speaker, text: s.text })),
-            existingTitles,
-            existingIdeas: existingIdeasForApi,
-            language,
-          }),
-          signal: controller.signal,
-        });
+        const response = await apiPost<{
+          ideas?: Array<{ title: string; description?: string; author: string; sourceSegmentIds?: string[]; type?: string; ideaType?: string; parentTitle?: string | null; parentId?: string | null }>;
+          connections?: Array<{ sourceTitle: string; targetTitle: string; sourceId?: string | null; targetId?: string | null; label?: string; type?: string }>;
+          logEntry?: Record<string, unknown>;
+        }>('/api/ideas/extract', {
+          segments: newSegments.map(s => ({ id: s.id, speaker: s.speaker, text: s.text })),
+          contextSegments: contextSegments.map(s => ({ id: s.id, speaker: s.speaker, text: s.text })),
+          existingTitles,
+          existingIdeas: existingIdeasForApi,
+          language,
+        }, { signal: controller.signal, maxRetries: 1 });
 
-        if (!response.ok) {
-          const errText = await response.text().catch(() => '');
-          console.error('[IdeaExtraction] API failed:', response.status, errText);
-          return;
-        }
-
-        const data = await response.json();
+        const data = response;
         console.log('[IdeaExtraction] API response — ideas:', data.ideas?.length || 0, 'connections:', data.connections?.length || 0);
 
         if (data.logEntry) {
-          addModelRoutingLog(data.logEntry);
+          addModelRoutingLog(data.logEntry as unknown as import('@/lib/types').ModelRoutingLogEntry);
         }
 
         // Build a title→id map for resolving connections
@@ -251,10 +260,11 @@ export function useIdeaExtraction({
             const parentIdea = resolvedParentId
               ? ideasRef.current.find(i => i.id === resolvedParentId) ?? undefined
               : undefined;
-            const position = calculatePosition(ideasRef.current, i, parentIdea);
+            const ideaUUID = `idea-${crypto.randomUUID()}`;
+            const position = calculatePosition(ideasRef.current, i, parentIdea, ideaUUID);
 
             const idea: Idea = {
-              id: `idea-${crypto.randomUUID()}`,
+              id: ideaUUID,
               sessionId: sid || '',
               title: extracted.title,
               description: extracted.description || null,
@@ -263,11 +273,11 @@ export function useIdeaExtraction({
               sourceSegmentIds: extracted.sourceSegmentIds || [],
               positionX: position.x,
               positionY: position.y,
-              color: extracted.ideaType === 'category' ? 'slate' : getColorForAuthor(extracted.author),
+              color: (extracted.ideaType ?? extracted.type) === 'category' ? 'slate' : getColorForAuthor(extracted.author),
               isDeleted: false,
               createdAt: Date.now(),
               updatedAt: Date.now(),
-              ideaType: extracted.ideaType === 'category' ? 'category' : 'idea',
+              ideaType: (extracted.ideaType ?? extracted.type) === 'category' ? 'category' : 'idea',
               parentId: resolvedParentId,
             };
 
@@ -322,7 +332,7 @@ export function useIdeaExtraction({
               sourceIdeaId: sourceId,
               targetIdeaId: targetId,
               label: conn.label || null,
-              connectionType: conn.type || 'related',
+              connectionType: (conn.type || 'related') as import('@/lib/types').IdeaConnectionType,
               createdAt: Date.now(),
             };
 
@@ -348,7 +358,7 @@ export function useIdeaExtraction({
       } finally {
         isExtractingRef.current = false;
       }
-    }, EXTRACTION_INTERVAL_MS);
+    }, EXTRACTION_TICK_MS);
 
     return () => {
       clearInterval(interval);

@@ -64,8 +64,8 @@ export default function AnalysisPanel({
         {/* Inferred Conversation State */}
         {inferredState && convStateConfig && (
           <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border mb-2 ${convStateConfig.severity === 'healthy' ? 'border-green-700/50 bg-green-900/20' :
-              convStateConfig.severity === 'warning' ? 'border-yellow-700/50 bg-yellow-900/20' :
-                'border-red-700/50 bg-red-900/20'
+            convStateConfig.severity === 'warning' ? 'border-yellow-700/50 bg-yellow-900/20' :
+              'border-red-700/50 bg-red-900/20'
             }`}>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${convStateConfig.color}`} />
             <div className="flex-1">
@@ -153,22 +153,38 @@ export default function AnalysisPanel({
         {/* Participation Metrics */}
         <div className="space-y-3">
           {currentMetrics.participation && (
-            <MetricBar
-              label="Risk Score"
-              icon="⚠️"
-              helpKey="metric.participationRisk"
-              value={currentMetrics.participation.participationRiskScore}
-              displayValue={`${(currentMetrics.participation.participationRiskScore * 100).toFixed(0)}%`}
-              threshold={config.THRESHOLD_PARTICIPATION_RISK}
-              higherIsBetter={false}
-              statusText={
-                speakerCount <= 1
-                  ? 'Only 1 speaker'
-                  : currentMetrics.participation.participationRiskScore >= config.THRESHOLD_PARTICIPATION_RISK
-                    ? 'High imbalance risk'
-                    : 'Balanced'
-              }
-            />
+            <>
+              <MetricBar
+                label="Risk Score"
+                icon="⚠️"
+                helpKey="metric.participationRisk"
+                value={currentMetrics.participation.participationRiskScore}
+                displayValue={`${(currentMetrics.participation.participationRiskScore * 100).toFixed(0)}%`}
+                threshold={config.THRESHOLD_PARTICIPATION_RISK}
+                higherIsBetter={false}
+                statusText={
+                  speakerCount <= 1
+                    ? 'Only 1 speaker'
+                    : currentMetrics.participation.participationRiskScore >= config.THRESHOLD_PARTICIPATION_RISK
+                      ? 'High imbalance risk'
+                      : 'Balanced'
+                }
+              />
+              <MetricBar
+                label="Long-Term Balance"
+                icon="📊"
+                helpKey="metric.cumulativeBalance"
+                value={1 - currentMetrics.participation.cumulativeParticipationImbalance}
+                displayValue={`${((1 - currentMetrics.participation.cumulativeParticipationImbalance) * 100).toFixed(0)}%`}
+                threshold={0.5}
+                higherIsBetter={true}
+                statusText={
+                  currentMetrics.participation.cumulativeParticipationImbalance > 0.5
+                    ? 'Long-term imbalance detected'
+                    : 'Stable over time'
+                }
+              />
+            </>
           )}
           <MetricBar
             label="Balance"
@@ -224,6 +240,22 @@ export default function AnalysisPanel({
                     : 'Topics well distributed'
                 }
               />
+              <MetricBar
+                label="Build-on"
+                icon="🔗"
+                helpKey="metric.piggybacking"
+                value={currentMetrics.semanticDynamics.piggybackingScore}
+                displayValue={`${(currentMetrics.semanticDynamics.piggybackingScore * 100).toFixed(0)}%`}
+                threshold={0.4}
+                higherIsBetter={true}
+                statusText={
+                  currentMetrics.semanticDynamics.piggybackingScore >= 0.5
+                    ? 'Good idea building'
+                    : currentMetrics.semanticDynamics.piggybackingScore >= 0.3
+                      ? 'Some connections'
+                      : 'Parallel monologues'
+                }
+              />
             </>
           )}
 
@@ -247,24 +279,44 @@ export default function AnalysisPanel({
       {/* Activity / Flow */}
       <Panel>
         <SectionHeader icon="⏱️" size="page">Activity</SectionHeader>
-        <MetricBar
-          label="Stagnation"
-          icon="⏸️"
-          helpKey="metric.stagnation"
-          value={stagnationNorm}
-          displayValue={
-            currentMetrics.stagnationDuration < 5
-              ? 'Active'
-              : `${currentMetrics.stagnationDuration.toFixed(0)}s`
-          }
-          threshold={0.5}
-          higherIsBetter={false}
-          statusText={
-            currentMetrics.stagnationDuration >= 60
-              ? `No new ideas for ${currentMetrics.stagnationDuration.toFixed(0)}s`
-              : 'New content being introduced'
-          }
-        />
+        <div className="space-y-3">
+          <MetricBar
+            label="Stagnation"
+            icon="⏸️"
+            helpKey="metric.stagnation"
+            value={stagnationNorm}
+            displayValue={
+              currentMetrics.stagnationDuration < 5
+                ? 'Active'
+                : `${currentMetrics.stagnationDuration.toFixed(0)}s`
+            }
+            threshold={0.5}
+            higherIsBetter={false}
+            statusText={
+              currentMetrics.stagnationDuration >= 60
+                ? `No new ideas for ${currentMetrics.stagnationDuration.toFixed(0)}s`
+                : 'New content being introduced'
+            }
+          />
+          {currentMetrics.semanticDynamics && (
+            <MetricBar
+              label="Fluency"
+              icon="💬"
+              helpKey="metric.fluency"
+              value={Math.min(1, currentMetrics.semanticDynamics.ideationalFluencyRate / 10)}
+              displayValue={`${currentMetrics.semanticDynamics.ideationalFluencyRate.toFixed(1)}/min`}
+              threshold={0.2}
+              higherIsBetter={true}
+              statusText={
+                currentMetrics.semanticDynamics.ideationalFluencyRate >= 4
+                  ? 'Healthy idea flow'
+                  : currentMetrics.semanticDynamics.ideationalFluencyRate >= 2
+                    ? 'Moderate pace'
+                    : 'Very low activity'
+              }
+            />
+          )}
+        </div>
       </Panel>
 
     </div>

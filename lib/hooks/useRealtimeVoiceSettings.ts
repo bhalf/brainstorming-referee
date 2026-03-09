@@ -1,8 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { supabase } from '@/lib/supabase/client';
 import { VoiceSettings } from '@/lib/types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { logSessionEvent } from '@/lib/services/eventService';
+import { updateVoiceSettings as persistVoiceSettingsToServer } from '@/lib/services/sessionService';
 
 interface UseRealtimeVoiceSettingsParams {
   sessionId: string | null;
@@ -25,8 +27,7 @@ export function useRealtimeVoiceSettings({
   isHost,
   updateVoiceSettings,
 }: UseRealtimeVoiceSettingsParams) {
-  const updateVoiceSettingsRef = useRef(updateVoiceSettings);
-  useEffect(() => { updateVoiceSettingsRef.current = updateVoiceSettings; }, [updateVoiceSettings]);
+  const updateVoiceSettingsRef = useLatestRef(updateVoiceSettings);
 
   const reconnectAttemptsRef = useRef(0);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -36,11 +37,7 @@ export function useRealtimeVoiceSettings({
   const persistVoiceSettings = useCallback((settings: Partial<VoiceSettings>) => {
     if (!sessionId || !isHost) return;
 
-    fetch('/api/session', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, voiceSettings: settings }),
-    }).catch((err) => {
+    persistVoiceSettingsToServer(sessionId, settings).catch((err) => {
       console.error('Failed to persist voice settings:', err);
     });
 
@@ -48,8 +45,8 @@ export function useRealtimeVoiceSettings({
     logSessionEvent(sessionId, 'voice_settings_changed', 'Researcher', settings as Record<string, unknown>);
   }, [sessionId, isHost]);
 
-  // Participants: subscribe to voice settings changes
-  const subscribeRef = useRef<((sid: string) => void) | null>(null);
+  // Participants: subscribe to voice settings changes. subscribe is intentionally stable
+  // (empty deps) — supabase client never changes. The subscribeRef indirection is not needed.
   const subscribe = useCallback((sid: string) => {
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
@@ -82,18 +79,14 @@ export function useRealtimeVoiceSettings({
             const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptsRef.current);
             reconnectAttemptsRef.current++;
             setTimeout(() => {
-              if (isMountedRef.current && subscribeRef.current) subscribeRef.current(sid);
+              if (isMountedRef.current) subscribe(sid);
             }, delay);
           }
         }
       });
 
     channelRef.current = channel;
-  }, []);
-
-  useEffect(() => {
-    subscribeRef.current = subscribe;
-  }, [subscribe]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- supabase client is stable
 
   useEffect(() => {
     // Only participants need to subscribe — the host is the source of truth

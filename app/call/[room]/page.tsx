@@ -7,9 +7,13 @@ import { decodeConfig, DEFAULT_CONFIG } from '@/lib/config';
 import { Scenario, Intervention, TranscriptSegment, ExperimentConfig } from '@/lib/types';
 import { loadPersistedCache } from '@/lib/metrics/embeddingCache';
 import { segmentRowToApp, interventionRowToApp, ideaRowToApp, connectionRowToApp } from '@/lib/supabase/converters';
-import { useCloudTTS } from '@/lib/tts/useCloudTTS';
+import { useTTSManager } from '@/lib/hooks/session/useTTSManager';
 import { useTranscriptionManager } from '@/lib/hooks/useTranscriptionManager';
 import { useSegmentUpload } from '@/lib/hooks/session/useSegmentUpload';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
+import { usePeerSync } from '@/lib/hooks/session/usePeerSync';
+import { useSessionLifecycle } from '@/lib/hooks/session/useSessionLifecycle';
+import { apiFireAndForget } from '@/lib/services/apiClient';
 import { useRealtimeSegments } from '@/lib/hooks/useRealtimeSegments';
 import { useRealtimeInterventions } from '@/lib/hooks/useRealtimeInterventions';
 import { useRealtimeMetrics } from '@/lib/hooks/useRealtimeMetrics';
@@ -21,11 +25,12 @@ import { useRealtimeVoiceSettings } from '@/lib/hooks/useRealtimeVoiceSettings';
 import { useRealtimeIdeas } from '@/lib/hooks/useRealtimeIdeas';
 import { useRealtimeConnections } from '@/lib/hooks/useRealtimeConnections';
 import { useIdeaExtraction } from '@/lib/hooks/useIdeaExtraction';
+import { useLiveSummary } from '@/lib/hooks/useLiveSummary';
 import { SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload } from '@/lib/hooks/useLiveKitSync';
 import type { InterimEntry } from '@/components/TranscriptFeed';
 import LiveKitRoom from '@/components/LiveKitRoom';
 import OverlayPanel from '@/components/OverlayPanel';
-import ResizableLayout from '@/components/ResizableLayout';
+import DesktopTabLayout from '@/components/DesktopTabLayout';
 import IdeaBoard from '@/components/IdeaBoard';
 import ReadinessCheck from '@/components/ReadinessCheck';
 import type { SystemHealthProps } from '@/components/SystemHealthPanel';
@@ -43,7 +48,6 @@ export default function CallPage() {
   } = useSession();
 
   const [mobileView, setMobileView] = useState<'video' | 'ideas' | 'panel'>('video');
-  const [isIdeaBoardCollapsed, setIsIdeaBoardCollapsed] = useState(false);
 
   // Layout mounting state
   const [isMounted, setIsMounted] = useState(false);
@@ -72,42 +76,40 @@ export default function CallPage() {
   const participantCountRef = useRef<number>(1); // self
 
   // Keep participant count ref in sync with LiveKit state
+  // and clean up speaking time data for departed participants
+  const prevParticipantIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     participantCountRef.current = participants.length + 1; // +1 for self
+
+    const currentIds = new Set(participants.map(p => p.displayName));
+    const previousIds = prevParticipantIdsRef.current;
+
+    // Detect departed participants and remove their speaking time
+    for (const id of previousIds) {
+      if (!currentIds.has(id)) {
+        speakingTimeRef.current.delete(id);
+        console.log(`[Participant] ${id} left — removed from speaking time map`);
+      }
+    }
+
+    prevParticipantIdsRef.current = currentIds;
   }, [participants]);
 
   // --- TTS (OpenAI Cloud TTS) ---
-  const cloudTTS = useCloudTTS({
-    voice: (state.voiceSettings.voiceName as import('@/lib/tts/useCloudTTS').CloudTTSVoice) || 'nova',
-    speed: state.voiceSettings.rate,
+  const {
+    speak,
+    cancelSpeech,
+    isSpeaking,
+    isTTSSupported,
+    handleTestVoice,
+    handleCancelVoice,
+  } = useTTSManager({
+    voiceName: state.voiceSettings.voiceName,
+    rate: state.voiceSettings.rate,
     volume: state.voiceSettings.volume,
-    onError: (err) => {
-      console.warn('Cloud TTS error:', err);
-      addError(err, 'tts');
-    },
+    language,
+    addError,
   });
-
-  const speak = useCallback((text: string): boolean => {
-    return cloudTTS.speak(text);
-  }, [cloudTTS]);
-
-  const isSpeaking = cloudTTS.isSpeaking;
-  const isTTSSupported = cloudTTS.isSupported;
-
-  const cancelSpeech = useCallback(() => {
-    cloudTTS.cancel();
-  }, [cloudTTS]);
-
-  const handleTestVoice = useCallback(() => {
-    const testText = language.startsWith('de')
-      ? 'Dies ist ein Test der Sprachausgabe. Die Stimme klingt jetzt klar und deutlich.'
-      : 'This is a test of the voice output. The voice should sound clear and natural.';
-    speak(testText);
-  }, [speak, language]);
-
-  const handleCancelVoice = useCallback(() => {
-    cancelSpeech();
-  }, [cancelSpeech]);
 
   const handleUpdateConfig = useCallback((key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => {
     updateConfig({ [key]: value } as Partial<ExperimentConfig>);
@@ -135,68 +137,23 @@ export default function CallPage() {
   const broadcastFinalRef = useRef<((segment: TranscriptSegment) => void) | null>(null);
   const broadcastInterventionRef = useRef<((intervention: Intervention) => void) | null>(null);
 
-  // Track peer interim transcripts with timestamps for stale cleanup
-  const [peerInterims, setPeerInterims] = useState<Map<string, { text: string; speakerName: string; timestamp: number }>>(new Map());
-
-  const handleInterimTranscriptReceived = useCallback((payload: SyncInterimPayload) => {
-    setPeerInterims(prev => {
-      const next = new Map(prev);
-      if (!payload.text) {
-        next.delete(payload.speakerName);
-      } else {
-        next.set(payload.speakerName, { text: payload.text, speakerName: payload.speakerName, timestamp: Date.now() });
-      }
-      return next;
-    });
-  }, []);
-
-  const handleFinalSegmentReceived = useCallback((payload: SyncFinalSegmentPayload) => {
-    addTranscriptSegment(payload.segment);
-    // Clear their text from the fast interim overlay
-    setPeerInterims(prev => {
-      if (!prev.has(payload.segment.speaker)) return prev;
-      const next = new Map(prev);
-      next.delete(payload.segment.speaker);
-      return next;
-    });
-  }, [addTranscriptSegment]);
-
-  const handleInterventionReceived = useCallback((payload: SyncInterventionPayload) => {
-    addIntervention(payload.intervention);
-    if (state.voiceSettings.enabled && isTTSSupported && speak) {
-      speak(payload.intervention.text);
-    }
-  }, [addIntervention, state.voiceSettings.enabled, isTTSSupported, speak]);
-
-
-  // Stale peer interim cleanup (clear entries older than 8 seconds)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPeerInterims(prev => {
-        const now = Date.now();
-        let changed = false;
-        const next = new Map(prev);
-        for (const [key, entry] of next) {
-          if (now - entry.timestamp > 8000) {
-            next.delete(key);
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
+  const {
+    peerInterims,
+    handleInterimTranscriptReceived,
+    handleFinalSegmentReceived,
+    handleInterventionReceived,
+  } = usePeerSync({
+    addTranscriptSegment,
+    addIntervention,
+    voiceEnabled: state.voiceSettings.enabled,
+    isTTSSupported,
+    speak,
+  });
 
   // --- Segment Upload ---
-  const transcriptSegmentsRef = useRef<TranscriptSegment[]>([]);
-  const sessionIdRef = useRef<string | null>(null);
+  const transcriptSegmentsRef = useLatestRef(state.transcriptSegments);
+  const sessionIdRef = useLatestRef(state.sessionId);
   const { uploadSegment } = useSegmentUpload({ sessionId: state.sessionId });
-
-  // Keep sessionIdRef in sync for other callbacks
-  useEffect(() => {
-    sessionIdRef.current = state.sessionId;
-  }, [state.sessionId]);
 
   // --- Transcription Manager (local mic only — remote segments arrive via Supabase Realtime) ---
   const transcription = useTranscriptionManager({
@@ -232,9 +189,6 @@ export default function CallPage() {
   }, [transcription.interimTranscript, peerInterims, isParticipant, participantName]);
 
   // Keep the shared transcriptSegmentsRef in sync with context (single source of truth)
-  useEffect(() => {
-    transcriptSegmentsRef.current = state.transcriptSegments;
-  }, [state.transcriptSegments]);
 
   // --- Realtime Segments (Supabase) ---
   const { isSubscribed: realtimeSyncConnected } = useRealtimeSegments({
@@ -245,11 +199,13 @@ export default function CallPage() {
     onError: addError,
   });
 
+  // Stable broadcast callback — extracted to avoid re-renders in useDecisionLoop
+  const handleBroadcastIntervention = useCallback((intervention: Intervention) => {
+    broadcastInterventionRef.current?.(intervention);
+  }, []);
+
   // Keep interventions ref in sync for decision engine
-  const interventionsRef = useRef<Intervention[]>([]);
-  useEffect(() => {
-    interventionsRef.current = state.interventions;
-  }, [state.interventions]);
+  const interventionsRef = useLatestRef(state.interventions);
 
   // --- Decision Ownership (Supabase-based lock: one decision engine per session) ---
   const { isDecisionOwner } = useDecisionOwnership({
@@ -314,9 +270,7 @@ export default function CallPage() {
     addModelRoutingLog,
     addError,
     updateDecisionState,
-    broadcastIntervention: useCallback((intervention: Intervention) => {
-      broadcastInterventionRef.current?.(intervention);
-    }, []),
+    broadcastIntervention: handleBroadcastIntervention,
   });
 
   // --- Realtime Interventions (Supabase → all participants) ---
@@ -359,293 +313,39 @@ export default function CallPage() {
     addError,
   });
 
-  // --- Initial data load: fetch historical segments + interventions + ideas for catch-up ---
-  const loadInitialData = useCallback(async (sid: string) => {
-    try {
-      const [segRes, intRes, ideaRes, connRes] = await Promise.all([
-        fetch(`/api/segments?sessionId=${sid}`),
-        fetch(`/api/interventions?sessionId=${sid}`),
-        fetch(`/api/ideas?sessionId=${sid}`),
-        fetch(`/api/ideas/connections?sessionId=${sid}`),
-      ]);
+  // --- Live Summary (decision owner generates, others receive via Supabase Realtime) ---
+  const liveSummary = useLiveSummary({
+    isActive: state.isActive,
+    isDecisionOwner,
+    sessionId: state.sessionId,
+    transcriptSegmentsRef,
+    ideas: state.ideas,
+    language,
+    addModelRoutingLog,
+    addError,
+  });
 
-      if (segRes.ok) {
-        const { segments } = await segRes.json();
-        if (Array.isArray(segments)) {
-          for (const row of segments) {
-            addTranscriptSegment(segmentRowToApp(row));
-          }
-        }
-      }
-
-      if (intRes.ok) {
-        const { interventions } = await intRes.json();
-        if (Array.isArray(interventions)) {
-          for (const row of interventions) {
-            addIntervention(interventionRowToApp(row));
-          }
-        }
-      }
-
-      if (ideaRes.ok) {
-        const { ideas } = await ideaRes.json();
-        if (Array.isArray(ideas)) {
-          for (const row of ideas) {
-            addIdea(ideaRowToApp(row));
-          }
-        }
-      }
-
-      if (connRes.ok) {
-        const { connections } = await connRes.json();
-        if (Array.isArray(connections)) {
-          for (const row of connections) {
-            addIdeaConnection(connectionRowToApp(row));
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load initial data:', e);
-    }
-  }, [addTranscriptSegment, addIntervention, addIdea, addIdeaConnection]);
-
-  // --- Session Initialization ---
-  useEffect(() => {
-    const init = async () => {
-      let sc = scenario;
-      let lang = language;
-      let config = DEFAULT_CONFIG;
-      let sessionId: string | undefined;
-
-      if (isParticipant) {
-        try {
-          const res = await fetch('/api/session/join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomName, participantName }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            sessionId = data.sessionId;
-            sc = data.scenario || sc;
-            lang = data.language || lang;
-            if (data.config && typeof data.config === 'object' && Object.keys(data.config).length > 0) {
-              // Extract voice settings from session config if present
-              const { voiceSettings: joinedVoice, ...experimentConfig } = data.config;
-              if (Object.keys(experimentConfig).length > 0) {
-                config = experimentConfig;
-              }
-              if (joinedVoice && typeof joinedVoice === 'object') {
-                updateVoiceSettings(joinedVoice);
-              }
-            }
-            // Use server-resolved name (deduplicated if needed)
-            if (data.resolvedName && data.resolvedName !== participantName) {
-              setParticipantName(data.resolvedName);
-            }
-          }
-        } catch {
-          // Fallback to defaults
-        }
-        setIsParticipantLoading(false);
-      } else {
-        if (encodedConfig) {
-          const decoded = decodeConfig(encodedConfig);
-          if (decoded) {
-            config = decoded;
-          } else {
-            addError('Failed to decode config, using defaults', 'config');
-          }
-        }
-
-        // Check for existing active session first (prevents duplicate sessions on refresh)
-        try {
-          const getRes = await fetch(`/api/session?room=${encodeURIComponent(roomName)}`);
-          if (getRes.ok) {
-            const existing = await getRes.json();
-            sessionId = existing.sessionId;
-            console.log(`[Session] Resuming existing session ${sessionId} (started: ${existing.startedAt})`);
-            // Use existing session's config if available
-            sc = existing.scenario || sc;
-            lang = existing.language || lang;
-            if (existing.config && typeof existing.config === 'object' && Object.keys(existing.config).length > 0) {
-              config = existing.config;
-            }
-          } else {
-            console.log(`[Session] No active session found for room "${roomName}" (HTTP ${getRes.status}), will create new`);
-          }
-        } catch {
-          // GET failed — will create new session below
-          console.warn('[Session] GET /api/session failed, will create new session');
-        }
-
-        // Only create a new session if none exists
-        if (!sessionId) {
-          try {
-            const res = await fetch('/api/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                roomName,
-                scenario: sc,
-                language: lang,
-                config: {
-                  ...config,
-                  _experimentMeta: buildExperimentMeta(
-                    loadModelRoutingFromStorage() ?? undefined
-                  ),
-                },
-                hostIdentity: 'Researcher',
-              }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              sessionId = data.sessionId;
-              console.log(`[Session] Created new session ${sessionId}`);
-            } else if (res.status === 409) {
-              // Session already exists (e.g. React strict mode double-mount) — reuse it
-              const data = await res.json().catch(() => ({}));
-              if (data.sessionId) {
-                sessionId = data.sessionId;
-                console.log(`[Session] Reusing existing session ${sessionId} (409 conflict)`);
-              } else {
-                console.warn('[Session] 409 conflict but no sessionId in response');
-              }
-            } else {
-              const errData = await res.json().catch(() => ({}));
-              console.warn(`[Session] POST /api/session failed (HTTP ${res.status}):`, errData);
-            }
-          } catch {
-            addError('Failed to create session in database', 'session');
-          }
-        }
-      }
-
-      startSession(roomName, sc, lang, config, sessionId);
-      loadPersistedCache();
-
-      // Load historical data for catch-up (segments + interventions)
-      if (sessionId) {
-        loadInitialData(sessionId);
-      }
-
-      // Register as participant in the session
-      if (sessionId) {
-        const identity = isParticipant ? participantName : 'Researcher';
-        fetch('/api/session/participants', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId,
-            identity,
-            displayName: identity,
-            role: isParticipant ? 'participant' : 'host',
-          }),
-        }).catch(err => console.warn('[Session] Failed to register participant:', err));
-      }
-
-      // OpenAI Realtime is default — fallback to Web Speech API if token fetch fails
-      fetch('/api/transcription/token', { method: 'POST' })
-        .then(res => {
-          if (!res.ok) transcription.setIsRealtimeEnabled(false);
-        })
-        .catch(() => {
-          transcription.setIsRealtimeEnabled(false);
-        });
-    };
-
-    init();
-
-    // --- beforeunload: reliable cleanup on tab close ---
-    const handleBeforeUnload = () => {
-      if (sessionIdRef.current) {
-        const identity = isParticipant ? participantName : 'Researcher';
-        // sendBeacon only sends POST — use action: 'leave' to trigger leave logic
-        navigator.sendBeacon(
-          '/api/session/participants',
-          new Blob(
-            [JSON.stringify({ sessionId: sessionIdRef.current, identity, action: 'leave' })],
-            { type: 'application/json' }
-          )
-        );
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    // --- Heartbeat: 30s interval to prove we're alive ---
-    const heartbeatInterval = setInterval(() => {
-      if (sessionIdRef.current) {
-        const identity = isParticipant ? participantName : 'Researcher';
-        fetch('/api/session/participants', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: sessionIdRef.current, identity }),
-        }).catch(() => { }); // best-effort
-      }
-    }, 30_000);
-
-    // --- visibilitychange: detect tab hidden / laptop lid close ---
-    // If the tab is hidden for 60s, assume the user has left
-    let departureTimer: ReturnType<typeof setTimeout> | null = null;
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        departureTimer = setTimeout(() => {
-          if (sessionIdRef.current) {
-            const identity = isParticipant ? participantName : 'Researcher';
-            navigator.sendBeacon(
-              '/api/session/participants',
-              new Blob(
-                [JSON.stringify({ sessionId: sessionIdRef.current, identity, action: 'leave' })],
-                { type: 'application/json' }
-              )
-            );
-          }
-        }, 60_000);
-      } else {
-        // Tab became visible again — cancel departure
-        if (departureTimer) {
-          clearTimeout(departureTimer);
-          departureTimer = null;
-        }
-        // Re-register as participant (in case we were marked as left by stale cleanup)
-        if (sessionIdRef.current) {
-          const identity = isParticipant ? participantName : 'Researcher';
-          fetch('/api/session/participants', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId: sessionIdRef.current,
-              identity,
-              displayName: identity,
-              role: isParticipant ? 'participant' : 'host',
-            }),
-          }).catch(() => { });
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(heartbeatInterval);
-      if (departureTimer) clearTimeout(departureTimer);
-
-      // Leave participant (best-effort via sendBeacon — reliable during unmount)
-      if (sessionIdRef.current) {
-        const identity = isParticipant ? participantName : 'Researcher';
-        navigator.sendBeacon(
-          '/api/session/participants',
-          new Blob(
-            [JSON.stringify({ sessionId: sessionIdRef.current, identity, action: 'leave' })],
-            { type: 'application/json' }
-          )
-        );
-      }
-      endSession(sessionIdRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomName]);
+  // --- Session Initialization & Cleanup ---
+  useSessionLifecycle({
+    roomName,
+    scenario,
+    language,
+    encodedConfig,
+    isParticipant,
+    participantName,
+    sessionIdRef,
+    startSession,
+    endSession,
+    addTranscriptSegment,
+    addIntervention,
+    addIdea,
+    addIdeaConnection,
+    updateVoiceSettings,
+    addError,
+    setParticipantName,
+    setIsParticipantLoading,
+    setIsRealtimeEnabled: transcription.setIsRealtimeEnabled,
+  });
 
   // Layout media query setup
   useEffect(() => {
@@ -657,17 +357,21 @@ export default function CallPage() {
     return () => mql.removeEventListener('change', handler);
   }, []);
 
+  const [isEndingSession, setIsEndingSession] = useState(false);
+
   // --- End Session (user-initiated only) ---
   const handleEndSession = useCallback(async () => {
+    if (isEndingSession) return;
+    setIsEndingSession(true);
+
     const sid = sessionIdRef.current;
     if (sid) {
       const identity = isParticipant ? participantName : 'Researcher';
       // Await participant removal before navigating (with 2s safety timeout)
       try {
         await Promise.race([
-          fetch('/api/session/participants', {
+          apiFireAndForget('/api/session/participants', {
             method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sessionId: sid, identity }),
           }),
           new Promise(resolve => setTimeout(resolve, 2000)),
@@ -678,7 +382,7 @@ export default function CallPage() {
     }
     endSession(sid);
     router.push('/');
-  }, [endSession, router, isParticipant, participantName]);
+  }, [endSession, router, isParticipant, participantName, isEndingSession, sessionIdRef]);
 
   // --- LiveKit Disconnect handler (user clicked Leave or connection lost) ---
   const handleLiveKitDisconnect = useCallback(() => {
@@ -716,6 +420,98 @@ export default function CallPage() {
 
   // Memoize sessionLog
   const sessionLog = useMemo(exportSessionLog, [exportSessionLog]);
+
+  // --- Shared Props (Deduplication) ---
+  const activeIdeas = useMemo(() => state.ideas.filter(i => !i.isDeleted), [state.ideas]);
+
+  const liveKitProps = useMemo(() => ({
+    roomName,
+    displayName: isParticipant ? participantName : 'Researcher',
+    onConnectionChange: setIsConnected,
+    onParticipantsChange: setParticipants,
+    onRemoteSpeakersChange: setRemoteSpeakers,
+    onLocalSpeakingUpdate: handleLocalSpeakingUpdate,
+    onLocalMicMuteChange: handleLocalMicMuteChange,
+    onDisconnected: handleLiveKitDisconnect,
+    speakingTimeRef,
+    broadcastInterimRef,
+    broadcastFinalRef,
+    broadcastInterventionRef,
+    onInterimTranscriptReceived: handleInterimTranscriptReceived,
+    onFinalSegmentReceived: handleFinalSegmentReceived,
+    onInterventionReceived: handleInterventionReceived,
+  }), [
+    roomName, isParticipant, participantName, handleLocalSpeakingUpdate,
+    handleLocalMicMuteChange, handleLiveKitDisconnect, handleInterimTranscriptReceived,
+    handleFinalSegmentReceived, handleInterventionReceived
+  ]);
+
+  const ideaBoardBaseProps = useMemo(() => ({
+    ideas: activeIdeas,
+    connections: state.ideaConnections,
+    sessionId: state.sessionId,
+    onAddIdea: addIdea,
+    onUpdateIdea: updateIdea,
+    onRemoveIdea: removeIdea,
+    displayName: isParticipant ? participantName : 'Researcher',
+    roomName,
+  }), [activeIdeas, state.ideaConnections, state.sessionId, addIdea, updateIdea, removeIdea, isParticipant, participantName, roomName]);
+
+  const handleUpdateSettings = useCallback((updates: Record<string, unknown>) => {
+    updateVoiceSettings(updates);
+    if (!isParticipant) {
+      persistVoiceSettings({ ...state.voiceSettings, ...updates });
+    }
+  }, [state.voiceSettings, updateVoiceSettings, isParticipant, persistVoiceSettings]);
+
+  const overlayPanelProps = useMemo(() => ({
+    scenario: state.scenario,
+    isSessionActive: state.isActive,
+    onEndSession: handleEndSession,
+    language,
+    roomName,
+    transcript: {
+      segments: state.transcriptSegments,
+      interimEntries,
+      isTranscribing: transcription.isTranscribing,
+      isTranscriptionSupported: transcription.isTranscriptionSupported,
+      onToggleTranscription: transcription.toggleTranscription,
+      onAddSimulatedSegment: transcription.handleAddSimulatedSegment,
+      transcriptionError: transcription.transcriptionError,
+      isWhisperActive: transcription.isRealtimeEnabled,
+    },
+    metrics: {
+      currentMetrics: isDecisionOwner
+        ? currentMetrics
+        : state.metricSnapshots[state.metricSnapshots.length - 1] ?? null,
+      metricsHistory: isDecisionOwner
+        ? metricsHistory
+        : state.metricSnapshots,
+      config: state.config,
+      decisionState: state.decisionState,
+    },
+    voice: {
+      settings: state.voiceSettings,
+      onUpdateSettings: handleUpdateSettings,
+      isSpeaking,
+      onTestVoice: handleTestVoice,
+      onCancelVoice: handleCancelVoice,
+    },
+    interventions: state.interventions,
+    sessionLog,
+    modelRoutingLog: state.modelRoutingLog,
+    onUpdateConfig: handleUpdateConfig,
+    onResetConfig: handleResetConfig,
+    health: healthProps,
+  }), [
+    state.scenario, state.isActive, handleEndSession, language, roomName,
+    state.transcriptSegments, interimEntries, transcription.isTranscribing, transcription.isTranscriptionSupported,
+    transcription.toggleTranscription, transcription.handleAddSimulatedSegment, transcription.transcriptionError,
+    transcription.isRealtimeEnabled, isDecisionOwner, currentMetrics, state.metricSnapshots, metricsHistory,
+    state.config, state.decisionState, state.voiceSettings, handleUpdateSettings,
+    isSpeaking, handleTestVoice, handleCancelVoice, state.interventions, sessionLog, state.modelRoutingLog,
+    handleUpdateConfig, handleResetConfig, healthProps
+  ]);
 
   // --- Readiness Check Gate ---
   if (!isReadyChecked) {
@@ -790,92 +586,35 @@ export default function CallPage() {
       </header>
 
       {/* Main Content */}
-      <div className="h-[calc(100vh-3rem)] sm:h-[calc(100vh-3.5rem)] flex flex-col lg:flex-row">
+      <div className="h-[calc(100vh-3rem)] sm:h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
 
         {isMounted && isDesktop && (
-          <ResizableLayout
-            topLeft={
-              <LiveKitRoom
-                roomName={roomName}
-                displayName={isParticipant ? participantName : 'Researcher'}
-                onConnectionChange={setIsConnected}
-                onParticipantsChange={setParticipants}
-                onRemoteSpeakersChange={setRemoteSpeakers}
-                onLocalSpeakingUpdate={handleLocalSpeakingUpdate}
-                onLocalMicMuteChange={handleLocalMicMuteChange}
-                onDisconnected={handleLiveKitDisconnect}
-                speakingTimeRef={speakingTimeRef}
-                broadcastInterimRef={broadcastInterimRef}
-                broadcastFinalRef={broadcastFinalRef}
-                broadcastInterventionRef={broadcastInterventionRef}
-
-                onInterimTranscriptReceived={handleInterimTranscriptReceived}
-                onFinalSegmentReceived={handleFinalSegmentReceived}
-                onInterventionReceived={handleInterventionReceived}
-
-              />
-            }
-            bottomLeft={
-              <IdeaBoard
-                ideas={state.ideas.filter(i => !i.isDeleted)}
-                connections={state.ideaConnections}
-                sessionId={state.sessionId}
-                onAddIdea={addIdea}
-                onUpdateIdea={updateIdea}
-                onRemoveIdea={removeIdea}
-                displayName={isParticipant ? participantName : 'Researcher'}
-                isCollapsed={isIdeaBoardCollapsed}
-                onToggleCollapse={() => setIsIdeaBoardCollapsed(prev => !prev)}
-              />
-            }
-            right={
-              <OverlayPanel
-                scenario={state.scenario}
-                isSessionActive={state.isActive}
-                onEndSession={handleEndSession}
-                language={language}
-                roomName={roomName}
-                transcript={{
-                  segments: state.transcriptSegments,
-                  interimEntries,
-                  isTranscribing: transcription.isTranscribing,
-                  isTranscriptionSupported: transcription.isTranscriptionSupported,
-                  onToggleTranscription: transcription.toggleTranscription,
-                  onAddSimulatedSegment: transcription.handleAddSimulatedSegment,
-                  transcriptionError: transcription.transcriptionError,
-                  isWhisperActive: transcription.isRealtimeEnabled,
-                }}
-                metrics={{
-                  currentMetrics: isDecisionOwner
-                    ? currentMetrics
-                    : state.metricSnapshots[state.metricSnapshots.length - 1] ?? null,
-                  metricsHistory: isDecisionOwner
-                    ? metricsHistory
-                    : state.metricSnapshots,
-                  config: state.config,
-                  decisionState: state.decisionState,
-                }}
-                voice={{
-                  settings: state.voiceSettings,
-                  onUpdateSettings: (updates) => {
-                    updateVoiceSettings(updates);
-                    if (!isParticipant) {
-                      persistVoiceSettings({ ...state.voiceSettings, ...updates });
-                    }
-                  },
-                  isSpeaking,
-                  onTestVoice: handleTestVoice,
-                  onCancelVoice: handleCancelVoice,
-                }}
-                interventions={state.interventions}
-                sessionLog={sessionLog}
-                modelRoutingLog={state.modelRoutingLog}
-                onUpdateConfig={handleUpdateConfig}
-                onResetConfig={handleResetConfig}
-                health={healthProps}
-              />
-            }
-          />
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <DesktopTabLayout
+              liveKitSlot={<LiveKitRoom {...liveKitProps} />}
+              ideaBoardSlot={
+                <IdeaBoard
+                  {...ideaBoardBaseProps}
+                  isCollapsed={false}
+                  onToggleCollapse={() => { }}
+                />
+              }
+              scenario={overlayPanelProps.scenario}
+              isSessionActive={overlayPanelProps.isSessionActive}
+              onEndSession={overlayPanelProps.onEndSession}
+              transcript={overlayPanelProps.transcript}
+              metrics={overlayPanelProps.metrics}
+              voice={overlayPanelProps.voice}
+              interventions={overlayPanelProps.interventions}
+              sessionLog={overlayPanelProps.sessionLog}
+              modelRoutingLog={overlayPanelProps.modelRoutingLog}
+              onUpdateConfig={overlayPanelProps.onUpdateConfig}
+              onResetConfig={overlayPanelProps.onResetConfig}
+              health={overlayPanelProps.health}
+              roomName={roomName}
+              liveSummary={liveSummary}
+            />
+          </div>
         )}
 
         {isMounted && !isDesktop && (
@@ -884,37 +623,13 @@ export default function CallPage() {
             <div className="flex-1 w-full min-w-0 min-h-0 overflow-hidden">
               {/* Video Tab */}
               <div className={`h-full p-1 ${mobileView === 'video' ? 'block' : 'hidden'}`}>
-                <LiveKitRoom
-                  roomName={roomName}
-                  displayName={isParticipant ? participantName : 'Researcher'}
-                  onConnectionChange={setIsConnected}
-                  onParticipantsChange={setParticipants}
-                  onRemoteSpeakersChange={setRemoteSpeakers}
-                  onLocalSpeakingUpdate={handleLocalSpeakingUpdate}
-                  onLocalMicMuteChange={handleLocalMicMuteChange}
-                  onDisconnected={handleLiveKitDisconnect}
-                  speakingTimeRef={speakingTimeRef}
-                  broadcastInterimRef={broadcastInterimRef}
-                  broadcastFinalRef={broadcastFinalRef}
-                  broadcastInterventionRef={broadcastInterventionRef}
-  
-                  onInterimTranscriptReceived={handleInterimTranscriptReceived}
-                  onFinalSegmentReceived={handleFinalSegmentReceived}
-                  onInterventionReceived={handleInterventionReceived}
-  
-                />
+                <LiveKitRoom {...liveKitProps} />
               </div>
 
               {/* Ideas Tab */}
               <div className={`h-full p-1 ${mobileView === 'ideas' ? 'block' : 'hidden'}`}>
                 <IdeaBoard
-                  ideas={state.ideas.filter(i => !i.isDeleted)}
-                  connections={state.ideaConnections}
-                  sessionId={state.sessionId}
-                  onAddIdea={addIdea}
-                  onUpdateIdea={updateIdea}
-                  onRemoveIdea={removeIdea}
-                  displayName={isParticipant ? participantName : 'Researcher'}
+                  {...ideaBoardBaseProps}
                   isCollapsed={false}
                   onToggleCollapse={() => { }}
                 />
@@ -922,51 +637,7 @@ export default function CallPage() {
 
               {/* Panel Tab */}
               <div className={`h-full ${mobileView === 'panel' ? 'block' : 'hidden'}`}>
-                <OverlayPanel
-                  scenario={state.scenario}
-                  isSessionActive={state.isActive}
-                  onEndSession={handleEndSession}
-                  language={language}
-                  roomName={roomName}
-                  transcript={{
-                    segments: state.transcriptSegments,
-                    interimEntries,
-                    isTranscribing: transcription.isTranscribing,
-                    isTranscriptionSupported: transcription.isTranscriptionSupported,
-                    onToggleTranscription: transcription.toggleTranscription,
-                    onAddSimulatedSegment: transcription.handleAddSimulatedSegment,
-                    transcriptionError: transcription.transcriptionError,
-                    isWhisperActive: transcription.isRealtimeEnabled,
-                  }}
-                  metrics={{
-                    currentMetrics: isDecisionOwner
-                      ? currentMetrics
-                      : state.metricSnapshots[state.metricSnapshots.length - 1] ?? null,
-                    metricsHistory: isDecisionOwner
-                      ? metricsHistory
-                      : state.metricSnapshots,
-                    config: state.config,
-                    decisionState: state.decisionState,
-                  }}
-                  voice={{
-                    settings: state.voiceSettings,
-                    onUpdateSettings: (updates) => {
-                      updateVoiceSettings(updates);
-                      if (!isParticipant) {
-                        persistVoiceSettings({ ...state.voiceSettings, ...updates });
-                      }
-                    },
-                    isSpeaking,
-                    onTestVoice: handleTestVoice,
-                    onCancelVoice: handleCancelVoice,
-                  }}
-                  interventions={state.interventions}
-                  sessionLog={sessionLog}
-                  modelRoutingLog={state.modelRoutingLog}
-                  onUpdateConfig={handleUpdateConfig}
-                  onResetConfig={handleResetConfig}
-                  health={healthProps}
-                />
+                <OverlayPanel {...overlayPanelProps} />
               </div>
             </div>
 
@@ -996,3 +667,4 @@ export default function CallPage() {
     </div>
   );
 }
+

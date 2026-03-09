@@ -21,12 +21,15 @@ function makeMetrics(overrides: Partial<MetricSnapshot> = {}): MetricSnapshot {
       silentParticipantRatio: 0,
       dominanceStreakScore: 0.1,
       participationRiskScore: 0.2,
+      cumulativeParticipationImbalance: 0.3,
     },
     semanticDynamics: {
       noveltyRate: 0.6,
       clusterConcentration: 0.3,
       explorationElaborationRatio: 0.6,
       semanticExpansionScore: 0.1,
+      ideationalFluencyRate: 6,
+      piggybackingScore: 0.5,
     },
     ...overrides,
   };
@@ -45,6 +48,7 @@ describe('evaluateRecovery', () => {
           silentParticipantRatio: 0.3,
           dominanceStreakScore: 0.6,
           participationRiskScore: 0.7,
+          cumulativeParticipationImbalance: 0.7,
         },
       });
 
@@ -56,6 +60,7 @@ describe('evaluateRecovery', () => {
           silentParticipantRatio: 0.1,
           dominanceStreakScore: 0.1,
           participationRiskScore: 0.25,
+          cumulativeParticipationImbalance: 0.3,
         },
       });
 
@@ -74,6 +79,7 @@ describe('evaluateRecovery', () => {
           silentParticipantRatio: 0.3,
           dominanceStreakScore: 0.6,
           participationRiskScore: 0.7,
+          cumulativeParticipationImbalance: 0.7,
         },
       });
 
@@ -98,6 +104,7 @@ describe('evaluateRecovery', () => {
           silentParticipantRatio: 0.3,
           dominanceStreakScore: 0.6,
           participationRiskScore: 0.7,
+          cumulativeParticipationImbalance: 0.7,
         },
       });
 
@@ -109,6 +116,7 @@ describe('evaluateRecovery', () => {
           silentParticipantRatio: 0.25, // Not enough drop
           dominanceStreakScore: 0.5,
           participationRiskScore: 0.5, // 0.7→0.5 = 28% drop ≥ 15%
+          cumulativeParticipationImbalance: 0.65,
         },
       });
 
@@ -126,6 +134,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.85,
           explorationElaborationRatio: 0.2,
           semanticExpansionScore: -0.3,
+          ideationalFluencyRate: 3,
+          piggybackingScore: 0.4,
         },
       });
 
@@ -135,6 +145,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.5,  // -0.35 ≥ 0.08 ✓
           explorationElaborationRatio: 0.6,
           semanticExpansionScore: 0.2,
+          ideationalFluencyRate: 6,
+          piggybackingScore: 0.5,
         },
       });
 
@@ -150,6 +162,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.85,
           explorationElaborationRatio: 0.2,
           semanticExpansionScore: -0.3,
+          ideationalFluencyRate: 2,
+          piggybackingScore: 0.3,
         },
       });
 
@@ -173,6 +187,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.7,
           explorationElaborationRatio: 0.2,
           semanticExpansionScore: -0.3,
+          ideationalFluencyRate: 2,
+          piggybackingScore: 0.3,
         },
       });
 
@@ -183,6 +199,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.4,
           explorationElaborationRatio: 0.6,
           semanticExpansionScore: 0.2,
+          ideationalFluencyRate: 6,
+          piggybackingScore: 0.5,
         },
       });
 
@@ -199,6 +217,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.7,
           explorationElaborationRatio: 0.2,
           semanticExpansionScore: -0.3,
+          ideationalFluencyRate: 2,
+          piggybackingScore: 0.3,
         },
       });
 
@@ -209,6 +229,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.65,
           explorationElaborationRatio: 0.25,
           semanticExpansionScore: -0.2,
+          ideationalFluencyRate: 2,
+          piggybackingScore: 0.3,
         },
       });
 
@@ -228,12 +250,15 @@ describe('evaluateRecovery', () => {
           silentParticipantRatio: 0.3,
           dominanceStreakScore: 0.6,
           participationRiskScore: 0.7,
+          cumulativeParticipationImbalance: 0.7,
         },
         semanticDynamics: {
           noveltyRate: 0.1,
           clusterConcentration: 0.7,
           explorationElaborationRatio: 0.2,
           semanticExpansionScore: -0.3,
+          ideationalFluencyRate: 2,
+          piggybackingScore: 0.3,
         },
       });
 
@@ -246,6 +271,8 @@ describe('evaluateRecovery', () => {
           clusterConcentration: 0.65,
           explorationElaborationRatio: 0.25,
           semanticExpansionScore: -0.2,
+          ideationalFluencyRate: 3,
+          piggybackingScore: 0.35,
         },
       });
 

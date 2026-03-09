@@ -62,9 +62,12 @@ function float32ToPcm16Base64(float32: Float32Array): string {
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
     const bytes = new Uint8Array(pcm16.buffer);
+    // Chunked to avoid per-character string allocation (8192 chars/frame @ ~5ms cadence).
+    // Each chunk is spread into String.fromCharCode in one call — far fewer GC objects.
     let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
+    const CHUNK = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
     }
     return btoa(binary);
 }
@@ -102,12 +105,19 @@ export function useOpenAIRealtimeStream({
     const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const noiseFloorRef = useRef<number>(MIN_RMS_ENERGY_FLOOR);
     const calibrationSamplesRef = useRef<number[]>([]);
+    const silentChunksRef = useRef<number>(0);
+    const MAX_SILENT_CHUNKS_TO_SEND = 60; // ~10s of silence @ 4096/24000Hz — generous budget so OpenAI VAD always gets enough trailing silence to finalize
 
     // Stable refs for callbacks
     const onInterimTranscriptRef = useRef(onInterimTranscript);
     const onFinalSegmentRef = useRef(onFinalSegment);
     const speakerRef = useRef(speaker);
     const languageRef = useRef(language);
+
+    // connectWebSocket is stored in a ref so the onclose handler always calls the
+    // LATEST version of the function, not a stale closure captured at creation time.
+    // This prevents silent reconnect failures after token refresh or re-renders.
+    const connectWebSocketRef = useRef<() => Promise<WebSocket>>(() => Promise.reject('not initialized'));
 
     useEffect(() => { onInterimTranscriptRef.current = onInterimTranscript; }, [onInterimTranscript]);
     useEffect(() => { onFinalSegmentRef.current = onFinalSegment; }, [onFinalSegment]);
@@ -253,6 +263,7 @@ export function useOpenAIRealtimeStream({
                 setIsConnected(true);
                 setError(null);
                 reconnectAttemptsRef.current = 0;
+                silentChunksRef.current = 0; // Reset so reconnect doesn't inherit stale count
                 isIntentionalCloseRef.current = false;
 
                 // Session is pre-configured via the token endpoint
@@ -303,8 +314,9 @@ export function useOpenAIRealtimeStream({
                         }
 
                         case 'input_audio_buffer.speech_started':
-                            // User started speaking — reset interim
+                            // User started speaking — reset interim + silence counter
                             currentTranscriptRef.current = '';
+                            silentChunksRef.current = 0;
                             break;
 
                         case 'input_audio_buffer.speech_stopped':
@@ -382,12 +394,11 @@ export function useOpenAIRealtimeStream({
                     setTimeout(async () => {
                         if (isMountedRef.current && isActiveRef.current) {
                             try {
-                                // Reconnect WebSocket only. The existing audio pipeline
-                                // will automatically stream to the new socket once open.
-                                await connectWebSocket();
+                                // Always call via ref so we get the latest version of
+                                // connectWebSocket, not a potentially stale closure capture.
+                                await connectWebSocketRef.current();
                             } catch (e) {
                                 console.error('[OpenAIStream] Reconnect failed:', e);
-                                // Propagate error to UI so user knows transcription stopped
                                 if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
                                     setError('Transcription connection lost — please restart');
                                 }
@@ -401,6 +412,13 @@ export function useOpenAIRealtimeStream({
         });
     }, [fetchToken, cleanupWebSocket, scheduleTokenRefresh]);
 
+    // Keep the ref in sync with the latest useCallback instance.
+    // This is what breaks the stale-closure chain: onclose reads connectWebSocketRef.current
+    // which always points to the latest function regardless of re-renders.
+    useEffect(() => {
+        connectWebSocketRef.current = connectWebSocket;
+    }, [connectWebSocket]);
+
     // Start the audio capture pipeline (mic → PCM 24kHz → Base64 → WebSocket)
     const startAudioPipeline = useCallback(async (stream: MediaStream) => {
         if (processorNodeRef.current) processorNodeRef.current.disconnect();
@@ -412,6 +430,7 @@ export function useOpenAIRealtimeStream({
         // Reset adaptive noise floor calibration state
         calibrationSamplesRef.current = [];
         noiseFloorRef.current = MIN_RMS_ENERGY_FLOOR;
+        silentChunksRef.current = 0;
 
         const audioContext = new AudioContext({ sampleRate: PCM_SAMPLE_RATE });
         audioContextRef.current = audioContext;
@@ -444,7 +463,20 @@ export function useOpenAIRealtimeStream({
                 }
             }
 
-            if (rms < noiseFloorRef.current) return;
+            if (rms < noiseFloorRef.current) {
+                silentChunksRef.current++;
+                // Stop sending audio after sending ~2.5s of silence.
+                // We MUST send some silence so OpenAI's Server VAD knows speech stopped,
+                // otherwise it hangs waiting for data and causes a massive 5s+ transcription delay.
+                if (silentChunksRef.current > MAX_SILENT_CHUNKS_TO_SEND) {
+                    return;
+                }
+            } else {
+                silentChunksRef.current = 0;
+            }
+
+            // Backpressure guard: skip frame if WebSocket send buffer is full (>64KB)
+            if (wsRef.current.bufferedAmount > 65536) return;
 
             const base64Audio = float32ToPcm16Base64(inputData);
 

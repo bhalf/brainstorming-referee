@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callLLM, LLMError } from '@/lib/llm/client';
 import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
+import { rateLimit } from '@/lib/api/rateLimit';
+import { getAllySystemPrompt, buildAllyUserPrompt, getAllyFallbackResponse } from '@/lib/prompts/ally/prompts';
 
 // --- Types ---
 
@@ -20,98 +22,16 @@ interface AllyRequest {
   semanticDynamics?: { noveltyRate?: number; clusterConcentration?: number };
 }
 
-// --- System Prompts ---
+// --- System + User prompts are now managed centrally in lib/prompts/ally/prompts.ts ---
 
-function getSystemPrompt(language: string): string {
-  const isGerman = language.startsWith('de');
-
-  if (isGerman) {
-    return `Du bist ein kreativer Verbündeter in einer Brainstorming-Sitzung. Deine Aufgabe ist es, frische Energie und neue Perspektiven einzubringen, wenn die Gruppe feststeckt.
-
-WICHTIGE REGELN:
-1. Gib EINEN kurzen, kreativen Impuls oder unerwarteten Blickwinkel.
-2. Maximal 1-2 Sätze. Dies ist zwingend.
-3. Du darfst konkrete "Was wäre wenn"-Szenarien vorschlagen, aber liefere keine fertigen Lösungen. Dein Impuls soll zum Weiterdenken anregen.
-4. Sei spielerisch und energetisierend, nicht belehrend.
-5. Verwende Sprache, die Neugier weckt und Perspektivwechsel erzwingt.
-6. Antworten müssen für Sprachausgabe geeignet sein (keine Sonderzeichen, Emojis oder Formatierung).
-7. Wiederhole KEINE Themen aus vorherigen Interventionen.
-
-Dein Ziel ist es, Muster zu durchbrechen und neue kreative Wege zu eröffnen, ohne die Arbeit für die Gruppe zu erledigen.`;
-  }
-
-  return `You are a creative ally in a brainstorming session. Your role is to inject fresh energy and new perspectives when the group is stuck.
-
-IMPORTANT RULES:
-1. Provide ONE short, creative impulse or unexpected angle.
-2. Keep it to 1-2 sentences maximum. This is mandatory.
-3. You MAY suggest concrete "what if" scenarios, but do NOT provide complete solutions. Your impulse should spark further thinking.
-4. Be playful and energizing, not instructive or preachy.
-5. Use language that sparks curiosity and forces perspective shifts.
-6. Responses must be suitable for text-to-speech (no special characters, emojis, or formatting).
-7. Do NOT repeat themes from previous interventions.
-
-Your goal is to break patterns and open new creative pathways without doing the work for the group.`;
-}
-
-const USER_PROMPT_EN = `The brainstorming session is stuck despite earlier moderation attempts. The group needs a creative spark.
-Session topic: {topic}
-
-Previous interventions tried: {previousInterventions}
-
-Full conversation transcript ({totalTurns} turns total):
-{transcriptExcerpt}
-
-Generate a brief, unexpected creative impulse to energize the discussion. Use the full transcript to avoid repeating themes already covered and to make the impulse feel specific to this group's conversation.`;
-
-const USER_PROMPT_DE = `Die Brainstorming-Sitzung steckt trotz früherer Moderationsversuche fest. Die Gruppe braucht einen kreativen Funken.
-Thema der Session: {topic}
-
-Bisherige Interventionen: {previousInterventions}
-
-Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
-{transcriptExcerpt}
-
-Formuliere einen kurzen, unerwarteten kreativen Impuls, um die Diskussion zu beleben. Nutze das vollständige Transkript, um bereits besprochene Themen nicht zu wiederholen und den Impuls spezifisch für dieses Gespräch zu gestalten.`;
-
-// v2: Enhanced prompt with state context
-const USER_PROMPT_V2_EN = `The brainstorming session is stuck despite earlier moderation.
-Session topic: {topic}
-The moderator tried to address: {triggeringState}
-Previous interventions: {previousInterventions}
-
-Key metrics:
-- Participation risk: {participationRiskScore}
-- Novelty rate: {noveltyRate}
-- Cluster concentration: {clusterConcentration}
-
-Full conversation transcript ({totalTurns} turns total):
-{transcriptExcerpt}
-
-{existingIdeasContext}
-
-Generate a brief, unexpected creative impulse. Make it specific to what this group has discussed. Avoid repeating themes from previous interventions. If existing ideas are listed, ensure your impulse opens a NEW direction that NONE of those ideas cover.`;
-
-const USER_PROMPT_V2_DE = `Die Brainstorming-Sitzung steckt trotz früherer Moderation fest.
-Thema der Session: {topic}
-Der Moderator versuchte Folgendes anzusprechen: {triggeringState}
-Bisherige Interventionen: {previousInterventions}
-
-Wichtige Kennzahlen:
-- Partizipationsrisiko: {participationRiskScore}
-- Neuheitsrate: {noveltyRate}
-- Cluster-Konzentration: {clusterConcentration}
-
-Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
-{transcriptExcerpt}
-
-{existingIdeasContext}
-
-Formuliere einen kurzen, unerwarteten kreativen Impuls. Mache ihn spezifisch für das, was diese Gruppe besprochen hat. Vermeide die Wiederholung von Themen aus früheren Interventionen. Falls bestehende Ideen aufgelistet sind, stelle sicher, dass dein Impuls eine NEUE Richtung eröffnet, die KEINE dieser Ideen abdeckt.`;
+// --- User prompt templates removed — now in lib/prompts/ally/prompts.ts ---
 
 // --- Handler ---
 
 export async function POST(request: NextRequest) {
+  const limited = rateLimit(request, { maxRequests: 30 });
+  if (limited) return limited;
+
   try {
     const body = (await request.json()) as AllyRequest;
     const { language, scenario, topic, previousInterventions = [], transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, triggeringState, participationMetrics, semanticDynamics, existingIdeas = [] } = body;
@@ -143,7 +63,6 @@ export async function POST(request: NextRequest) {
     const isGerman = language.startsWith('de');
 
     // Use v2 prompt if triggeringState is available, otherwise v1
-    let userPrompt: string;
     const topicText = topic || 'Not specified';
 
     // Build existing ideas context
@@ -155,31 +74,25 @@ export async function POST(request: NextRequest) {
         : `The group's existing ideas:\n${ideasList}\n\nYour impulse should open NEW perspectives that NONE of these ideas cover.`;
     }
 
-    if (triggeringState) {
-      userPrompt = (isGerman ? USER_PROMPT_V2_DE : USER_PROMPT_V2_EN)
-        .replace('{topic}', topicText)
-        .replace('{triggeringState}', triggeringState)
-        .replace('{previousInterventions}', interventionContext)
-        .replace('{totalTurns}', String(totalTurns))
-        .replace('{transcriptExcerpt}', excerptText)
-        .replace('{existingIdeasContext}', existingIdeasContext)
-        .replace('{participationRiskScore}', String(participationMetrics?.participationRiskScore?.toFixed(2) ?? 'N/A'))
-        .replace('{noveltyRate}', String(semanticDynamics?.noveltyRate?.toFixed(2) ?? 'N/A'))
-        .replace('{clusterConcentration}', String(semanticDynamics?.clusterConcentration?.toFixed(2) ?? 'N/A'));
-    } else {
-      userPrompt = (isGerman ? USER_PROMPT_DE : USER_PROMPT_EN)
-        .replace('{topic}', topicText)
-        .replace('{previousInterventions}', interventionContext)
-        .replace('{totalTurns}', String(totalTurns))
-        .replace('{transcriptExcerpt}', excerptText);
-    }
+    // Build user prompt using centralized prompt builder
+    const userPrompt = buildAllyUserPrompt(language, {
+      topic: topicText,
+      previousInterventions: interventionContext,
+      totalTurns: String(totalTurns),
+      transcriptExcerpt: excerptText,
+      triggeringState: triggeringState || '',
+      existingIdeasContext,
+      participationRiskScore: participationMetrics?.participationRiskScore?.toFixed(2) ?? 'N/A',
+      noveltyRate: semanticDynamics?.noveltyRate?.toFixed(2) ?? 'N/A',
+      clusterConcentration: semanticDynamics?.clusterConcentration?.toFixed(2) ?? 'N/A',
+    }, !!triggeringState);
 
     try {
       const { text, logEntry } = await callLLM(
         'ally_intervention',
         routingConfig,
         [
-          { role: 'system', content: getSystemPrompt(language) },
+          { role: 'system', content: getAllySystemPrompt(language) },
           { role: 'user', content: userPrompt },
         ],
         apiKey
@@ -200,7 +113,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         role: 'ally',
-        text: getFallbackResponse(language),
+        text: getAllyFallbackResponse(language),
         timestamp: Date.now(),
         logEntry,
         fallback: true,
@@ -213,30 +126,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// --- Fallback Responses ---
-// Used only when the LLM call itself fails (e.g. network error, all models down).
-// NOT used when API key is missing — that returns 503 instead.
-
-function getFallbackResponse(language: string): string {
-  const isGerman = language.startsWith('de');
-
-  const fallbacks = {
-    en: [
-      "What if we approached this from the opposite direction entirely?",
-      "Imagine explaining this to a five-year-old. What would change?",
-      "What would make this solution completely fail? Now flip that.",
-      "If this had to be fun, how would it look different?",
-    ],
-    de: [
-      "Was wäre, wenn wir das Ganze komplett umdrehen würden?",
-      "Stellt euch vor, ihr erklärt das einem Fünfjährigen. Was würde sich ändern?",
-      "Was würde diese Lösung garantiert zum Scheitern bringen? Jetzt dreht das um.",
-      "Wenn das Spass machen müsste, wie sähe es dann aus?",
-    ],
-  };
-
-  const options = isGerman ? fallbacks.de : fallbacks.en;
-  return options[Math.floor(Math.random() * options.length)];
 }

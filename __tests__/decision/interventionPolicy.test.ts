@@ -44,12 +44,15 @@ function makeMetrics(overrides: Partial<MetricSnapshot> = {}): MetricSnapshot {
       silentParticipantRatio: 0,
       dominanceStreakScore: 0.1,
       participationRiskScore: 0.1,
+      cumulativeParticipationImbalance: 0.2,
     },
     semanticDynamics: {
       noveltyRate: 0.7,
       clusterConcentration: 0.2,
       explorationElaborationRatio: 0.7,
       semanticExpansionScore: 0.1,
+      ideationalFluencyRate: 6,
+      piggybackingScore: 0.5,
     },
     ...overrides,
   };
@@ -224,6 +227,7 @@ describe('evaluatePolicy', () => {
         silentParticipantRatio: 0.5,
         dominanceStreakScore: 0.7,
         participationRiskScore: 0.7,
+        cumulativeParticipationImbalance: 0.7,
       },
     });
 
@@ -242,6 +246,7 @@ describe('evaluatePolicy', () => {
         silentParticipantRatio: 0,
         dominanceStreakScore: 0.1,
         participationRiskScore: 0.2,
+        cumulativeParticipationImbalance: 0.3,
       },
     });
 
@@ -268,6 +273,7 @@ describe('evaluatePolicy', () => {
         silentParticipantRatio: 0.5,
         dominanceStreakScore: 0.7,
         participationRiskScore: 0.7,
+        cumulativeParticipationImbalance: 0.7,
       },
     });
 
@@ -286,6 +292,7 @@ describe('evaluatePolicy', () => {
         silentParticipantRatio: 0.5,
         dominanceStreakScore: 0.7,
         participationRiskScore: 0.7,
+        cumulativeParticipationImbalance: 0.7,
       },
     });
 
@@ -313,6 +320,7 @@ describe('evaluatePolicy', () => {
         silentParticipantRatio: 0.5,
         dominanceStreakScore: 0.7,
         participationRiskScore: 0.7,
+        cumulativeParticipationImbalance: 0.7,
       },
     });
 
@@ -628,5 +636,122 @@ describe('evaluatePolicy with intervention history (fatigue)', () => {
     // Normal cooldown (1x)
     const expectedCooldownMs = config.COOLDOWN_SECONDS * 1000;
     expect(result.nextEngineState.cooldownUntil).toBe(now + expectedCooldownMs);
+  });
+});
+
+// --- Confirmation Reset Fix Tests (Fix D) ---
+
+describe('evaluatePolicy — confirmation reset with oscillating risk states', () => {
+  it('fires intervention when oscillating between two risk states (100% risk, <70% each)', () => {
+    const now = Date.now();
+    const confirmStart = now - (config.CONFIRMATION_SECONDS + 5) * 1000;
+
+    // Create history alternating between STALLED_DISCUSSION and CONVERGENCE_RISK
+    // Both are risk states, but neither individually reaches 70%
+    const history: MetricSnapshot[] = [];
+    for (let i = 0; i < 10; i++) {
+      const state = i % 2 === 0 ? 'STALLED_DISCUSSION' : 'CONVERGENCE_RISK';
+      history.push(makeMetrics({
+        id: `hist-${i}`,
+        timestamp: confirmStart + i * 3000,
+        inferredState: makeInference(state, 0.65),
+      }));
+    }
+
+    const engine = makeEngineState({
+      phase: 'CONFIRMING',
+      confirmingSince: confirmStart,
+      confirmingState: 'STALLED_DISCUSSION',
+    });
+
+    const result = evaluatePolicy(
+      makeInference('STALLED_DISCUSSION', 0.65),
+      makeMetrics(),
+      history,
+      engine,
+      config,
+      'A',
+      now,
+    );
+
+    // Should fire because 100% of snapshots are in a risk state
+    expect(result.shouldIntervene).toBe(true);
+    // Should target the most frequent risk state (50/50 split, STALLED wins by tiebreak
+    // as it's the current confirming state)
+    expect(result.intent).not.toBeNull();
+  });
+
+  it('does NOT fire when <70% of snapshots are in any risk state', () => {
+    const now = Date.now();
+    const confirmStart = now - (config.CONFIRMATION_SECONDS + 5) * 1000;
+
+    // Create history with mix of risk and healthy states
+    // Only 4 out of 10 (40%) are risk states — should NOT fire
+    const history: MetricSnapshot[] = [];
+    for (let i = 0; i < 10; i++) {
+      const state = i < 4 ? 'STALLED_DISCUSSION' : 'HEALTHY_EXPLORATION';
+      history.push(makeMetrics({
+        id: `hist-${i}`,
+        timestamp: confirmStart + i * 3000,
+        inferredState: makeInference(state, 0.65),
+      }));
+    }
+
+    const engine = makeEngineState({
+      phase: 'CONFIRMING',
+      confirmingSince: confirmStart,
+      confirmingState: 'STALLED_DISCUSSION',
+    });
+
+    const result = evaluatePolicy(
+      makeInference('STALLED_DISCUSSION', 0.65),
+      makeMetrics(),
+      history,
+      engine,
+      config,
+      'A',
+      now,
+    );
+
+    expect(result.shouldIntervene).toBe(false);
+    expect(result.reason).toContain('not persistent');
+  });
+
+  it('targets the MOST FREQUENT risk state in the window', () => {
+    const now = Date.now();
+    const confirmStart = now - (config.CONFIRMATION_SECONDS + 5) * 1000;
+
+    // 7 CONVERGENCE_RISK, 3 STALLED_DISCUSSION — all risk, CONVERGENCE most frequent
+    const history: MetricSnapshot[] = [];
+    for (let i = 0; i < 10; i++) {
+      const state = i < 7 ? 'CONVERGENCE_RISK' : 'STALLED_DISCUSSION';
+      history.push(makeMetrics({
+        id: `hist-${i}`,
+        timestamp: confirmStart + i * 3000,
+        inferredState: makeInference(state, 0.65),
+      }));
+    }
+
+    const engine = makeEngineState({
+      phase: 'CONFIRMING',
+      confirmingSince: confirmStart,
+      // Originally confirming STALLED, but CONVERGENCE is more frequent
+      confirmingState: 'STALLED_DISCUSSION',
+    });
+
+    const result = evaluatePolicy(
+      makeInference('STALLED_DISCUSSION', 0.65),
+      makeMetrics(),
+      history,
+      engine,
+      config,
+      'A',
+      now,
+    );
+
+    expect(result.shouldIntervene).toBe(true);
+    // Should override to CONVERGENCE_RISK's intent since it's most frequent
+    expect(result.intent).toBe('PERSPECTIVE_BROADENING');
+    expect(result.triggeringState).toBe('CONVERGENCE_RISK');
   });
 });

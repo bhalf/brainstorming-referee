@@ -154,6 +154,11 @@ function evaluateReactivationRecovery(
 }
 
 // --- ALLY_IMPULSE ---
+// The ally post-check window is only 60s, but the metric window is 180s.
+// This means 2/3 of the data in the current metrics is from BEFORE the
+// ally intervention. To avoid systematic false negatives, thresholds are
+// relaxed (~÷3) so that genuine improvement in the 60s post-intervention
+// segment can move the overall metrics enough to be detected.
 
 function evaluateAllyRecovery(
   current: MetricSnapshot,
@@ -164,17 +169,17 @@ function evaluateAllyRecovery(
 
   const prevNovelty = atIntervention.semanticDynamics?.noveltyRate ?? 0;
   const currNovelty = current.semanticDynamics?.noveltyRate ?? 0;
-  const noveltyImproved = currNovelty - prevNovelty >= 0.05;
+  const noveltyImproved = currNovelty - prevNovelty >= 0.02; // Relaxed from 0.05
   details.noveltyRate = { before: prevNovelty, after: currNovelty, improved: noveltyImproved };
 
   const prevRisk = atIntervention.participation?.participationRiskScore ?? 0;
   const currRisk = current.participation?.participationRiskScore ?? 0;
-  const riskImproved = prevRisk - currRisk >= 0.05;
+  const riskImproved = prevRisk - currRisk >= 0.02; // Relaxed from 0.05
   details.participationRiskScore = { before: prevRisk, after: currRisk, improved: riskImproved };
 
   const prevStagnation = atIntervention.stagnationDuration;
   const currStagnation = current.stagnationDuration;
-  const stagnationImproved = prevStagnation - currStagnation >= 15;
+  const stagnationImproved = prevStagnation - currStagnation >= 5; // Relaxed from 15s
   details.stagnationDuration = { before: prevStagnation, after: currStagnation, improved: stagnationImproved };
 
   const recovered = noveltyImproved || riskImproved || stagnationImproved;

@@ -100,12 +100,15 @@ const sampleMetrics: MetricSnapshot = {
     silentParticipantRatio: 0,
     dominanceStreakScore: 0.1,
     participationRiskScore: 0.25,
+    cumulativeParticipationImbalance: 0.35,
   },
   semanticDynamics: {
     noveltyRate: 0.8,
     clusterConcentration: 0.4,
     explorationElaborationRatio: 0.65,
     semanticExpansionScore: 0.5,
+    ideationalFluencyRate: 6,
+    piggybackingScore: 0.5,
   },
   inferredState: {
     state: 'HEALTHY_EXPLORATION',

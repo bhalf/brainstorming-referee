@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
 
   // Brainstorming Rules
   RULE_CHECK_ENABLED: true,
+  RULE_VIOLATION_COOLDOWN_MS: 45_000,
 
   // Thresholds
   THRESHOLD_SILENT_PARTICIPANT: 0.05,
@@ -31,12 +32,19 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   RECOVERY_IMPROVEMENT_THRESHOLD: 0.15,
 
   // Computation parameters
-  NOVELTY_COSINE_THRESHOLD: 0.65,
-  CLUSTER_MERGE_THRESHOLD: 0.60,
-  STAGNATION_NOVELTY_THRESHOLD: 0.70,
-  EXPLORATION_COSINE_THRESHOLD: 0.55,
-  ELABORATION_COSINE_THRESHOLD: 0.70,
+  // ⚠️ CALIBRATED via scripts/calibrate-thresholds.ts (2026-03-09)
+  // Tested with text-embedding-3-small AND text-embedding-3-large.
+  // Both models produce nearly identical cosine distributions:
+  //   Same-topic pairs: 0.55–0.69, different-topic: 0.15–0.35, median: 0.27
+  // Original values (0.55–0.70) were near-unreachable, causing the system
+  // to almost never detect stagnation or convergence in practice.
+  NOVELTY_COSINE_THRESHOLD: 0.45,
+  CLUSTER_MERGE_THRESHOLD: 0.35,
+  STAGNATION_NOVELTY_THRESHOLD: 0.50,
+  EXPLORATION_COSINE_THRESHOLD: 0.30,
+  ELABORATION_COSINE_THRESHOLD: 0.50,
   PARTICIPATION_RISK_WEIGHTS: [0.35, 0.25, 0.25, 0.15],
+  CUMULATIVE_WINDOW_SECONDS: 600,
 };
 
 // --- Config Validation ---
@@ -66,6 +74,8 @@ export const CONFIG_CONSTRAINTS = {
   STAGNATION_NOVELTY_THRESHOLD: { min: 0.30, max: 0.90 },
   EXPLORATION_COSINE_THRESHOLD: { min: 0.20, max: 0.85 },
   ELABORATION_COSINE_THRESHOLD: { min: 0.40, max: 0.95 },
+  RULE_VIOLATION_COOLDOWN_MS: { min: 10_000, max: 120_000 },
+  CUMULATIVE_WINDOW_SECONDS: { min: 180, max: 1200 },
   // PARTICIPATION_RISK_WEIGHTS validated separately (must sum to 1)
   // RULE_CHECK_ENABLED is boolean, not numeric — validated separately
 } as const;

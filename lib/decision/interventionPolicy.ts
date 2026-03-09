@@ -311,19 +311,25 @@ function handleMonitoring(
     );
   }
 
-  // Persistence check: ≥70% of snapshots in confirmation window must have same inferred state
+  // Persistence check: ≥70% of snapshots in confirmation window must have been in a RISK state.
+  // Changed from checking a single specific state to ANY risk state, because groups can
+  // oscillate between e.g. STALLED_DISCUSSION and CONVERGENCE_RISK — both are problematic,
+  // and neither reaching 70% alone would reset the timer even though the group was at risk 100%.
+  // When the threshold IS met, we fire the intervention for the most frequent risk state.
   const windowStart = currentTime - effectiveConfirmationSeconds * 1000;
-  const snapshotsInWindow = metricsHistory.filter(m => m.timestamp >= windowStart);
+  const snapshotsInWindow = metricsHistory
+    .filter(m => m.timestamp >= windowStart && m.inferredState != null);
 
   if (snapshotsInWindow.length > 0) {
-    const matchCount = snapshotsInWindow.filter(
-      m => m.inferredState?.state === currentStateName,
-    ).length;
-    const ratio = matchCount / snapshotsInWindow.length;
+    // Count snapshots in ANY risk state
+    const riskSnapshots = snapshotsInWindow.filter(
+      m => RISK_STATES.includes(m.inferredState?.state as ConversationStateName),
+    );
+    const riskRatio = riskSnapshots.length / snapshotsInWindow.length;
 
-    if (ratio < 0.70) {
+    if (riskRatio < 0.70) {
       return {
-        ...noIntervention(engineState, `State fluctuating (${(ratio * 100).toFixed(0)}% persistence) — resetting`),
+        ...noIntervention(engineState, `Risk state not persistent (${(riskRatio * 100).toFixed(0)}% risk, ${snapshotsInWindow.length} samples) — resetting`),
         stateUpdateOnly: {
           confirmingSince: currentTime,
           confirmingState: currentStateName,
@@ -331,7 +337,59 @@ function handleMonitoring(
         },
       };
     }
+
+    // Threshold met — find the most frequent risk state to target
+    if (riskSnapshots.length > 0) {
+      const riskCounts: Partial<Record<ConversationStateName, number>> = {};
+      for (const snap of riskSnapshots) {
+        const s = snap.inferredState?.state as ConversationStateName;
+        riskCounts[s] = (riskCounts[s] || 0) + 1;
+      }
+      // Pick the risk state with the highest count
+      let bestState = currentStateName;
+      let bestCount = 0;
+      for (const [state, count] of Object.entries(riskCounts)) {
+        if (count > bestCount && RISK_STATES.includes(state as ConversationStateName)) {
+          bestState = state as ConversationStateName;
+          bestCount = count;
+        }
+      }
+      // Override currentStateName with the most frequent risk state
+      if (bestState !== currentStateName) {
+        // Re-derive intent from the most frequent risk state
+        const overrideIntent = STATE_TO_INTENT[bestState];
+        if (overrideIntent) {
+          const trigger = intentToTrigger(overrideIntent);
+          const effectiveCooldownMs = config.COOLDOWN_SECONDS * history.cooldownMultiplier * 1000;
+          const fatigueReason = history.fatigueActive
+            ? ` [fatigue: ${history.consecutiveFailures} consecutive failures, ${history.cooldownMultiplier}x cooldown]`
+            : '';
+
+          return {
+            shouldIntervene: true,
+            intent: overrideIntent,
+            role: 'moderator',
+            triggeringState: bestState,
+            stateConfidence: confidence,
+            reason: `Risk state confirmed (${bestState} most frequent) — firing ${overrideIntent}${fatigueReason}`,
+            nextEngineState: {
+              ...engineState,
+              phase: 'POST_CHECK' as EnginePhase,
+              confirmingSince: null,
+              confirmingState: null,
+              postCheckStartTime: currentTime,
+              postCheckIntent: overrideIntent,
+              cooldownUntil: currentTime + effectiveCooldownMs,
+              metricsAtIntervention: metrics,
+            },
+            stateUpdateOnly: null,
+          };
+        }
+      }
+    }
+    // else: persistence ≥ 70% with currentStateName as most frequent — fall through to fire
   }
+  // If 0 qualified snapshots: insufficient data — skip persistence check, allow intervention to fire
 
   // Confirmed — fire intervention
   const intent = STATE_TO_INTENT[currentStateName];
@@ -499,17 +557,15 @@ function handlePostCheck(
 }
 
 // --- COOLDOWN Phase ---
+// NOTE: The global cooldown guard at the top of evaluatePolicy() already handles
+// the in-progress cooldown case for ALL phases (including COOLDOWN itself).
+// By the time we reach handleCooldown(), cooldownUntil is either null or expired.
 
 function handleCooldown(
   engineState: DecisionEngineState,
   currentTime: number,
 ): PolicyDecision {
-  if (engineState.cooldownUntil && currentTime < engineState.cooldownUntil) {
-    const remaining = Math.ceil((engineState.cooldownUntil - currentTime) / 1000);
-    return noIntervention(engineState, `Post-escalation cooldown (${remaining}s remaining)`);
-  }
-
-  // Cooldown expired — return to monitoring
+  // Cooldown expired (or never set) — return to monitoring
   const monitoringState: Partial<DecisionEngineState> = {
     phase: 'MONITORING' as EnginePhase,
     postCheckStartTime: null,

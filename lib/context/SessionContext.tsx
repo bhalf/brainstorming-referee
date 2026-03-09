@@ -17,6 +17,8 @@ import {
 } from '../types';
 import { DEFAULT_CONFIG } from '../config';
 import { PROMPT_VERSION } from '../config/promptVersion';
+import { apiFireAndForget } from '@/lib/services/apiClient';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 
 // --- Initial States ---
 
@@ -322,12 +324,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const endSession = useCallback((sessionId?: string | null) => {
     // Persist to server if sessionId is provided
     if (sessionId) {
-      fetch('/api/session', {
+      apiFireAndForget('/api/session', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),
         keepalive: true, // Ensures request completes even during navigation
-      }).catch(() => { }); // best-effort
+      });
     }
     dispatch({ type: 'END_SESSION' });
   }, []);
@@ -380,19 +381,17 @@ export function SessionProvider({ children }: SessionProviderProps) {
     dispatch({ type: 'ADD_IDEA_CONNECTION', payload: connection });
   }, []);
 
-  const sessionIdRef = React.useRef<string | null>(null);
-  React.useEffect(() => { sessionIdRef.current = state.sessionId; }, [state.sessionId]);
+  const sessionIdRef = useLatestRef(state.sessionId);
 
   const addError = useCallback((message: string, context?: string) => {
     dispatch({ type: 'ADD_ERROR', payload: { message, context } });
     // Fire-and-forget persist to DB
     const sid = sessionIdRef.current;
     if (sid) {
-      fetch('/api/errors', {
+      apiFireAndForget('/api/errors', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: sid, timestamp: Date.now(), message, context }),
-      }).catch(() => { }); // best-effort
+      });
     }
   }, []);
 

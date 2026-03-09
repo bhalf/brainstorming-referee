@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
+import { apiPost, apiDelete } from '@/lib/services/apiClient';
 
 interface UseDecisionOwnershipParams {
   sessionId: string | null;
@@ -15,31 +17,24 @@ export function useDecisionOwnership({
 }: UseDecisionOwnershipParams) {
   const [isDecisionOwner, setIsDecisionOwner] = useState(false);
   const clientIdRef = useRef<string>(crypto.randomUUID());
-  const sessionIdRef = useRef(sessionId);
-
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
+  // useLatestRef keeps sessionId in sync without manual useEffect
+  const sessionIdRef = useLatestRef(sessionId);
 
   const claimOrHeartbeat = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return false;
 
     try {
-      const res = await fetch('/api/decision-owner', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: sid, clientId: clientIdRef.current }),
+      const data = await apiPost<{ isOwner: boolean }>('/api/decision-owner', {
+        sessionId: sid,
+        clientId: clientIdRef.current,
       });
-      if (res.ok) {
-        const data = await res.json();
-        return data.isOwner === true;
-      }
+      return data.isOwner === true;
     } catch {
       // Network error — assume not owner
     }
     return false;
-  }, []);
+  }, [sessionIdRef]);
 
   const releaseOwnership = useCallback(() => {
     const sid = sessionIdRef.current;
@@ -50,7 +45,7 @@ export function useDecisionOwnership({
     if (navigator.sendBeacon) {
       navigator.sendBeacon('/api/decision-owner', new Blob([body], { type: 'application/json' }));
     }
-  }, []);
+  }, [sessionIdRef]);
 
   useEffect(() => {
     // Participants never try to claim
@@ -64,7 +59,6 @@ export function useDecisionOwnership({
 
     const run = async () => {
       const claimed = await claimOrHeartbeat();
-      console.log('[DecisionOwnership] claim result:', claimed, 'sessionId:', sessionId);
       if (isMounted) {
         setIsDecisionOwner(claimed);
       }
@@ -87,14 +81,13 @@ export function useDecisionOwnership({
       // Release ownership on unmount (session end, navigation)
       const sid = sessionIdRef.current;
       if (sid) {
-        fetch('/api/decision-owner', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: sid, clientId: clientIdRef.current }),
-        }).catch(() => {});
+        apiDelete('/api/decision-owner', {
+          sessionId: sid,
+          clientId: clientIdRef.current,
+        }).catch(() => { });
       }
     };
-  }, [isActive, isParticipant, sessionId, claimOrHeartbeat, releaseOwnership]);
+  }, [isActive, isParticipant, sessionId, claimOrHeartbeat, releaseOwnership, sessionIdRef]);
 
   return { isDecisionOwner };
 }

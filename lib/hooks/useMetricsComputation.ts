@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, MutableRefObject } from 'react';
 import { TranscriptSegment, MetricSnapshot, ExperimentConfig, ConversationStateInference } from '@/lib/types';
 import { computeMetricsAsync } from '@/lib/metrics/computeMetrics';
 import { inferConversationState } from '@/lib/state/inferConversationState';
-import { fetchWithRetry } from '@/lib/utils/fetchWithRetry';
+import { persistMetricsSnapshot } from '@/lib/services/metricsService';
+import { STAGGER_METRICS_MS } from '@/lib/decision/tickConfig';
 
 interface UseMetricsComputationParams {
   isActive: boolean;
@@ -57,50 +58,7 @@ export function useMetricsComputation({
   useEffect(() => {
     if (!isActive || !isDecisionOwner) return;
 
-    // Run first computation immediately (don't wait for interval)
-    const computeOnce = async () => {
-      if (isComputingRef.current) return;
-      const segments = transcriptSegmentsRef.current;
-      if (segments.length === 0) return;
-      isComputingRef.current = true;
-
-      try {
-        const now = Date.now();
-        const metrics = await computeMetricsAsync(
-          segments, config, now,
-          speakingTimeRef.current,
-          metricsHistoryRef.current,
-          participantCountRef?.current,
-        );
-        const inference = inferConversationState(metrics, previousInferenceRef.current, now);
-        metrics.inferredState = inference;
-        previousInferenceRef.current = inference;
-        setCurrentMetrics(metrics);
-        setMetricsHistory(prev => [...prev.slice(-50), metrics]);
-        setStateHistory(prev => [...prev.slice(-200), inference]);
-        setLastComputedAt(Date.now());
-        setComputationError(null);
-        if (sessionIdRef.current) {
-          await fetchWithRetry('/api/metrics/snapshot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: sessionIdRef.current, snapshot: metrics }),
-            maxRetries: 2,
-            silent: true,
-          });
-        }
-      } catch (error) {
-        console.error('Initial metrics computation error:', error);
-        setComputationError(error instanceof Error ? error.message : 'Unknown error');
-      } finally {
-        isComputingRef.current = false;
-      }
-    };
-
-    // Trigger initial computation after a short delay (wait for first segments)
-    const initialTimeout = setTimeout(computeOnce, 1500);
-
-    const interval = setInterval(async () => {
+    const performComputation = async () => {
       if (isComputingRef.current) return;
       const segments = transcriptSegmentsRef.current;
       if (segments.length === 0) return;
@@ -134,16 +92,8 @@ export function useMetricsComputation({
         setStateHistory(prev => [...prev.slice(-200), inference]);
         setLastComputedAt(Date.now());
         setComputationError(null);
-
-        // Persist to Supabase (awaited so Realtime fires reliably for all clients)
         if (sessionIdRef.current) {
-          await fetchWithRetry('/api/metrics/snapshot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: sessionIdRef.current, snapshot: metrics }),
-            maxRetries: 2,
-            silent: true,
-          });
+          persistMetricsSnapshot(sessionIdRef.current, metrics);
         }
       } catch (error) {
         console.error('Metrics computation error:', error);
@@ -151,13 +101,19 @@ export function useMetricsComputation({
       } finally {
         isComputingRef.current = false;
       }
-    }, config.ANALYZE_EVERY_MS);
+    };
+
+    // Trigger initial computation after stagger delay (coordinated with other ticks)
+    const initialTimeout = setTimeout(performComputation, STAGGER_METRICS_MS);
+
+    // Then schedule recurring compute interval
+    const interval = setInterval(performComputation, config.ANALYZE_EVERY_MS);
 
     return () => {
       clearTimeout(initialTimeout);
       clearInterval(interval);
     };
-  }, [isActive, isDecisionOwner, config, transcriptSegmentsRef, speakingTimeRef, participantCountRef]);
+  }, [isActive, isDecisionOwner, config, participantCountRef, transcriptSegmentsRef, speakingTimeRef]);
 
   return {
     currentMetrics,

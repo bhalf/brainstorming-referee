@@ -14,9 +14,11 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
     process(inputs, _outputs, _parameters) {
         const input = inputs[0];
         if (input && input.length > 0 && input[0].length > 0) {
-            // Copy the Float32 channel data and send it to the main thread
-            const channelData = input[0];
-            this.port.postMessage(channelData, [channelData.buffer]);
+            // Explicitly copy before transferring — the AudioWorklet spec guarantees
+            // a fresh Float32Array each process() call, but the copy makes ownership
+            // semantics unambiguous across all browser implementations.
+            const copy = inputs[0][0].slice();
+            this.port.postMessage(copy, [copy.buffer]);
         }
         return true; // Keep the processor alive
     }

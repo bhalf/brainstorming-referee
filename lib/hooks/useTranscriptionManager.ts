@@ -1,10 +1,8 @@
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
 import { TranscriptSegment } from '@/lib/types';
-import { useSpeechRecognition } from '@/lib/transcription/useSpeechRecognition';
+import { generateId } from '@/lib/utils/generateId';
 import { useOpenAIRealtimeStream } from '@/lib/transcription/useOpenAIRealtimeStream';
-
-/** Max ms since last local speaking event to accept a Speech Recognition result */
-const ECHO_GATE_MS = 3000;
+import { useSpeechRecognition } from '@/lib/transcription/useSpeechRecognition';
 
 interface UseTranscriptionManagerParams {
   language: string;
@@ -15,7 +13,6 @@ interface UseTranscriptionManagerParams {
   /** Updated by LiveKit when local participant is speaking — used to filter echo */
   lastLocalSpeakingTimeRef?: MutableRefObject<number | null>;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
-
   addError: (message: string, context?: string) => void;
   uploadSegment: (segment: TranscriptSegment) => void;
   broadcastInterimTranscript?: (text: string, language?: string) => void;
@@ -27,9 +24,7 @@ export function useTranscriptionManager({
   isSessionActive,
   isMuted = false,
   displayName,
-  lastLocalSpeakingTimeRef,
   addTranscriptSegment,
-
   addError,
   uploadSegment,
   broadcastInterimTranscript,
@@ -40,6 +35,10 @@ export function useTranscriptionManager({
   // Local interim state for OpenAI Realtime
   const [realtimeInterimTranscript, setRealtimeInterimTranscript] = useState<string>('');
 
+  // Stable broadcast ref — kept in sync so callbacks always use the latest function
+  const broadcastInterimRef = useRef(broadcastInterimTranscript);
+  useEffect(() => { broadcastInterimRef.current = broadcastInterimTranscript; }, [broadcastInterimTranscript]);
+
   // Add segment helper (updates local state + context)
   const addSegment = useCallback((segment: TranscriptSegment) => {
     addTranscriptSegment(segment);
@@ -49,80 +48,82 @@ export function useTranscriptionManager({
     }
   }, [addTranscriptSegment, uploadSegment, broadcastFinalTranscript]);
 
-  // 1. OpenAI Realtime streaming (Primary)
+  // --- Web Speech API ---
+  // When Realtime is enabled: used ONLY for live interim display (yellow box).
+  //   Final segments come exclusively from OpenAI Realtime — no duplication.
+  // When Realtime is disabled: used as full fallback, producing final segments.
+  const isRealtimeEnabledRef = useRef(isRealtimeEnabled);
+  useEffect(() => { isRealtimeEnabledRef.current = isRealtimeEnabled; }, [isRealtimeEnabled]);
+
+  const {
+    isSupported: isWebSpeechSupported,
+    interimTranscript: speechInterimTranscript,
+    start: startSpeechRecognition,
+    stop: stopSpeechRecognition,
+  } = useSpeechRecognition({
+    language,
+    continuous: true,
+    interimResults: true,
+    onResult: useCallback((result: { isFinal: boolean; text: string }) => {
+      if (result.isFinal && result.text && !isRealtimeEnabledRef.current) {
+        // Only produce segments when Realtime is OFF (fallback mode)
+        const segment: TranscriptSegment = {
+          id: generateId('ws'),
+          speaker: displayName,
+          text: result.text.trim(),
+          timestamp: Date.now(),
+          isFinal: true,
+          language,
+        };
+        addSegment(segment);
+      }
+      // When Realtime is ON: ignore Web Speech finals entirely.
+      // OpenAI Realtime provides the authoritative final transcript.
+    }, [displayName, language, addSegment]),
+  });
+
+  // Start/stop speech recognition in sync with session & mute state
+  useEffect(() => {
+    if (isSessionActive && !isMuted) {
+      startSpeechRecognition();
+    } else {
+      stopSpeechRecognition();
+    }
+  }, [isSessionActive, isMuted, startSpeechRecognition, stopSpeechRecognition]);
+
+  // Compute the interim transcript to display in the yellow box:
+  // - When Realtime is active: prefer OpenAI interim; fall back to Web Speech interim
+  // - When Realtime is off: use Web Speech interim
+  const displayInterim = isRealtimeEnabled
+    ? (realtimeInterimTranscript || speechInterimTranscript)
+    : speechInterimTranscript;
+
+  // Broadcast interim to peers when it changes
+  useEffect(() => {
+    broadcastInterimRef.current?.(displayInterim, language);
+  }, [displayInterim, language]);
+
+  // --- OpenAI Realtime streaming (Primary) ---
   const realtime = useOpenAIRealtimeStream({
     language,
     speaker: displayName,
     isActive: isSessionActive && isRealtimeEnabled,
     isMuted,
-    onInterimTranscript: (text) => {
+    onInterimTranscript: useCallback((text: string) => {
       setRealtimeInterimTranscript(text);
-      if (broadcastInterimTranscript) {
-        broadcastInterimTranscript(text, language);
-      }
-    },
-    onFinalSegment: (segment) => {
+      broadcastInterimRef.current?.(text, language);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [language]),
+    onFinalSegment: useCallback((segment: TranscriptSegment) => {
+      // Clear interim FIRST so the yellow preview box disappears in the same
+      // render batch that the final white segment appears
+      setRealtimeInterimTranscript('');
+      // Broadcast empty interim so peer overlay clears immediately
+      broadcastInterimRef.current?.('', language);
       addSegment(segment);
-    }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [addSegment, language]),
   });
-
-  // 2. Speech recognition (Fallback)
-  const {
-    isSupported: isTranscriptionSupported,
-    isListening: isSpeechTranscribing,
-    interimTranscript: speechInterimTranscript,
-    toggle: toggleSpeechTranscription,
-    error: transcriptionError,
-  } = useSpeechRecognition({
-    language,
-    continuous: true,
-    interimResults: true,
-    onResult: useCallback((result: { id: string; text: string; timestamp: number; isFinal: boolean }) => {
-      // Echo gate: if LiveKit is connected and local user hasn't spoken recently,
-      // this is likely echo from remote audio played through speakers — drop it
-      if (lastLocalSpeakingTimeRef?.current !== null && lastLocalSpeakingTimeRef?.current !== undefined) {
-        if (Date.now() - lastLocalSpeakingTimeRef.current > ECHO_GATE_MS) {
-          return;
-        }
-      }
-
-      if (result.isFinal) {
-        const segment: TranscriptSegment = {
-          id: result.id,
-          speaker: displayName,
-          text: result.text,
-          timestamp: result.timestamp,
-          isFinal: result.isFinal,
-          language,
-        };
-        addSegment(segment);
-      }
-    }, [language, displayName, addSegment, lastLocalSpeakingTimeRef]),
-    onError: useCallback((error: string) => {
-      if (!isRealtimeEnabled) {
-        addError(error, 'speech-recognition');
-      }
-    }, [addError, isRealtimeEnabled]),
-  });
-
-  // Auto-start fallback transcription when realtime is disabled
-  // Use a ref to track desired fallback state and a one-shot effect to apply it,
-  // avoiding the infinite loop from toggle → state change → re-trigger effect → toggle
-  const fallbackDesiredRef = useRef(false);
-  useEffect(() => {
-    const shouldUseFallback = isSessionActive && !isRealtimeEnabled && isTranscriptionSupported;
-    fallbackDesiredRef.current = shouldUseFallback;
-
-    // Apply desired state if it differs from current
-    if (shouldUseFallback && !isSpeechTranscribing) {
-      toggleSpeechTranscription();
-    } else if (!shouldUseFallback && isSpeechTranscribing) {
-      toggleSpeechTranscription();
-    }
-    // Intentionally omit isSpeechTranscribing and toggleSpeechTranscription from deps
-    // to break the re-trigger cycle. We only want to react to config changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSessionActive, isRealtimeEnabled, isTranscriptionSupported]);
 
   // Bubble up Realtime errors
   useEffect(() => {
@@ -135,7 +136,7 @@ export function useTranscriptionManager({
   // Simulation fallback
   const handleAddSimulatedSegment = useCallback((text: string) => {
     const segment: TranscriptSegment = {
-      id: `sim-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: generateId('sim'),
       speaker: 'Simulated',
       text,
       timestamp: Date.now(),
@@ -146,11 +147,11 @@ export function useTranscriptionManager({
   }, [language, addSegment]);
 
   return {
-    interimTranscript: isRealtimeEnabled ? realtimeInterimTranscript : speechInterimTranscript,
-    isTranscribing: isRealtimeEnabled ? realtime.isConnected : isSpeechTranscribing,
-    isTranscriptionSupported: isRealtimeEnabled ? realtime.isSupported : (isTranscriptionSupported && !isRealtimeEnabled),
-    toggleTranscription: toggleSpeechTranscription, // Note: mostly for fallback manual control
-    transcriptionError: isRealtimeEnabled ? realtime.error : transcriptionError,
+    interimTranscript: displayInterim,
+    isTranscribing: realtime.isConnected,
+    isTranscriptionSupported: realtime.isSupported,
+    toggleTranscription: () => { /* Realtime-only: no manual toggle needed */ },
+    transcriptionError: realtime.error,
 
     // Realtime controls
     isRealtimeEnabled,

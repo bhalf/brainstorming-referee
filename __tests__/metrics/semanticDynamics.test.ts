@@ -169,6 +169,8 @@ describe('computeSemanticExpansionScore', () => {
           clusterConcentration: 0.8,
           explorationElaborationRatio: 0.3,
           semanticExpansionScore: 0,
+          ideationalFluencyRate: 4,
+          piggybackingScore: 0.5,
         },
       }),
     ];
@@ -184,6 +186,8 @@ describe('computeSemanticExpansionScore', () => {
           clusterConcentration: 0.3,
           explorationElaborationRatio: 0.7,
           semanticExpansionScore: 0,
+          ideationalFluencyRate: 6,
+          piggybackingScore: 0.5,
         },
       }),
     ];

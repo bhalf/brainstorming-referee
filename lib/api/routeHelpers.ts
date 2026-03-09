@@ -39,3 +39,28 @@ export function loadRoutingConfig(): ModelRoutingConfig {
   }
   return config;
 }
+
+/**
+ * Wraps a Next.js route handler with standardised error handling.
+ * Catches thrown errors and returns a consistent JSON error response.
+ *
+ * Usage:
+ *   export const POST = withErrorHandler(async (request) => { ... });
+ */
+export function withErrorHandler(
+  handler: (request: Request) => Promise<NextResponse>,
+): (request: Request) => Promise<NextResponse> {
+  return async (request: Request) => {
+    try {
+      return await handler(request);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      const status = (error as { status?: number }).status ?? 500;
+      console.error(`[API Error] ${request.url}:`, message);
+      return NextResponse.json(
+        { error: message, code: 'INTERNAL_ERROR' },
+        { status },
+      );
+    }
+  };
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { generateId } from '@/lib/utils/generateId';
 
 // Types for Web Speech API (not included in standard TS lib)
 interface SpeechRecognitionEvent extends Event {
@@ -85,11 +86,6 @@ export interface UseSpeechRecognitionReturn {
   error: string | null;
 }
 
-// --- Utility: Generate unique ID ---
-const generateId = (): string => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
-
 // --- Hook ---
 
 export function useSpeechRecognition(
@@ -114,6 +110,7 @@ export function useSpeechRecognition(
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldRestartRef = useRef(false);
   const isStartingRef = useRef(false);
+  const isRunningRef = useRef(false); // true only between onstart and onend
   const onResultRef = useRef(onResult);
   const onErrorRef = useRef(onError);
 
@@ -145,26 +142,33 @@ export function useSpeechRecognition(
 
     recognition.onstart = () => {
       isStartingRef.current = false;
+      isRunningRef.current = true;
       setIsListening(true);
       setError(null);
     };
 
     recognition.onend = () => {
+      isRunningRef.current = false;
       setIsListening(false);
       isStartingRef.current = false;
       // Auto-restart if still should be listening (handles browser auto-stop)
-      if (shouldRestartRef.current && !isStartingRef.current) {
+      if (shouldRestartRef.current) {
         setTimeout(() => {
-          if (shouldRestartRef.current && !isStartingRef.current && recognitionRef.current) {
+          if (shouldRestartRef.current && !isStartingRef.current && !isRunningRef.current && recognitionRef.current) {
             try {
               isStartingRef.current = true;
               recognitionRef.current.start();
             } catch (e) {
               isStartingRef.current = false;
+              // InvalidStateError means recognition is already running — that's fine
+              if (e instanceof DOMException && e.name === 'InvalidStateError') {
+                isRunningRef.current = true; // It's actually running
+                return;
+              }
               console.error('Failed to restart recognition:', e);
             }
           }
-        }, 300);
+        }, 500);
       }
     };
 
@@ -197,7 +201,7 @@ export function useSpeechRecognition(
           finalTranscript += text;
 
           const newResult: TranscriptResult = {
-            id: generateId(),
+            id: generateId('sr'),
             text: text.trim(),
             isFinal: true,
             timestamp: Date.now(),
@@ -228,7 +232,7 @@ export function useSpeechRecognition(
 
   // Start recognition
   const start = useCallback(() => {
-    if (!recognitionRef.current || isListening || isStartingRef.current) return;
+    if (!recognitionRef.current || isStartingRef.current || isRunningRef.current) return;
 
     try {
       isStartingRef.current = true;
@@ -236,11 +240,16 @@ export function useSpeechRecognition(
       recognitionRef.current.start();
     } catch (e) {
       isStartingRef.current = false;
+      if (e instanceof DOMException && e.name === 'InvalidStateError') {
+        // Already running — just mark as running
+        isRunningRef.current = true;
+        return;
+      }
       const errorMsg = e instanceof Error ? e.message : 'Failed to start recognition';
       setError(errorMsg);
       onErrorRef.current?.(errorMsg);
     }
-  }, [isListening]);
+  }, []);
 
   // Stop recognition
   const stop = useCallback(() => {
@@ -248,6 +257,7 @@ export function useSpeechRecognition(
 
     shouldRestartRef.current = false;
     isStartingRef.current = false;
+    isRunningRef.current = false;
     recognitionRef.current.stop();
     setInterimTranscript('');
   }, []);

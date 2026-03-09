@@ -1,9 +1,10 @@
 import type { TranscriptSegment } from '@/lib/types';
+import { apiPost } from '@/lib/services/apiClient';
 
 // --- Constants ---
 
-/** Minimum interval between rule checks (ms) */
-export const RULE_CHECK_INTERVAL_MS = 3_000;
+/** Minimum interval between rule checks (ms) — throttled to avoid API rate limits */
+export const RULE_CHECK_INTERVAL_MS = 15_000;
 
 // NOTE: Rule violations have NO cooldown — they fire immediately when detected.
 
@@ -20,7 +21,7 @@ export interface RuleViolationResult {
 
 /**
  * Check recent transcript segments for brainstorming rule violations.
- * Calls /api/rule-check which uses gpt-5-mini for classification.
+ * Calls /api/rule-check which uses gpt-4o-mini for classification.
  *
  * Returns null if there are no new segments to check or on error.
  */
@@ -47,24 +48,19 @@ export async function checkRuleViolations(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    const response = await fetch('/api/rule-check', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ segments: recentSegments, language }),
-      signal: controller.signal,
-    });
+    const data = await apiPost<{ violated: boolean; rule?: string; severity?: string; evidence?: string }>(
+      '/api/rule-check',
+      { segments: recentSegments, language },
+      { signal: controller.signal, maxRetries: 0 },
+    );
 
     clearTimeout(timeoutId);
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
 
     if (data.violated) {
       return {
         violated: true,
         rule: data.rule ?? undefined,
-        severity: data.severity ?? undefined,
+        severity: data.severity as RuleViolationResult['severity'] ?? undefined,
         evidence: data.evidence ?? undefined,
       };
     }

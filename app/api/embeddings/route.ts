@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
+import { generateId } from '@/lib/utils/generateId';
 
 // POST – compute embeddings for a batch of texts
 export async function POST(request: NextRequest) {
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
                 );
 
                 const logEntry = {
-                    id: `llm-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                    id: generateId('llm'),
                     timestamp: Date.now(),
                     task: 'embeddings_similarity' as const,
                     provider: taskConfig.provider,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { supabase } from '@/lib/supabase/client';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
@@ -42,11 +43,8 @@ export function useSupabaseChannel<TRow>({
     onError,
 }: UseSupabaseChannelParams<TRow>): UseSupabaseChannelReturn {
     // Stable ref for the callback to avoid re-subscribing on every render
-    const onPayloadRef = useRef(onPayload);
-    useEffect(() => { onPayloadRef.current = onPayload; }, [onPayload]);
-
-    const onErrorRef = useRef(onError);
-    useEffect(() => { onErrorRef.current = onError; }, [onError]);
+    const onPayloadRef = useLatestRef(onPayload);
+    const onErrorRef = useLatestRef(onError);
 
     const reconnectAttemptsRef = useRef(0);
     const channelRef = useRef<RealtimeChannel | null>(null);

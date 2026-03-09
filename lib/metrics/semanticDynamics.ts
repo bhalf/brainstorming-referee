@@ -5,12 +5,12 @@
 import { TranscriptSegment, SemanticDynamicsMetrics, MetricSnapshot, ExperimentConfig } from '../types';
 import { cosineSimilarity } from './embeddingCache';
 import { DEFAULT_CONFIG } from '../config';
+import { isActivityMarker } from '../utils/transcript';
+import { STOPWORDS } from '../utils/stopwords';
 
 const MAX_SEGMENTS = 30;
 const NOVELTY_WINDOW = 20;
 const JACCARD_MERGE_THRESHOLD = 0.40;
-
-const isActivityMarker = (seg: TranscriptSegment) => /^\[.*\]$/.test(seg.text.trim());
 
 function getFinalSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return segments.filter(s => s.isFinal && !isActivityMarker(s) && s.text.trim().length > 3);
@@ -204,10 +204,12 @@ export function computeSemanticExpansionScore(
   currentNoveltyRate: number,
   previousSnapshots: MetricSnapshot[],
 ): number {
-  // Get last 5 snapshots that have semantic dynamics
+  // Get last 12 snapshots (~60s at 5s intervals) that have semantic dynamics.
+  // Using 12 instead of 5 reduces window overlap with the 180s metric window,
+  // making expansion trends more visible over time.
   const withDynamics = previousSnapshots
     .filter(s => s.semanticDynamics)
-    .slice(-5);
+    .slice(-12);
 
   if (withDynamics.length === 0) return 0; // Neutral when no history
 
@@ -224,6 +226,86 @@ export function computeSemanticExpansionScore(
 
   const score = 0.5 * deltaConcentration + 0.5 * deltaNovelty;
   return Math.max(-1, Math.min(1, score));
+}
+
+// --- Ideational Fluency Rate ---
+// Measures substantive turns per minute (Osborn's "quantity first" rule).
+// A drop in fluency is a strong signal for STALLED_DISCUSSION.
+
+export function computeIdeationalFluencyRate(
+  segments: TranscriptSegment[],
+): number {
+  const finalSegs = getFinalSegments(segments);
+  // Only count substantive turns (> 2 words, excluding backchannels).
+  // Lowered from > 5 to capture short but productive brainstorming contributions
+  // like "KI-Integration!" or "Punkte-System!" (Popcorn-Brainstorming).
+  // Backchannels ("ja", "mhm") are already filtered upstream by isBackchannel().
+  const substantive = finalSegs.filter(s => {
+    const words = s.text.trim().split(/\s+/).filter(w => w.length > 0);
+    return words.length > 2;
+  });
+
+  if (substantive.length < 2) return 0;
+
+  const earliest = substantive[0].timestamp;
+  const latest = substantive[substantive.length - 1].timestamp;
+  const durationMinutes = (latest - earliest) / 60_000;
+
+  if (durationMinutes < 0.5) return 0; // Need at least 30s of data
+
+  return substantive.length / durationMinutes;
+}
+
+// --- Piggybacking / Build-on Score ---
+// Cosine similarity between consecutive cross-speaker turns.
+// High score = speakers are building on each other's ideas ("Yes, and...").
+// Low score = speakers are ignoring each other (parallel monologues).
+
+export function computePiggybackingScore(
+  segments: TranscriptSegment[],
+  embeddings: Map<string, number[]>,
+): number {
+  const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
+  if (finalSegs.length < 3) return 0.5; // Neutral — insufficient data
+
+  let totalSim = 0;
+  let pairCount = 0;
+
+  for (let i = 1; i < finalSegs.length; i++) {
+    // Only measure cross-speaker transitions
+    if (finalSegs[i].speaker === finalSegs[i - 1].speaker) continue;
+
+    const currentEmb = embeddings.get(finalSegs[i].id);
+    const prevEmb = embeddings.get(finalSegs[i - 1].id);
+    if (!currentEmb || !prevEmb) continue;
+
+    totalSim += cosineSimilarity(currentEmb, prevEmb);
+    pairCount++;
+  }
+
+  return pairCount > 0 ? totalSim / pairCount : 0.5;
+}
+
+// --- Piggybacking Fallback (Jaccard-based) ---
+
+function computePiggybackingScoreFallback(
+  segments: TranscriptSegment[],
+): number {
+  const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
+  if (finalSegs.length < 3) return 0.5;
+
+  const wordSets = finalSegs.map(s => getWordSet(s.text));
+  let totalSim = 0;
+  let pairCount = 0;
+
+  for (let i = 1; i < finalSegs.length; i++) {
+    if (finalSegs[i].speaker === finalSegs[i - 1].speaker) continue;
+    const sim = jaccardSimilarity(wordSets[i], wordSets[i - 1]);
+    totalSim += sim;
+    pairCount++;
+  }
+
+  return pairCount > 0 ? totalSim / pairCount : 0.5;
 }
 
 // --- Main Orchestrator (with embeddings) ---
@@ -249,32 +331,22 @@ export function computeSemanticDynamicsMetrics(
     previousSnapshots,
   );
 
+  const ideationalFluencyRate = computeIdeationalFluencyRate(segments);
+  const piggybackingScore = computePiggybackingScore(segments, embeddings);
+
   return {
     noveltyRate,
     clusterConcentration,
     explorationElaborationRatio,
     semanticExpansionScore,
+    ideationalFluencyRate,
+    piggybackingScore,
   };
 }
 
 // --- Fallback (no embeddings) ---
 // Uses Jaccard word-set similarity instead of cosine on embeddings.
-
-// Stopwords for English and German — common function words that inflate Jaccard similarity
-const STOPWORDS = new Set([
-  // English
-  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was',
-  'one', 'our', 'out', 'has', 'have', 'that', 'this', 'with', 'they', 'from', 'been',
-  'will', 'also', 'just', 'more', 'some', 'than', 'them', 'then', 'very', 'what', 'when',
-  'who', 'how', 'its', 'let', 'into', 'about', 'would', 'could', 'should', 'there',
-  'their', 'which', 'other', 'were', 'does', 'done', 'being', 'these', 'those',
-  // German
-  'der', 'die', 'das', 'und', 'ist', 'ein', 'eine', 'für', 'von', 'mit', 'auf', 'den',
-  'dem', 'des', 'sich', 'als', 'auch', 'nach', 'wie', 'über', 'nicht', 'noch', 'bei',
-  'aber', 'aus', 'dass', 'hat', 'ich', 'wir', 'sie', 'man', 'mir', 'uns', 'was', 'war',
-  'wird', 'haben', 'sind', 'oder', 'nur', 'schon', 'dann', 'eben', 'also', 'wenn',
-  'doch', 'kann', 'hier', 'gibt', 'zum', 'zur', 'einen', 'einer', 'einem', 'eines',
-]);
+// Stopwords imported from shared utils (lib/utils/stopwords.ts)
 
 function getWordSet(text: string): Set<string> {
   return new Set(
@@ -302,6 +374,8 @@ export function computeSemanticDynamicsFallback(
       clusterConcentration: 0.5,
       explorationElaborationRatio: 0.5,
       semanticExpansionScore: 0,
+      ideationalFluencyRate: 0,
+      piggybackingScore: 0.5,
     };
   }
 
@@ -386,10 +460,15 @@ export function computeSemanticDynamicsFallback(
     previousSnapshots,
   );
 
+  const ideationalFluencyRate = computeIdeationalFluencyRate(segments);
+  const piggybackingFallback = computePiggybackingScoreFallback(segments);
+
   return {
     noveltyRate,
     clusterConcentration,
     explorationElaborationRatio,
     semanticExpansionScore,
+    ideationalFluencyRate,
+    piggybackingScore: piggybackingFallback,
   };
 }

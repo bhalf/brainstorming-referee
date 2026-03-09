@@ -23,6 +23,7 @@ export interface ParticipationMetrics {
   silentParticipantRatio: number;            // 0-1: fraction with <5% volume
   dominanceStreakScore: number;              // 0-1: consecutive-turn dominance
   participationRiskScore: number;            // 0-1: weighted composite
+  cumulativeParticipationImbalance: number;  // 0-1: Hoover index over longer window (600s)
 }
 
 // --- Semantic Dynamics Metrics (v2) ---
@@ -32,6 +33,8 @@ export interface SemanticDynamicsMetrics {
   clusterConcentration: number;              // 0-1: 1=all one cluster
   explorationElaborationRatio: number;       // 0-1: 1=pure exploration
   semanticExpansionScore: number;            // -1 to 1: positive=expanding
+  ideationalFluencyRate: number;             // substantive turns per minute (Osborn: quantity first)
+  piggybackingScore: number;                 // 0-1: avg cross-speaker build-on similarity
 }
 
 // --- Conversation State Inference (v2) ---
@@ -151,6 +154,7 @@ export interface ExperimentConfig {
 
   // Brainstorming Rules
   RULE_CHECK_ENABLED: boolean; // Whether to check Osborn's brainstorming rules (default: true)
+  RULE_VIOLATION_COOLDOWN_MS: number; // Cooldown after a rule violation intervention (default: 45000)
 
   // Thresholds
   THRESHOLD_SILENT_PARTICIPANT: number;       // 0.05 — volumeShare below this = silent
@@ -167,6 +171,7 @@ export interface ExperimentConfig {
   EXPLORATION_COSINE_THRESHOLD: number;       // 0.55 — avg cosine similarity below this = exploration
   ELABORATION_COSINE_THRESHOLD: number;       // 0.70 — max cosine similarity above this = elaboration
   PARTICIPATION_RISK_WEIGHTS: [number, number, number, number]; // [hoover, silent, streak, turnHoover] must sum to 1
+  CUMULATIVE_WINDOW_SECONDS: number; // Longer window for participation metrics (default: 600)
 }
 
 // --- Model Routing Log ---

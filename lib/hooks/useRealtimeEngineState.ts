@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { useSupabaseChannel } from '@/lib/hooks/sync/useSupabaseChannel';
 import { engineStateRowToApp } from '@/lib/supabase/converters';
 import { DecisionEngineState } from '@/lib/types';
@@ -25,8 +26,7 @@ export function useRealtimeEngineState({
   isDecisionOwner,
   updateDecisionState,
 }: UseRealtimeEngineStateParams) {
-  const isDecisionOwnerRef = useRef(isDecisionOwner);
-  useEffect(() => { isDecisionOwnerRef.current = isDecisionOwner; }, [isDecisionOwner]);
+  const isDecisionOwnerRef = useLatestRef(isDecisionOwner);
 
   const onPayload = useCallback((row: EngineStateRow) => {
     // Skip if we are the decision owner — we already have local state

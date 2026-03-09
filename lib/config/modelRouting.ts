@@ -13,7 +13,8 @@ export type ModelTaskKey =
     | 'embeddings_similarity'
     | 'transcription_server'
     | 'idea_extraction'
-    | 'rule_check';
+    | 'rule_check'
+    | 'live_summary';
 
 export const MODEL_TASK_KEYS: ModelTaskKey[] = [
     'moderator_intervention',
@@ -22,6 +23,7 @@ export const MODEL_TASK_KEYS: ModelTaskKey[] = [
     'transcription_server',
     'idea_extraction',
     'rule_check',
+    'live_summary',
 ];
 
 export const TASK_LABELS: Record<ModelTaskKey, string> = {
@@ -31,6 +33,7 @@ export const TASK_LABELS: Record<ModelTaskKey, string> = {
     transcription_server: 'Transcription',
     idea_extraction: 'Idea Extraction',
     rule_check: 'Rule Check',
+    live_summary: 'Live Summary',
 };
 
 export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
@@ -40,6 +43,7 @@ export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
     transcription_server: 'Server-side ASR (disabled by default, uses Web Speech API)',
     idea_extraction: 'Extract brainstorming ideas from transcript for the idea board',
     rule_check: 'Classify transcript segments for brainstorming rule violations',
+    live_summary: 'Generate rolling summary of the brainstorming session',
 };
 
 // --- Provider & Model Definitions ---
@@ -73,6 +77,7 @@ export function getModelsForTask(task: ModelTaskKey): ModelOption[] {
         case 'ally_intervention':
         case 'idea_extraction':
         case 'rule_check':
+        case 'live_summary':
             return AVAILABLE_MODELS.filter((m) => m.type === 'chat');
         case 'embeddings_similarity':
             return AVAILABLE_MODELS.filter((m) => m.type === 'embedding');
@@ -154,6 +159,15 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         temperature: 0,
         maxTokens: 150,
         timeoutMs: 5000,
+        fallbacks: [{ provider: 'openai', model: 'gpt-4o-mini' }],
+        enabled: true,
+    },
+    live_summary: {
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        temperature: 0.3,
+        maxTokens: 600,
+        timeoutMs: 15000,
         fallbacks: [{ provider: 'openai', model: 'gpt-4o-mini' }],
         enabled: true,
     },

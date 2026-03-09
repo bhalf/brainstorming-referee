@@ -21,16 +21,22 @@ export default function TranscriptTab({ transcript }: { transcript: TranscriptCo
       <div className="p-3 border-b border-slate-700 flex items-center justify-between">
         <div className="flex items-center gap-2">
           {showSpeechControls ? (
-            <button
-              onClick={transcript.onToggleTranscription}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${transcript.isTranscribing
-                ? 'bg-red-600/80 hover:bg-red-600 text-white'
-                : 'bg-blue-600/80 hover:bg-blue-600 text-white'
-                }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${transcript.isTranscribing ? 'bg-white animate-pulse' : 'bg-white/50'}`} />
-              {transcript.isTranscribing ? 'Stop' : 'Start'} 🎤
-            </button>
+            transcript.isTranscribing ? (
+              // Connected & recording — show Stop button
+              <button
+                onClick={transcript.onToggleTranscription}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-red-600/80 hover:bg-red-600 text-white"
+              >
+                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                Recording 🎤
+              </button>
+            ) : (
+              // Not yet connected — show pulsing "Connecting..." indicator
+              <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-700/50 text-slate-300">
+                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                Connecting…
+              </span>
+            )
           ) : showWhisperStatus ? (
             <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-900/40 text-green-300 border border-green-700/50">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />

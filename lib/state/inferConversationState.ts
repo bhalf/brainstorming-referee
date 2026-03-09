@@ -67,11 +67,14 @@ function computeDominanceRiskConfidence(m: MetricSnapshot): number {
   const p = m.participation;
   if (!p) return 0;
 
+  // Use cumulative imbalance (longer window) to avoid "dominance amnesia"
+  const longTermImbalance = p.cumulativeParticipationImbalance;
+
   return (
-    0.35 * p.participationRiskScore +
+    0.30 * p.participationRiskScore +
     0.25 * p.silentParticipantRatio +
     0.20 * p.dominanceStreakScore +
-    0.20 * m.participationImbalance
+    0.25 * longTermImbalance
   );
 }
 
@@ -93,11 +96,18 @@ function computeStalledDiscussionConfidence(m: MetricSnapshot): number {
   const sd = m.semanticDynamics;
   if (!sd) return 0;
 
+  // Ideational fluency penalty: normalize turns/min to 0-1 penalty
+  // Typical healthy rate is ~4-8 turns/min; below 2 is concerning
+  // At rate=0 (silence), clamp(1-0/6)=1.0 → maximum penalty (correct).
+  // At rate=6 (healthy), clamp(1-6/6)=0.0 → no penalty.
+  const fluencyPenalty = clamp(1 - sd.ideationalFluencyRate / 6, 0, 1);
+
   return (
-    0.25 * (1 - sd.noveltyRate) +
-    0.30 * clamp(m.stagnationDuration / 180, 0, 1) +
-    0.25 * clamp(-sd.semanticExpansionScore, 0, 1) +
-    0.20 * (1 - m.diversityDevelopment)
+    0.20 * (1 - sd.noveltyRate) +
+    0.25 * clamp(m.stagnationDuration / 180, 0, 1) +
+    0.20 * clamp(-sd.semanticExpansionScore, 0, 1) +
+    0.15 * (1 - m.diversityDevelopment) +
+    0.20 * fluencyPenalty
   );
 }
 
@@ -219,10 +229,13 @@ export function inferConversationState(
     participationRiskScore: metrics.participation.participationRiskScore,
     silentParticipantRatio: metrics.participation.silentParticipantRatio,
     dominanceStreakScore: metrics.participation.dominanceStreakScore,
+    cumulativeImbalance: metrics.participation.cumulativeParticipationImbalance,
     noveltyRate: metrics.semanticDynamics.noveltyRate,
     clusterConcentration: metrics.semanticDynamics.clusterConcentration,
     explorationRatio: metrics.semanticDynamics.explorationElaborationRatio,
     expansionScore: metrics.semanticDynamics.semanticExpansionScore,
+    ideationalFluencyRate: metrics.semanticDynamics.ideationalFluencyRate,
+    piggybackingScore: metrics.semanticDynamics.piggybackingScore,
     stagnationDuration: metrics.stagnationDuration,
     diversity: metrics.diversityDevelopment,
     imbalance: metrics.participationImbalance,

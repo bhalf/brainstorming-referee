@@ -17,11 +17,15 @@ export async function POST(request: Request) {
         );
     }
 
-    // Parse optional language from request body
+    // Parse optional language from request body and normalize to ISO 639-1
     let language: string | null = null;
     try {
         const body = await request.json();
-        language = body.language || null;
+        const raw: string | null = body.language || null;
+        if (raw) {
+            // Normalize locale codes like 'de-CH' → 'de' (OpenAI only accepts ISO 639-1)
+            language = raw.split('-')[0].toLowerCase() || null;
+        }
     } catch {
         // No body or invalid JSON — auto-detect language
     }
@@ -37,12 +41,18 @@ export async function POST(request: Request) {
                 input_audio_format: 'pcm16',
                 input_audio_transcription: {
                     model: 'gpt-4o-mini-transcribe',
-                    language: language || null,
+                    // Omit language entirely when null — OpenAI rejects `null` but accepts
+                    // a missing field and auto-detects the language.
+                    ...(language ? { language } : {}),
                 },
                 turn_detection: {
                     type: 'server_vad',
-                    threshold: 0.4,
+                    threshold: 0.5, // slightly higher threshold to avoid breath noises
+                    // 300ms context before speech for better accuracy in
+                    // multi-participant sessions where speakers have varied pacing.
                     prefix_padding_ms: 300,
+                    // 200ms silence before committing a turn — makes the transcript move
+                    // to the final blue box almost instantly for a much better UX.
                     silence_duration_ms: 200,
                 },
                 input_audio_noise_reduction: {
