@@ -13,16 +13,19 @@ export async function GET(request: NextRequest) {
   const supabase = getServiceClient();
 
   // Fetch all data in parallel
-  const [sessionRes, segmentsRes, snapshotsRes, interventionsRes, routingRes, ideasRes, connectionsRes, annotationsRes] = await Promise.all([
-    supabase.from('sessions').select('*').eq('id', sessionId).single(),
-    supabase.from('transcript_segments').select('*').eq('session_id', sessionId).order('timestamp'),
-    supabase.from('metric_snapshots').select('*').eq('session_id', sessionId).order('timestamp'),
-    supabase.from('interventions').select('*').eq('session_id', sessionId).order('timestamp'),
-    supabase.from('model_routing_logs').select('*').eq('session_id', sessionId).order('timestamp'),
-    supabase.from('ideas').select('*').eq('session_id', sessionId).eq('is_deleted', false).order('created_at'),
-    supabase.from('idea_connections').select('*').eq('session_id', sessionId).order('created_at'),
-    supabase.from('intervention_annotations').select('*').eq('session_id', sessionId).order('created_at'),
-  ]);
+  const [sessionRes, segmentsRes, snapshotsRes, interventionsRes, routingRes,
+    ideasRes, connectionsRes, annotationsRes, errorsRes, eventsRes] = await Promise.all([
+      supabase.from('sessions').select('*').eq('id', sessionId).single(),
+      supabase.from('transcript_segments').select('*').eq('session_id', sessionId).order('timestamp'),
+      supabase.from('metric_snapshots').select('*').eq('session_id', sessionId).order('timestamp'),
+      supabase.from('interventions').select('*').eq('session_id', sessionId).order('timestamp'),
+      supabase.from('model_routing_logs').select('*').eq('session_id', sessionId).order('timestamp'),
+      supabase.from('ideas').select('*').eq('session_id', sessionId).eq('is_deleted', false).order('created_at'),
+      supabase.from('idea_connections').select('*').eq('session_id', sessionId).order('created_at'),
+      supabase.from('intervention_annotations').select('*').eq('session_id', sessionId).order('created_at'),
+      supabase.from('session_errors').select('*').eq('session_id', sessionId).order('timestamp'),
+      supabase.from('session_events').select('*').eq('session_id', sessionId).order('timestamp'),
+    ]);
 
   if (sessionRes.error || !sessionRes.data) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
@@ -72,6 +75,18 @@ export async function GET(request: NextRequest) {
       annotator: a.annotator,
       createdAt: a.created_at,
     })),
+    errors: (errorsRes.data || []).map(e => ({
+      timestamp: e.timestamp,
+      message: e.message,
+      context: e.context,
+    })),
+    events: (eventsRes.data || []).map(e => ({
+      eventType: e.event_type,
+      timestamp: e.timestamp,
+      payload: e.payload,
+      actor: e.actor,
+    })),
+    report: session.report ?? null,
   };
 
   return NextResponse.json(sessionLog);

@@ -9,10 +9,11 @@ export function persistIntervention(
     sessionId: string,
     intervention: Intervention,
     engineState?: DecisionEngineState,
+    ruleViolation?: { rule?: string; evidence?: string; severity?: string } | null,
 ): void {
     apiFireAndForget('/api/interventions', {
         method: 'POST',
-        body: JSON.stringify({ sessionId, intervention, engineState }),
+        body: JSON.stringify({ sessionId, intervention, engineState, ruleViolation }),
     }, 3);
 }
 

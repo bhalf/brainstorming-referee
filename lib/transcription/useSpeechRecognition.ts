@@ -174,11 +174,14 @@ export function useSpeechRecognition(
       setError(errorMessage);
       onErrorRef.current?.(errorMessage);
 
-      // Don't restart on certain errors
-      if (['not-allowed', 'audio-capture', 'no-speech', 'aborted'].includes(event.error)) {
+      // Only permanently stop on fatal errors
+      // 'no-speech' and 'network' are transient — let onend auto-restart handle them
+      if (['not-allowed', 'audio-capture', 'aborted'].includes(event.error)) {
         shouldRestartRef.current = false;
         setIsListening(false);
       }
+      // For 'no-speech' and 'network': keep shouldRestartRef=true
+      // so onend fires auto-restart after a brief delay
     };
 
     recognition.onresult = (event) => {
@@ -220,7 +223,7 @@ export function useSpeechRecognition(
       recognition.abort();
       recognitionRef.current = null;
     };
-  // onResult/onError accessed via refs — no need to restart recognition when callbacks change
+    // onResult/onError accessed via refs — no need to restart recognition when callbacks change
   }, [language, continuous, interimResults]);
 
   // Start recognition

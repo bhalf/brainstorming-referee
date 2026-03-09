@@ -5,8 +5,7 @@ import type { TranscriptSegment } from '@/lib/types';
 /** Minimum interval between rule checks (ms) */
 export const RULE_CHECK_INTERVAL_MS = 3_000;
 
-/** Minimum cooldown between violation interventions (ms) */
-export const RULE_VIOLATION_COOLDOWN_MS = 15_000;
+// NOTE: Rule violations have NO cooldown — they fire immediately when detected.
 
 // --- Types ---
 

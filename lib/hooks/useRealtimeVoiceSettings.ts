@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { VoiceSettings } from '@/lib/types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { logSessionEvent } from '@/lib/services/eventService';
 
 interface UseRealtimeVoiceSettingsParams {
   sessionId: string | null;
@@ -42,6 +43,9 @@ export function useRealtimeVoiceSettings({
     }).catch((err) => {
       console.error('Failed to persist voice settings:', err);
     });
+
+    // Log event for session timeline
+    logSessionEvent(sessionId, 'voice_settings_changed', 'Researcher', settings as Record<string, unknown>);
   }, [sessionId, isHost]);
 
   // Participants: subscribe to voice settings changes

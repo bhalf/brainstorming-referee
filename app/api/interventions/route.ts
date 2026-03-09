@@ -6,7 +6,7 @@ import { interventionToInsert } from '@/lib/supabase/converters';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sessionId, intervention, engineState } = body;
+    const { sessionId, intervention, engineState, ruleViolation } = body;
 
     if (!sessionId || !intervention) {
       return NextResponse.json({ error: 'sessionId and intervention required' }, { status: 400 });
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getServiceClient();
-    const row = interventionToInsert(intervention, sessionId, engineState);
+    const row = interventionToInsert(intervention, sessionId, engineState, ruleViolation ?? null);
 
     const { error } = await supabase
       .from('interventions')
@@ -63,11 +63,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ interventions: data || [] });
 }
 
-// PATCH — Update intervention status
+// PATCH — Update intervention status / recovery result
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, status, delivered_at } = body;
+    const { id, status, delivered_at, recovery_result, recovery_checked_at,
+      rule_violated, rule_evidence, rule_severity } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'id required' }, { status: 400 });
@@ -78,6 +79,11 @@ export async function PATCH(request: NextRequest) {
     const updates: Record<string, unknown> = {};
     if (status) updates.status = status;
     if (delivered_at) updates.delivered_at = delivered_at;
+    if (recovery_result !== undefined) updates.recovery_result = recovery_result;
+    if (recovery_checked_at !== undefined) updates.recovery_checked_at = recovery_checked_at;
+    if (rule_violated !== undefined) updates.rule_violated = rule_violated;
+    if (rule_evidence !== undefined) updates.rule_evidence = rule_evidence;
+    if (rule_severity !== undefined) updates.rule_severity = rule_severity;
 
     const { error } = await supabase
       .from('interventions')

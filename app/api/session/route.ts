@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
+import { generateSessionReport, generateLLMSessionSummary } from '@/lib/state/generateSessionReport';
 
 // POST — Create a new session (host only)
 export async function POST(request: NextRequest) {
@@ -159,7 +160,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// PATCH — End a session (also marks all participants as left)
+// PATCH — End a session (also marks all participants as left + generates report)
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -191,9 +192,60 @@ export async function PATCH(request: NextRequest) {
     }
 
     console.log(`[Session] Session ${sessionId} ended — all participants marked as left`);
+
+    // Generate post-session report asynchronously (best-effort, don't block response)
+    generateReport(supabase, sessionId).catch(err => {
+      console.error('[Session] Failed to generate report:', err);
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Session end error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function generateReport(supabase: any, sessionId: string) {
+  const [sessionRes, segmentsRes, snapshotsRes, interventionsRes, ideasRes, participantsRes] = await Promise.all([
+    supabase.from('sessions').select('started_at, ended_at, language').eq('id', sessionId).single(),
+    supabase.from('transcript_segments').select('speaker, text, timestamp').eq('session_id', sessionId).order('timestamp'),
+    supabase.from('metric_snapshots').select('timestamp, metrics, state_inference').eq('session_id', sessionId).order('timestamp'),
+    supabase.from('interventions').select('id, type, trigger, intent, message, timestamp, recovery_result, rule_violated, rule_evidence, rule_severity').eq('session_id', sessionId).order('timestamp'),
+    supabase.from('ideas').select('author').eq('session_id', sessionId).eq('is_deleted', false),
+    supabase.from('session_participants').select('identity, display_name, role').eq('session_id', sessionId),
+  ]);
+
+  if (!sessionRes.data) return;
+
+  const session = sessionRes.data;
+  const report = generateSessionReport(
+    new Date(session.started_at).getTime(),
+    session.ended_at ? new Date(session.ended_at).getTime() : null,
+    segmentsRes.data ?? [],
+    snapshotsRes.data ?? [],
+    interventionsRes.data ?? [],
+    ideasRes.data ?? [],
+    participantsRes.data ?? [],
+  );
+
+  // Generate LLM narrative summary (best-effort)
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (apiKey && report.overview.totalSegments > 0) {
+    try {
+      const summary = await generateLLMSessionSummary(report, session.language ?? 'en-US', apiKey);
+      report.llmSummary = summary;
+      console.log(`[Session] LLM summary generated for session ${sessionId}`);
+    } catch (err) {
+      console.error('[Session] LLM summary failed (non-blocking):', err);
+    }
+  }
+
+  await supabase
+    .from('sessions')
+    .update({ report: report as unknown as Record<string, unknown> })
+    .eq('id', sessionId);
+
+  console.log(`[Session] Report generated for session ${sessionId}`);
+}
+

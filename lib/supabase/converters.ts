@@ -61,6 +61,8 @@ export function interventionRowToApp(row: InterventionRow): Intervention {
     metricsAtTrigger: row.metrics_at_intervention as MetricSnapshot | null,
     intent: row.intent as Intervention['intent'],
     modelUsed: row.model ?? undefined,
+    recoveryResult: (row.recovery_result as Intervention['recoveryResult']) ?? undefined,
+    recoveryCheckedAt: row.recovery_checked_at ?? undefined,
   };
 }
 
@@ -68,6 +70,7 @@ export function interventionToInsert(
   intervention: Intervention,
   sessionId: string,
   engineState?: DecisionEngineState,
+  ruleViolation?: { rule?: string; evidence?: string; severity?: string } | null,
 ): InterventionInsert {
   return {
     id: intervention.id,
@@ -81,6 +84,10 @@ export function interventionToInsert(
     metrics_at_intervention: intervention.metricsAtTrigger as Record<string, unknown> | null,
     engine_state_snapshot: engineState as unknown as Record<string, unknown> | null,
     model: intervention.modelUsed ?? null,
+    recovery_result: intervention.recoveryResult ?? null,
+    rule_violated: ruleViolation?.rule ?? null,
+    rule_evidence: ruleViolation?.evidence ?? null,
+    rule_severity: ruleViolation?.severity ?? null,
   };
 }
 

@@ -116,6 +116,11 @@ export interface Database {
           metrics_at_intervention: Record<string, unknown> | null;
           engine_state_snapshot: Record<string, unknown> | null;
           model: string | null;
+          recovery_result: string | null;
+          recovery_checked_at: number | null;
+          rule_violated: string | null;
+          rule_evidence: string | null;
+          rule_severity: string | null;
           created_at: string;
         };
         Insert: {
@@ -131,11 +136,20 @@ export interface Database {
           metrics_at_intervention?: Record<string, unknown> | null;
           engine_state_snapshot?: Record<string, unknown> | null;
           model?: string | null;
+          recovery_result?: string | null;
+          rule_violated?: string | null;
+          rule_evidence?: string | null;
+          rule_severity?: string | null;
           created_at?: string;
         };
         Update: {
           status?: string;
           delivered_at?: number | null;
+          recovery_result?: string | null;
+          recovery_checked_at?: number | null;
+          rule_violated?: string | null;
+          rule_evidence?: string | null;
+          rule_severity?: string | null;
         };
       };
       engine_state: {
@@ -261,6 +275,79 @@ export interface Database {
           latency_ms?: number | null;
           token_count?: number | null;
           error?: string | null;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
+      };
+      intervention_annotations: {
+        Row: {
+          id: string;
+          intervention_id: string;
+          session_id: string;
+          rating: number | null;
+          relevance: string | null;
+          effectiveness: string | null;
+          notes: string | null;
+          annotator: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          intervention_id: string;
+          session_id: string;
+          rating?: number | null;
+          relevance?: string | null;
+          effectiveness?: string | null;
+          notes?: string | null;
+          annotator?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          rating?: number | null;
+          relevance?: string | null;
+          effectiveness?: string | null;
+          notes?: string | null;
+          updated_at?: string;
+        };
+      };
+      session_errors: {
+        Row: {
+          id: string;
+          session_id: string;
+          timestamp: number;
+          message: string;
+          context: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          timestamp: number;
+          message: string;
+          context?: string | null;
+          created_at?: string;
+        };
+        Update: Record<string, never>;
+      };
+      session_events: {
+        Row: {
+          id: string;
+          session_id: string;
+          event_type: string;
+          payload: Record<string, unknown> | null;
+          actor: string | null;
+          timestamp: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          event_type: string;
+          payload?: Record<string, unknown> | null;
+          actor?: string | null;
+          timestamp: number;
           created_at?: string;
         };
         Update: Record<string, never>;

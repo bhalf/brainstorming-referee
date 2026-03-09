@@ -135,9 +135,14 @@ The four brainstorming rules (Osborn's Rules) are:
 Full conversation transcript ({totalTurns} turns total):
 {transcriptExcerpt}
 
-Generate a brief, friendly reminder (1-2 sentences) of the violated brainstorming rule.
-Do NOT single out or blame anyone by name. Focus on the process and the rule.
-Frame it positively — remind what TO do, not what NOT to do.`,
+Generate a brief but PRECISE moderator reminder (2-3 sentences). You MUST:
+1. QUOTE or closely paraphrase the specific statement that violated the rule (e.g. "Gerade wurde gesagt '...'" or "I just heard someone say '...'").
+2. Name the violated rule in simple words (e.g. "that's evaluating during ideation" or "that narrows the ideas too early").
+3. Suggest what to do INSTEAD — give a concrete redirect (e.g. "What if we built on that idea by...?" or "How could we expand that further?").
+
+Do NOT use generic platitudes like "all ideas are welcome" or "let's keep an open mind".
+Do NOT name any participant. Refer to what was SAID, not who said it.
+Keep it warm and constructive, never scolding.`,
 };
 
 const INTENT_PROMPTS_DE: Record<string, string> = {
@@ -191,9 +196,14 @@ Die vier Brainstorming-Regeln (Osborn's Regeln) sind:
 Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
 {transcriptExcerpt}
 
-Formuliere eine kurze, freundliche Erinnerung (1-2 Sätze) an die verletzte Brainstorming-Regel.
-Nenne NIEMANDEN beim Namen und weise NIEMANDEN direkt zurecht. Fokussiere auf den Prozess und die Regel.
-Formuliere es positiv — erinnere daran, was man TUN soll, nicht was man NICHT tun soll.`,
+Formuliere eine kurze, aber PRÄZISE Moderations-Erinnerung (2-3 Sätze). Du MUSST:
+1. Die spezifische Aussage ZITIEREN oder eng umschreiben, die gegen die Regel verstossen hat (z.B. "Gerade wurde gesagt '...' —").
+2. Die verletzte Regel in einfachen Worten benennen (z.B. "das ist eine Bewertung während der Ideenfindung" oder "damit grenzen wir die Ideen zu früh ein").
+3. Einen konkreten VORSCHLAG machen, was stattdessen getan werden könnte (z.B. "Wie könnten wir stattdessen auf dieser Idee aufbauen?" oder "Was wäre, wenn wir den Gedanken weiterspinnen?").
+
+Verwende KEINE generischen Floskeln wie "alle Ideen sind willkommen" oder "lasst uns offen bleiben".
+Nenne KEINEN Teilnehmer beim Namen. Beziehe dich auf das was GESAGT wurde, nicht wer es gesagt hat.
+Bleibe dabei warm und konstruktiv, niemals belehrend.`,
 };
 
 // --- Combined Prompts (rule violation + metric issue) ---

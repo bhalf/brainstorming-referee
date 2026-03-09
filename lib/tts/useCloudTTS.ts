@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export type CloudTTSVoice = 'alloy' | 'ash' | 'coral' | 'echo' | 'fable' | 'nova' | 'onyx' | 'sage' | 'shimmer';
 
@@ -34,6 +34,11 @@ export function useCloudTTS(options: UseCloudTTSOptions = {}): UseCloudTTSReturn
 
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voice, setVoice] = useState<CloudTTSVoice>(defaultVoice);
+
+  // Sync internal voice state when the option prop changes
+  useEffect(() => {
+    setVoice(defaultVoice);
+  }, [defaultVoice]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const queueRef = useRef<string[]>([]);
@@ -106,7 +111,7 @@ export function useCloudTTS(options: UseCloudTTSOptions = {}): UseCloudTTSReturn
       isPlayingRef.current = false;
       setIsSpeaking(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voice, speed, volume]);
 
   const speak = useCallback((text: string): boolean => {

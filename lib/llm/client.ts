@@ -220,7 +220,31 @@ async function callOpenAIChatWithTimeout(
         const text = data.choices?.[0]?.message?.content?.trim();
 
         if (!text) {
-            throw new Error('Empty response from OpenAI');
+            // GPT-5 sometimes returns empty on first attempt — retry once before failing
+            console.warn(`[LLM Client] Empty response from ${model}, retrying once...`);
+            const retryResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    messages,
+                    ...tokenParam,
+                    ...(usesNewAPI ? {} : { temperature: config.temperature }),
+                    ...(responseFormat && { response_format: responseFormat }),
+                }),
+                signal: controller.signal,
+            });
+            if (retryResponse.ok) {
+                const retryData = await retryResponse.json();
+                const retryText = retryData.choices?.[0]?.message?.content?.trim();
+                if (retryText) {
+                    return { text: retryText, usage: retryData.usage };
+                }
+            }
+            throw new Error('Empty response from OpenAI (after retry)');
         }
 
         return {

@@ -21,7 +21,7 @@ const MIN_NEW_SEGMENTS_CATCHUP = 1;
 const CATCHUP_THRESHOLD_MS = 10_000;
 const STALE_REQUEST_MS = 8_000;
 const STAGGER_DELAY_MS = 300;
-const CONTEXT_WINDOW_SEGMENTS = 5;
+const CONTEXT_WINDOW_SEGMENTS = 15;
 
 const IDEA_COLORS = [
   'yellow', 'light-green', 'light-blue', 'light-red',
@@ -45,10 +45,11 @@ function getColorForAuthor(author: string): string {
 function calculatePosition(existingIdeas: Idea[], index: number, parentIdea?: Idea): { x: number; y: number } {
   const CELL_W = 320;
   const CELL_H = 260;
-  const CHILD_COLS = 3;  // max children per row under a category
-  const CHILD_INDENT = 40; // px indent for children vs parent
+  const MAX_COLS = 4;
+  const CHILD_COLS = 3;
+  const CHILD_INDENT = 40;
 
-  // If there's a parent idea, place children in a neat grid below the parent
+  // Children: grid below the parent
   if (parentIdea) {
     const existingSiblings = existingIdeas.filter(i => !i.isDeleted && i.parentId === parentIdea.id).length;
     const siblingIndex = existingSiblings + index;
@@ -60,8 +61,7 @@ function calculatePosition(existingIdeas: Idea[], index: number, parentIdea?: Id
     };
   }
 
-  // For categories and orphan ideas: place in the main grid
-  // Categories get column 0, orphan ideas fill remaining columns
+  // Top-level ideas: spread horizontally first, then wrap to next row
   const occupiedCells = new Set<string>();
   for (const idea of existingIdeas) {
     if (idea.isDeleted) continue;
@@ -70,24 +70,33 @@ function calculatePosition(existingIdeas: Idea[], index: number, parentIdea?: Id
     occupiedCells.add(`${col},${row}`);
   }
 
-  // Find the next free row (scan from first row downward)
-  const maxRow = existingIdeas.reduce((max, i) => {
+  // Count the total placed top-level ideas (non-deleted, no parent)
+  const placedCount = existingIdeas.filter(i => !i.isDeleted && !i.parentId).length + index;
+
+  // Simple grid: fill columns left-to-right, then wrap to next row
+  const targetCol = placedCount % MAX_COLS;
+  const targetRow = Math.floor(placedCount / MAX_COLS);
+
+  // If that cell is already taken, scan forward
+  if (!occupiedCells.has(`${targetCol},${targetRow}`)) {
+    return { x: targetCol * CELL_W, y: targetRow * CELL_H };
+  }
+
+  // Fallback: find any free cell (row by row, column by column)
+  const maxRow = Math.max(targetRow + 1, existingIdeas.reduce((max, i) => {
     if (i.isDeleted) return max;
     return Math.max(max, Math.round(i.positionY / CELL_H));
-  }, -1);
+  }, 0));
 
-  // Place in the first free cell from the next available position
-  let startRow = maxRow + 1;
-  // Try to fit in existing rows first
-  for (let r = 0; r <= startRow; r++) {
-    for (let c = 0; c < 4; c++) {
+  for (let r = 0; r <= maxRow + 1; r++) {
+    for (let c = 0; c < MAX_COLS; c++) {
       if (!occupiedCells.has(`${c},${r}`)) {
         return { x: c * CELL_W, y: r * CELL_H };
       }
     }
   }
 
-  return { x: 0, y: startRow * CELL_H };
+  return { x: 0, y: (maxRow + 1) * CELL_H };
 }
 
 export function useIdeaExtraction({
@@ -282,12 +291,30 @@ export function useIdeaExtraction({
         if (data.connections && Array.isArray(data.connections)) {
           const sid = sessionIdRef.current;
 
-          for (const conn of data.connections) {
-            // Resolve IDs: prefer explicit IDs from LLM, fall back to title matching
-            const sourceId = conn.sourceId || titleToId.get(conn.sourceTitle.toLowerCase().trim());
-            const targetId = conn.targetId || titleToId.get(conn.targetTitle.toLowerCase().trim());
+          // Build set of all known idea IDs (existing + newly created)
+          const knownIdeaIds = new Set<string>();
+          for (const idea of ideasRef.current) {
+            if (!idea.isDeleted) knownIdeaIds.add(idea.id);
+          }
+          for (const entry of newIdeaIds) {
+            knownIdeaIds.add(entry.id);
+          }
 
-            if (!sourceId || !targetId || sourceId === targetId) continue;
+          for (const conn of data.connections) {
+            // Resolve IDs: only trust LLM-provided IDs if they match a known idea.
+            // Otherwise use title-based resolution (LLM can't know client-generated UUIDs)
+            const sourceId = (conn.sourceId && knownIdeaIds.has(conn.sourceId))
+              ? conn.sourceId
+              : titleToId.get((conn.sourceTitle || '').toLowerCase().trim()) || null;
+            const targetId = (conn.targetId && knownIdeaIds.has(conn.targetId))
+              ? conn.targetId
+              : titleToId.get((conn.targetTitle || '').toLowerCase().trim()) || null;
+
+            if (!sourceId || !targetId || sourceId === targetId) {
+              console.log('[IdeaExtraction] Skipping connection — unresolved:', conn.sourceTitle, '→', conn.targetTitle,
+                '(sourceId:', sourceId, 'targetId:', targetId, ')');
+              continue;
+            }
 
             const connection: IdeaConnection = {
               id: `conn-${crypto.randomUUID()}`,
@@ -299,6 +326,7 @@ export function useIdeaExtraction({
               createdAt: Date.now(),
             };
 
+            console.log('[IdeaExtraction] Adding connection:', conn.sourceTitle, '→', conn.targetTitle, `(${conn.type || 'related'})`);
             addIdeaConnection(connection);
 
             if (sid) {

@@ -380,8 +380,20 @@ export function SessionProvider({ children }: SessionProviderProps) {
     dispatch({ type: 'ADD_IDEA_CONNECTION', payload: connection });
   }, []);
 
+  const sessionIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => { sessionIdRef.current = state.sessionId; }, [state.sessionId]);
+
   const addError = useCallback((message: string, context?: string) => {
     dispatch({ type: 'ADD_ERROR', payload: { message, context } });
+    // Fire-and-forget persist to DB
+    const sid = sessionIdRef.current;
+    if (sid) {
+      fetch('/api/errors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sid, timestamp: Date.now(), message, context }),
+      }).catch(() => { }); // best-effort
+    }
   }, []);
 
   const addModelRoutingLog = useCallback((entry: ModelRoutingLogEntry) => {

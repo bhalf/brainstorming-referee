@@ -52,13 +52,36 @@ function getColor(color: string) {
 
 // --- Connection type → edge style ---
 
-const EDGE_STYLES: Record<string, { stroke: string; label: string; animated: boolean }> = {
-  builds_on: { stroke: '#22c55e', label: 'builds on', animated: true },
-  contrasts: { stroke: '#ef4444', label: 'contrasts', animated: false },
-  supports: { stroke: '#3b82f6', label: 'supports', animated: true },
-  leads_to: { stroke: '#a855f7', label: 'leads to', animated: true },
-  related: { stroke: '#94a3b8', label: 'related', animated: false },
+const EDGE_STYLES: Record<string, { stroke: string; label: string; animated: boolean; icon: string }> = {
+  builds_on: { stroke: '#22c55e', label: 'builds on', animated: true, icon: '→' },
+  contrasts: { stroke: '#ef4444', label: 'contrasts', animated: false, icon: '↔' },
+  supports: { stroke: '#3b82f6', label: 'supports', animated: true, icon: '✦' },
+  leads_to: { stroke: '#a855f7', label: 'leads to', animated: true, icon: '⟶' },
+  related: { stroke: '#94a3b8', label: 'related', animated: false, icon: '∼' },
 };
+
+// --- Connection Legend ---
+
+const ConnectionLegend = memo(function ConnectionLegend() {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      {Object.entries(EDGE_STYLES).map(([key, style]) => (
+        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          <div style={{
+            width: 16, height: 2, backgroundColor: style.stroke,
+            borderRadius: 1,
+            ...(key === 'contrasts' || key === 'related' ? {} : { animation: 'pulse-line 1.5s infinite' }),
+          }} />
+          <span style={{ fontSize: 9, color: '#94a3b8' }}>{style.label}</span>
+        </div>
+      ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+        <div style={{ width: 16, height: 0, borderTop: '2px dashed #334155', borderRadius: 1 }} />
+        <span style={{ fontSize: 9, color: '#94a3b8' }}>contains</span>
+      </div>
+    </div>
+  );
+});
 
 // --- Custom Sticky Note Node ---
 
@@ -70,6 +93,8 @@ interface StickyNoteData {
   source: string;
   ideaType: string;
   childCount: number;
+  connectionCount: number;
+  isNew: boolean;
   onDelete: (id: string) => void;
   [key: string]: unknown;
 }
@@ -184,13 +209,51 @@ const StickyNoteNode = memo(function StickyNoteNode({ id, data }: NodeProps<Node
         }}>
           {data.author}
         </span>
+        {data.connectionCount > 0 && (
+          <span style={{
+            fontSize: 9,
+            fontWeight: 500,
+            padding: '1px 5px',
+            borderRadius: 9999,
+            color: '#94a3b8',
+            backgroundColor: 'rgba(148,163,184,0.15)',
+            border: '1px solid rgba(148,163,184,0.25)',
+          }}>
+            {data.connectionCount} ↔
+          </span>
+        )}
         {data.source === 'auto' && (
           <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>auto</span>
         )}
       </div>
+      {/* Pulse glow for new ideas */}
+      {data.isNew && (
+        <div style={{
+          position: 'absolute',
+          inset: -3,
+          borderRadius: 13,
+          border: `2px solid ${colors.border}`,
+          animation: 'idea-pulse 1.5s ease-out 2',
+          pointerEvents: 'none',
+          opacity: 0,
+        }} />
+      )}
     </div>
   );
 });
+
+// Inject keyframe animations
+if (typeof document !== 'undefined' && !document.getElementById('idea-board-styles')) {
+  const style = document.createElement('style');
+  style.id = 'idea-board-styles';
+  style.textContent = `
+    @keyframes idea-pulse {
+      0% { opacity: 0.8; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.08); }
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 const nodeTypes: NodeTypes = { stickyNote: StickyNoteNode };
 
@@ -209,6 +272,7 @@ export default function IdeaBoard({
 }: IdeaBoardProps) {
   const [nodes, setNodes] = useState<Node<StickyNoteData>[]>([]);
   const draggingNodeRef = useRef<string | null>(null);
+  const newIdeaIdsRef = useRef<Set<string>>(new Set());
 
   // Stable refs for callbacks used in node data
   const onRemoveIdeaRef = useRef(onRemoveIdea);
@@ -238,6 +302,27 @@ export default function IdeaBoard({
           childCounts.set(idea.parentId, (childCounts.get(idea.parentId) || 0) + 1);
         }
       }
+      // Count connections per idea
+      const connectionCounts = new Map<string, number>();
+      for (const conn of connections) {
+        connectionCounts.set(conn.sourceIdeaId, (connectionCounts.get(conn.sourceIdeaId) || 0) + 1);
+        connectionCounts.set(conn.targetIdeaId, (connectionCounts.get(conn.targetIdeaId) || 0) + 1);
+      }
+      // Detect new ideas (not yet in current nodes)
+      const currentIds = new Set(currentNodes.map(n => n.id));
+      for (const idea of activeIdeas) {
+        if (!currentIds.has(idea.id)) {
+          newIdeaIdsRef.current.add(idea.id);
+          // Remove "new" flag after 3 seconds
+          setTimeout(() => {
+            newIdeaIdsRef.current.delete(idea.id);
+            setNodes(prev => prev.map(n => n.id === idea.id
+              ? { ...n, data: { ...n.data, isNew: false } }
+              : n
+            ));
+          }, 3000);
+        }
+      }
       return activeIdeas.map(idea => {
         const existing = currentMap.get(idea.id);
         const isDragging = draggingNodeRef.current === idea.id;
@@ -256,13 +341,15 @@ export default function IdeaBoard({
             source: idea.source,
             ideaType: idea.ideaType || 'idea',
             childCount: childCounts.get(idea.id) || 0,
+            connectionCount: connectionCounts.get(idea.id) || 0,
+            isNew: newIdeaIdsRef.current.has(idea.id),
             onDelete: stableDelete,
           },
           ...(existing ? { selected: existing.selected } : {}),
         };
       });
     });
-  }, [activeIdeas, stableDelete]);
+  }, [activeIdeas, connections, stableDelete]);
 
   // Convert connections → React Flow edges (only if both source+target nodes exist)
   const edges: Edge[] = useMemo(() => {
@@ -283,11 +370,11 @@ export default function IdeaBoard({
           label,
           animated: style.animated,
           type: 'smoothstep',
-          style: { stroke: style.stroke, strokeWidth: 2 },
-          labelStyle: { fontSize: 9, fontWeight: 500, fill: '#64748b' },
-          labelBgStyle: { fill: '#0f172a', fillOpacity: 0.85 },
-          labelBgPadding: [4, 3] as [number, number],
-          labelBgBorderRadius: 4,
+          style: { stroke: style.stroke, strokeWidth: 2.5 },
+          labelStyle: { fontSize: 11, fontWeight: 500, fill: '#94a3b8' },
+          labelBgStyle: { fill: '#0f172a', fillOpacity: 0.9 },
+          labelBgPadding: [5, 4] as [number, number],
+          labelBgBorderRadius: 5,
         };
       });
 
@@ -378,6 +465,13 @@ export default function IdeaBoard({
             {connections.length > 0 ? `, ${connections.length} connection${connections.length !== 1 ? 's' : ''}` : ''})
           </span>
         </div>
+
+        {/* Compact connection legend */}
+        {!isCollapsed && connections.length > 0 && (
+          <div className="hidden md:flex">
+            <ConnectionLegend />
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           {!isCollapsed && (

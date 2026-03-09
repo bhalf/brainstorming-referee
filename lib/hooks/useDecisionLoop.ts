@@ -14,7 +14,7 @@ import {
 import { evaluatePolicy, intentToTrigger, resetInterventionCountIfNeeded, generateInterventionContext } from '@/lib/decision/interventionPolicy';
 import { apiFireAndForget } from '@/lib/services/apiClient';
 import { persistIntervention as persistInterventionApi } from '@/lib/services/interventionService';
-import { checkRuleViolations, RULE_CHECK_INTERVAL_MS, RULE_VIOLATION_COOLDOWN_MS, RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
+import { checkRuleViolations, RULE_CHECK_INTERVAL_MS, RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
 
 interface UseDecisionLoopParams {
   isActive: boolean;
@@ -175,9 +175,18 @@ export function useDecisionLoop({
           broadcastIntervention(intervention);
         }
 
-        // Persist to Supabase
+        // Persist to Supabase (include rule violation details if present)
         if (sessionIdRef.current) {
-          persistInterventionApi(sessionIdRef.current, intervention, decisionStateRef.current);
+          persistInterventionApi(
+            sessionIdRef.current,
+            intervention,
+            decisionStateRef.current,
+            params.ruleViolation ? {
+              rule: params.ruleViolation.rule,
+              evidence: params.ruleViolation.evidence,
+              severity: params.ruleViolation.severity,
+            } : null,
+          );
         }
 
         if (data.logEntry) {
@@ -298,6 +307,18 @@ export function useDecisionLoop({
             recoveryCheckedAt: now,
           });
 
+          // Persist recovery result to DB
+          if (sessionIdRef.current) {
+            apiFireAndForget('/api/interventions', {
+              method: 'PATCH',
+              body: JSON.stringify({
+                id: lastInterventionIdRef.current,
+                recovery_result: decision.recoveryResult,
+                recovery_checked_at: now,
+              }),
+            }, 2);
+          }
+
           if (!decision.shouldIntervene && decision.recoveryResult !== undefined) {
             updateDecisionState(decision.nextEngineState);
             decisionStateRef.current = decision.nextEngineState;
@@ -321,7 +342,6 @@ export function useDecisionLoop({
       const metricIntervention = decision?.shouldIntervene && decision?.intent;
 
       // Check shared cooldown & budget
-      const violationCooldownActive = (now - (decisionStateRef.current.lastRuleViolationTime ?? 0)) < RULE_VIOLATION_COOLDOWN_MS;
       const budgetAvailable = decisionStateRef.current.interventionCount < cfg.MAX_INTERVENTIONS_PER_10MIN;
 
       if (!budgetAvailable) {
@@ -333,20 +353,12 @@ export function useDecisionLoop({
       const cooldownActive = decisionStateRef.current.cooldownUntil != null && now < decisionStateRef.current.cooldownUntil;
 
       // Determine what to fire
-      const shouldFireViolation = pendingViolation && !violationCooldownActive;
+      // Rule violations ALWAYS fire immediately — no cooldown check
+      const shouldFireViolation = !!pendingViolation;
+      // Metric interventions respect the global cooldown
       const shouldFireMetric = metricIntervention && !cooldownActive;
 
-      if (pendingViolation && !shouldFireViolation) {
-        console.log(`[DecisionLoop] Violation pending but blocked by violationCooldown`);
-      }
-
       if (!shouldFireViolation && !shouldFireMetric) {
-        // Nothing to do — keep pending violation for next cycle if cooldown is the reason
-        if (pendingViolation && (violationCooldownActive || cooldownActive)) {
-          // Keep it pending, will fire when cooldown expires
-        } else {
-          pendingRuleViolationRef.current = null;
-        }
         return;
       }
 
@@ -411,13 +423,13 @@ export function useDecisionLoop({
             interventionCount: decisionStateRef.current.interventionCount + 1,
           };
         } else {
-          // Rule-only intervention: just apply cooldown, stay in current phase
+          // Rule-only intervention: NO cooldown applied, stay in current phase
           nextEngineState = {
             ...decisionStateRef.current,
             lastRuleViolationTime: now,
             lastInterventionTime: now,
             interventionCount: decisionStateRef.current.interventionCount + 1,
-            cooldownUntil,
+            // Rule-only interventions do NOT set cooldownUntil
           };
         }
 
