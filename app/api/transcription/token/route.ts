@@ -51,9 +51,11 @@ export async function POST(request: Request) {
                     // 300ms context before speech for better accuracy in
                     // multi-participant sessions where speakers have varied pacing.
                     prefix_padding_ms: 300,
-                    // 200ms silence before committing a turn — makes the transcript move
-                    // to the final blue box almost instantly for a much better UX.
-                    silence_duration_ms: 200,
+                    // 500ms silence before committing a turn — balances fast UX with
+                    // avoiding micro-segmentation when multiple participants speak.
+                    // 200ms was too aggressive: natural breath pauses committed turns,
+                    // flooding the system with tiny fragments in multi-speaker sessions.
+                    silence_duration_ms: 500,
                 },
                 input_audio_noise_reduction: {
                     type: 'near_field',

@@ -325,7 +325,18 @@ export function useOpenAIRealtimeStream({
                             break;
 
                         case 'error': {
-                            console.error('[OpenAIStream] Server error:', msg.error?.message || JSON.stringify(msg));
+                            const errObj = msg.error || {};
+                            const errCode = errObj.code || 'unknown';
+                            const errType = errObj.type || 'unknown';
+                            const errMsg = errObj.message || JSON.stringify(msg);
+                            console.error(
+                                `[OpenAIStream] ⚠️ SERVER ERROR — code=${errCode} type=${errType} message="${errMsg}"`
+                            );
+                            // Surface rate-limit / concurrency errors prominently
+                            if (errCode === 'rate_limit_exceeded' || errCode === '429' || errMsg.includes('429') || errMsg.includes('rate') || errMsg.includes('concurren')) {
+                                console.error('[OpenAIStream] 🚨 RATE LIMIT / CONCURRENCY LIMIT DETECTED — this is likely why multi-participant transcription fails!');
+                                setError(`OpenAI rate limit hit (${errCode}): ${errMsg}`);
+                            }
                             break;
                         }
 
@@ -349,15 +360,40 @@ export function useOpenAIRealtimeStream({
                 }
             };
 
-            ws.onerror = () => {
+            ws.onerror = (evt) => {
                 clearTimeout(connectTimeout);
-                console.error('[OpenAIStream] WebSocket error (readyState:', ws.readyState, ')');
+                console.error('[OpenAIStream] ⚠️ WebSocket onerror — readyState:', ws.readyState, 'event:', evt);
             };
 
             ws.onclose = (event) => {
                 clearTimeout(connectTimeout);
                 if (!isMountedRef.current) return;
-                console.log(`[OpenAIStream] WebSocket closed (code=${event.code}, reason=${event.reason || 'none'}, intentional=${isIntentionalCloseRef.current})`);
+
+                // Map close codes to human-readable descriptions for debugging
+                const closeCodeMap: Record<number, string> = {
+                    1000: 'Normal closure',
+                    1001: 'Going away (page unload)',
+                    1006: 'Abnormal closure (no close frame — network issue or server crash)',
+                    1008: 'Policy violation (could be concurrency/rate limit)',
+                    1011: 'Server error',
+                    1013: 'Try again later (server overloaded — likely rate limit!)',
+                    4000: 'OpenAI: Unknown error',
+                    4001: 'OpenAI: Invalid API key or auth',
+                    4003: 'OpenAI: Forbidden / rate limited',
+                    4006: 'OpenAI: Session expired',
+                };
+                const codeDesc = closeCodeMap[event.code] || 'Unknown close code';
+                const reason = event.reason || 'none';
+
+                console.warn(
+                    `[OpenAIStream] 🔌 WebSocket CLOSED — code=${event.code} (${codeDesc}), reason="${reason}", intentional=${isIntentionalCloseRef.current}`
+                );
+
+                // Flag obvious rate-limit / concurrency situations
+                if ([1008, 1013, 4003].includes(event.code) || reason.toLowerCase().includes('rate') || reason.toLowerCase().includes('concurren')) {
+                    console.error('[OpenAIStream] 🚨 CLOSE CODE SUGGESTS RATE LIMIT / CONCURRENCY LIMIT — two participants may exceed OpenAI connection limits!');
+                }
+
                 setIsConnected(false);
 
                 // Reject if the promise hasn't resolved yet

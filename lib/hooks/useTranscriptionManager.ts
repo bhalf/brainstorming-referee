@@ -82,25 +82,59 @@ export function useTranscriptionManager({
     }, [displayName, language, addSegment]),
   });
 
-  // Start/stop speech recognition in sync with session & mute state
+  // Start/stop speech recognition in sync with session & mute state.
+  // IMPORTANT: When OpenAI Realtime is active, do NOT start Web Speech.
+  // Both APIs request the microphone independently, causing audio contention
+  // and glitches that break multi-participant transcription.
   useEffect(() => {
-    if (isSessionActive && !isMuted) {
+    if (isSessionActive && !isMuted && !isRealtimeEnabled) {
       startSpeechRecognition();
     } else {
       stopSpeechRecognition();
     }
-  }, [isSessionActive, isMuted, startSpeechRecognition, stopSpeechRecognition]);
+  }, [isSessionActive, isMuted, isRealtimeEnabled, startSpeechRecognition, stopSpeechRecognition]);
 
   // Compute the interim transcript to display in the yellow box:
-  // - When Realtime is active: prefer OpenAI interim; fall back to Web Speech interim
-  // - When Realtime is off: use Web Speech interim
+  // - When Realtime is active: use OpenAI interim only (Web Speech is disabled)
+  // - When Realtime is off: use Web Speech interim (fallback mode)
   const displayInterim = isRealtimeEnabled
-    ? (realtimeInterimTranscript || speechInterimTranscript)
+    ? realtimeInterimTranscript
     : speechInterimTranscript;
 
-  // Broadcast interim to peers when it changes
+  // Broadcast interim to peers — throttled to prevent DataChannel flooding.
+  // OpenAI Realtime sends character-by-character deltas; without throttling,
+  // every delta triggers an unreliable DataChannel message that can saturate
+  // the buffer and block reliable final-segment messages behind it.
+  const lastBroadcastTimeRef = useRef(0);
+  const pendingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    broadcastInterimRef.current?.(displayInterim, language);
+    const THROTTLE_MS = 150;
+    const now = Date.now();
+    const elapsed = now - lastBroadcastTimeRef.current;
+
+    if (pendingBroadcastRef.current) {
+      clearTimeout(pendingBroadcastRef.current);
+      pendingBroadcastRef.current = null;
+    }
+
+    if (elapsed >= THROTTLE_MS) {
+      // Enough time passed — broadcast immediately
+      lastBroadcastTimeRef.current = now;
+      broadcastInterimRef.current?.(displayInterim, language);
+    } else {
+      // Too soon — schedule a deferred broadcast
+      pendingBroadcastRef.current = setTimeout(() => {
+        lastBroadcastTimeRef.current = Date.now();
+        broadcastInterimRef.current?.(displayInterim, language);
+        pendingBroadcastRef.current = null;
+      }, THROTTLE_MS - elapsed);
+    }
+
+    return () => {
+      if (pendingBroadcastRef.current) {
+        clearTimeout(pendingBroadcastRef.current);
+      }
+    };
   }, [displayInterim, language]);
 
   // --- OpenAI Realtime streaming (Primary) ---
@@ -110,19 +144,18 @@ export function useTranscriptionManager({
     isActive: isSessionActive && isRealtimeEnabled,
     isMuted,
     onInterimTranscript: useCallback((text: string) => {
+      // Just update local state — the throttled displayInterim effect
+      // handles broadcasting to peers
       setRealtimeInterimTranscript(text);
-      broadcastInterimRef.current?.(text, language);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [language]),
+    }, []),
     onFinalSegment: useCallback((segment: TranscriptSegment) => {
       // Clear interim FIRST so the yellow preview box disappears in the same
-      // render batch that the final white segment appears
+      // render batch that the final white segment appears.
+      // The throttled displayInterim effect will broadcast the empty string.
       setRealtimeInterimTranscript('');
-      // Broadcast empty interim so peer overlay clears immediately
-      broadcastInterimRef.current?.('', language);
       addSegment(segment);
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [addSegment, language]),
+    }, [addSegment]),
   });
 
   // Bubble up Realtime errors
