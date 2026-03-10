@@ -114,7 +114,10 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         temperature: 0.4,
         maxTokens: 250,
         timeoutMs: 8000,
-        fallbacks: [{ provider: 'openai', model: 'gpt-5-mini' }],
+        fallbacks: [
+            { provider: 'openai', model: 'gpt-5-mini' },
+            { provider: 'openai', model: 'gpt-4o-mini' },
+        ],
         enabled: true,
     },
     ally_intervention: {
@@ -123,7 +126,10 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         temperature: 0.9,
         maxTokens: 200,
         timeoutMs: 10000,
-        fallbacks: [{ provider: 'openai', model: 'gpt-5-mini' }],
+        fallbacks: [
+            { provider: 'openai', model: 'gpt-5-mini' },
+            { provider: 'openai', model: 'gpt-4o-mini' },
+        ],
         enabled: true,
     },
     embeddings_similarity: {
