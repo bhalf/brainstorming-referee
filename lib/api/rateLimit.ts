@@ -44,12 +44,15 @@ export function rateLimit(
 ): NextResponse | null {
     const { maxRequests = 30, windowMs = 60_000 } = options;
     const ip = getClientIp(request);
+    // Include pathname in key so each route has its own rate limit bucket
+    const pathname = new URL(request.url).pathname;
+    const key = `${ip}:${pathname}`;
     const now = Date.now();
 
-    let entry = windows.get(ip);
+    let entry = windows.get(key);
     if (!entry) {
         entry = { timestamps: [] };
-        windows.set(ip, entry);
+        windows.set(key, entry);
     }
 
     // Remove timestamps outside the window

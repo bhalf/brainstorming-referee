@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const { language, scenario, topic, previousInterventions = [], transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, triggeringState, participationMetrics, semanticDynamics, existingIdeas = [] } = body;
 
     // Server-side scenario guard: ally is only permitted in Scenario B
-    if (scenario && scenario !== 'B') {
+    if (!scenario || scenario !== 'B') {
       return NextResponse.json(
         { error: 'Ally interventions are only permitted in Scenario B' },
         { status: 400 }

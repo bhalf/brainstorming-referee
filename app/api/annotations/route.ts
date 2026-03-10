@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
+import { validateSessionExists } from '@/lib/api/validateSession';
 
 // GET — Fetch annotations for a session
 export async function GET(request: NextRequest) {
@@ -7,6 +8,9 @@ export async function GET(request: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
   }
+
+  const validation = await validateSessionExists(sessionId);
+  if (!validation.valid) return validation.response;
 
   const supabase = getServiceClient();
   const { data, error } = await supabase
@@ -45,6 +49,9 @@ export async function POST(request: NextRequest) {
     if (!interventionId || !sessionId) {
       return NextResponse.json({ error: 'interventionId and sessionId required' }, { status: 400 });
     }
+
+    const validation = await validateSessionExists(sessionId);
+    if (!validation.valid) return validation.response;
 
     const supabase = getServiceClient();
 

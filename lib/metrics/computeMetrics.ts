@@ -2,7 +2,7 @@
 // Metrics Computation for Brainstorming Analysis
 // ============================================
 
-import { TranscriptSegment, MetricSnapshot, SpeakingTimeDistribution, ExperimentConfig } from '../types';
+import { TranscriptSegment, MetricSnapshot, SpeakingTimeDistribution, ExperimentConfig, SpeakingTimeDelta } from '../types';
 import {
   getOrFetchEmbeddings,
   computeEmbeddingRepetition,
@@ -246,17 +246,44 @@ export function computeDiversityDevelopment(
 
   // MATTR: average TTR across all sliding windows of fixed size
   // This is length-independent and a standard measure in computational linguistics
-  let totalTTR = 0;
-  let windowCount = 0;
+  // Optimised O(n) sliding window with a frequency map instead of O(n * MATTR_WINDOW)
+  const freq = new Map<string, number>();
+  let uniqueCount = 0;
 
-  for (let i = 0; i <= allWords.length - MATTR_WINDOW; i++) {
-    const windowWords = allWords.slice(i, i + MATTR_WINDOW);
-    const windowUnique = new Set(windowWords);
-    totalTTR += windowUnique.size / MATTR_WINDOW;
+  // Initialise the frequency map with the first window
+  for (let j = 0; j < MATTR_WINDOW; j++) {
+    const word = allWords[j];
+    const count = freq.get(word) ?? 0;
+    if (count === 0) uniqueCount++;
+    freq.set(word, count + 1);
+  }
+
+  let totalTTR = uniqueCount / MATTR_WINDOW;
+  let windowCount = 1;
+
+  // Slide the window one word at a time
+  for (let i = 1; i <= allWords.length - MATTR_WINDOW; i++) {
+    // Remove the word leaving the window (leftmost word of previous window)
+    const outWord = allWords[i - 1];
+    const outCount = freq.get(outWord)! - 1;
+    if (outCount === 0) {
+      freq.delete(outWord);
+      uniqueCount--;
+    } else {
+      freq.set(outWord, outCount);
+    }
+
+    // Add the word entering the window (rightmost word of new window)
+    const inWord = allWords[i + MATTR_WINDOW - 1];
+    const inCount = freq.get(inWord) ?? 0;
+    if (inCount === 0) uniqueCount++;
+    freq.set(inWord, inCount + 1);
+
+    totalTTR += uniqueCount / MATTR_WINDOW;
     windowCount++;
   }
 
-  return windowCount > 0 ? totalTTR / windowCount : 0.5;
+  return totalTTR / windowCount;
 }
 
 // --- Async Metrics with Embeddings ---
@@ -270,19 +297,26 @@ export async function computeMetricsAsync(
   segments: TranscriptSegment[],
   config: ExperimentConfig,
   currentTime: number = Date.now(),
-  audioSpeakingTimes?: Map<string, number>,
+  audioSpeakingDeltas?: SpeakingTimeDelta[],
   previousSnapshots?: MetricSnapshot[],
   knownParticipantCount?: number,
 ): Promise<MetricSnapshot> {
   const windowStart = currentTime - config.WINDOW_SECONDS * 1000;
   const windowedSegments = segments.filter(s => s.timestamp >= windowStart);
 
-  // Use audio-level speaking times if available, else fall back to text-length proxy
+  // Use audio-level speaking times if available, else fall back to text-length proxy.
+  // Audio deltas are windowed to WINDOW_SECONDS to match the text-based fallback.
   let speakingTimeDistribution: SpeakingTimeDistribution;
-  if (audioSpeakingTimes && audioSpeakingTimes.size > 0) {
+  if (audioSpeakingDeltas && audioSpeakingDeltas.length > 0) {
     speakingTimeDistribution = {};
-    for (const [speaker, seconds] of audioSpeakingTimes.entries()) {
-      speakingTimeDistribution[speaker] = seconds;
+    for (const delta of audioSpeakingDeltas) {
+      if (delta.timestamp >= windowStart) {
+        speakingTimeDistribution[delta.speaker] = (speakingTimeDistribution[delta.speaker] || 0) + delta.seconds;
+      }
+    }
+    // Fall back to text if no deltas within the window
+    if (Object.keys(speakingTimeDistribution).length === 0) {
+      speakingTimeDistribution = computeSpeakingTimeDistribution(windowedSegments);
     }
   } else {
     speakingTimeDistribution = computeSpeakingTimeDistribution(windowedSegments);

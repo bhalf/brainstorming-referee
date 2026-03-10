@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, MutableRefObject } from 'react';
 import { TranscriptSegment, Intervention } from '@/lib/types';
 import { SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload } from '@/lib/hooks/useLiveKitSync';
 
@@ -8,6 +8,8 @@ interface UsePeerSyncParams {
     voiceEnabled: boolean;
     isTTSSupported: boolean | null;
     speak: (text: string) => boolean;
+    /** Shared dedup set to prevent double-TTS from DataChannel + Supabase Realtime */
+    spokenInterventionIdsRef?: MutableRefObject<Set<string>>;
 }
 
 export function usePeerSync({
@@ -16,6 +18,7 @@ export function usePeerSync({
     voiceEnabled,
     isTTSSupported,
     speak,
+    spokenInterventionIdsRef,
 }: UsePeerSyncParams) {
     // Track peer interim transcripts with timestamps for stale cleanup
     const [peerInterims, setPeerInterims] = useState<Map<string, { text: string; speakerName: string; timestamp: number }>>(new Map());
@@ -46,9 +49,11 @@ export function usePeerSync({
     const handleInterventionReceived = useCallback((payload: SyncInterventionPayload) => {
         addIntervention(payload.intervention);
         if (voiceEnabled && isTTSSupported && speak) {
+            // Record this intervention as spoken so useRealtimeInterventions skips TTS
+            spokenInterventionIdsRef?.current.add(payload.intervention.id);
             speak(payload.intervention.text);
         }
-    }, [addIntervention, voiceEnabled, isTTSSupported, speak]);
+    }, [addIntervention, voiceEnabled, isTTSSupported, speak, spokenInterventionIdsRef]);
 
     // Stale peer interim cleanup (clear entries older than 8 seconds)
     useEffect(() => {

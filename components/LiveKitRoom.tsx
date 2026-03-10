@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef, MutableRefObject } from 'react';
+import React, { Component, useEffect, useState, useRef, MutableRefObject } from 'react';
 import {
   LiveKitRoom as LKRoom,
   GridLayout,
@@ -16,8 +16,64 @@ import '@livekit/components-styles';
 import { ConnectionState, Track } from 'livekit-client';
 import { useLiveKitSync, SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload } from '@/lib/hooks/useLiveKitSync';
 import { useLiveKitErrorSuppression } from '@/lib/hooks/useLiveKitErrorSuppression';
-import { TranscriptSegment, Intervention } from '@/lib/types';
+import { TranscriptSegment, Intervention, SpeakingTimeDelta } from '@/lib/types';
 
+
+// --- Error Boundary for LiveKit render-time exceptions ---
+
+interface LiveKitErrorBoundaryProps {
+  children: React.ReactNode;
+  onReset?: () => void;
+}
+
+interface LiveKitErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class LiveKitErrorBoundary extends Component<LiveKitErrorBoundaryProps, LiveKitErrorBoundaryState> {
+  constructor(props: LiveKitErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): LiveKitErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[LiveKit ErrorBoundary] Caught render error:', error, errorInfo);
+  }
+
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null });
+    this.props.onReset?.();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-full h-full flex items-center justify-center bg-slate-900 rounded-lg">
+          <div className="text-center p-8">
+            <div className="text-red-400 text-xl mb-4">!</div>
+            <h3 className="text-lg font-medium text-white mb-2">Video Component Error</h3>
+            <p className="text-slate-400 text-sm mb-4">
+              {this.state.error?.message || 'An unexpected error occurred in the video component.'}
+            </p>
+            <button
+              onClick={this.handleRetry}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function CustomVideoLayout() {
   const tracks = useTracks(
@@ -60,7 +116,7 @@ interface LiveKitRoomProps {
   onLocalSpeakingUpdate?: () => void;
   onLocalMicMuteChange?: (muted: boolean) => void;
   onDisconnected?: () => void;
-  speakingTimeRef: MutableRefObject<Map<string, number>>;
+  speakingTimeRef: MutableRefObject<SpeakingTimeDelta[]>;
 
   // Sync injection
   broadcastInterimRef?: MutableRefObject<((text: string, language?: string) => void) | null>;
@@ -153,8 +209,7 @@ function LiveKitSession({
         if (p.isSpeaking) {
           const name = p.name || p.identity;
           activeSpeakers.push({ id: p.identity, displayName: name });
-          const current = speakingTimeRef.current.get(name) || 0;
-          speakingTimeRef.current.set(name, current + delta);
+          speakingTimeRef.current.push({ speaker: name, seconds: delta, timestamp: now });
         }
       });
 
@@ -164,8 +219,13 @@ function LiveKitSession({
 
         // Also add local participant to active speakers and speaking time
         activeSpeakers.push({ id: localParticipant.identity, displayName });
-        const currentLocal = speakingTimeRef.current.get(displayName) || 0;
-        speakingTimeRef.current.set(displayName, currentLocal + delta);
+        speakingTimeRef.current.push({ speaker: displayName, seconds: delta, timestamp: now });
+      }
+
+      // Prune entries older than 10 minutes to prevent unbounded growth
+      const pruneThreshold = now - 600_000;
+      if (speakingTimeRef.current.length > 0 && speakingTimeRef.current[0].timestamp < pruneThreshold) {
+        speakingTimeRef.current = speakingTimeRef.current.filter(d => d.timestamp >= pruneThreshold);
       }
 
       onRemoteSpeakersChange(activeSpeakers);
@@ -243,6 +303,16 @@ export default function LiveKitRoomComponent({
     fetchToken();
   }, [roomName, displayName]);
 
+  // Cleanup error timers on unmount to prevent setState on unmounted component
+  useEffect(() => {
+    return () => {
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current);
+        errorTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
   if (error && errorCountRef.current >= 3) {
@@ -276,51 +346,53 @@ export default function LiveKitRoomComponent({
   }
 
   return (
-    <div className="w-full h-full rounded-lg overflow-hidden lk-theme-default flex flex-col" style={{ minHeight: '300px' }}>
-      <LKRoom
-        serverUrl={serverUrl}
-        token={token}
-        audio={true}
-        video={true}
-        connect={true}
-        onError={(err) => {
-          const msg = err.message || '';
-          console.warn('[LiveKit] Room error:', msg);
-          // Only show persistent error after repeated failures
-          errorCountRef.current++;
-          if (errorCountRef.current >= 3) {
-            setError(msg);
-          } else {
-            // Show transient error briefly, then auto-clear
-            setError(msg);
-            if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-            errorTimerRef.current = setTimeout(() => {
-              setError(null);
-              // Reset count after stable period
-              setTimeout(() => { errorCountRef.current = 0; }, 10000);
-            }, 3000);
-          }
-        }}
-      >
-        <CustomVideoLayout />
-        <RoomAudioRenderer />
-        <LiveKitSession
-          displayName={displayName}
-          onConnectionChange={onConnectionChange}
-          onParticipantsChange={onParticipantsChange}
-          onRemoteSpeakersChange={onRemoteSpeakersChange}
-          onLocalSpeakingUpdate={onLocalSpeakingUpdate}
-          onLocalMicMuteChange={onLocalMicMuteChange}
-          onDisconnected={onDisconnected}
-          speakingTimeRef={speakingTimeRef}
-          broadcastInterimRef={broadcastInterimRef}
-          broadcastFinalRef={broadcastFinalRef}
-          broadcastInterventionRef={broadcastInterventionRef}
-          onInterimTranscriptReceived={onInterimTranscriptReceived}
-          onFinalSegmentReceived={onFinalSegmentReceived}
-          onInterventionReceived={onInterventionReceived}
-        />
-      </LKRoom>
-    </div>
+    <LiveKitErrorBoundary onReset={() => { setError(null); errorCountRef.current = 0; }}>
+      <div className="w-full h-full rounded-lg overflow-hidden lk-theme-default flex flex-col" style={{ minHeight: '300px' }}>
+        <LKRoom
+          serverUrl={serverUrl}
+          token={token}
+          audio={true}
+          video={true}
+          connect={true}
+          onError={(err) => {
+            const msg = err.message || '';
+            console.warn('[LiveKit] Room error:', msg);
+            // Only show persistent error after repeated failures
+            errorCountRef.current++;
+            if (errorCountRef.current >= 3) {
+              setError(msg);
+            } else {
+              // Show transient error briefly, then auto-clear
+              setError(msg);
+              if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+              errorTimerRef.current = setTimeout(() => {
+                setError(null);
+                // Reset count after stable period
+                setTimeout(() => { errorCountRef.current = 0; }, 10000);
+              }, 3000);
+            }
+          }}
+        >
+          <CustomVideoLayout />
+          <RoomAudioRenderer />
+          <LiveKitSession
+            displayName={displayName}
+            onConnectionChange={onConnectionChange}
+            onParticipantsChange={onParticipantsChange}
+            onRemoteSpeakersChange={onRemoteSpeakersChange}
+            onLocalSpeakingUpdate={onLocalSpeakingUpdate}
+            onLocalMicMuteChange={onLocalMicMuteChange}
+            onDisconnected={onDisconnected}
+            speakingTimeRef={speakingTimeRef}
+            broadcastInterimRef={broadcastInterimRef}
+            broadcastFinalRef={broadcastFinalRef}
+            broadcastInterventionRef={broadcastInterventionRef}
+            onInterimTranscriptReceived={onInterimTranscriptReceived}
+            onFinalSegmentReceived={onFinalSegmentReceived}
+            onInterventionReceived={onInterventionReceived}
+          />
+        </LKRoom>
+      </div>
+    </LiveKitErrorBoundary>
   );
 }

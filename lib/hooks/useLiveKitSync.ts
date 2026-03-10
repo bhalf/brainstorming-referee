@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { useRoomContext, useLocalParticipant } from '@livekit/components-react';
 import { DataPacket_Kind } from 'livekit-client';
 import { TranscriptSegment, Intervention } from '@/lib/types';
+import { useLatestRef } from '@/lib/hooks/useLatestRef';
 
 // Topic identifiers for DataChannel
 export const LK_TOPIC_TRANSCRIPT_INTERIM = 'transcript_interim';
@@ -36,6 +37,11 @@ export function useLiveKitSync({
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
 
+    // Stable refs for callback props so the event listener is not re-registered on every render
+    const onInterimRef = useLatestRef(onInterimTranscriptReceived);
+    const onFinalRef = useLatestRef(onFinalSegmentReceived);
+    const onInterventionRef = useLatestRef(onInterventionReceived);
+
     // Listen for incoming DataChannel messages
     useEffect(() => {
         if (!room) return;
@@ -59,13 +65,13 @@ export function useLiveKitSync({
 
             switch (topic) {
                 case LK_TOPIC_TRANSCRIPT_INTERIM:
-                    if (onInterimTranscriptReceived) onInterimTranscriptReceived(parsed as SyncInterimPayload);
+                    onInterimRef.current?.(parsed as SyncInterimPayload);
                     break;
                 case LK_TOPIC_TRANSCRIPT_FINAL:
-                    if (onFinalSegmentReceived) onFinalSegmentReceived(parsed as SyncFinalSegmentPayload);
+                    onFinalRef.current?.(parsed as SyncFinalSegmentPayload);
                     break;
                 case LK_TOPIC_INTERVENTION:
-                    if (onInterventionReceived) onInterventionReceived(parsed as SyncInterventionPayload);
+                    onInterventionRef.current?.(parsed as SyncInterventionPayload);
                     break;
             }
         };
@@ -74,7 +80,7 @@ export function useLiveKitSync({
         return () => {
             room.off('dataReceived', handleDataReceived);
         };
-    }, [room, onInterimTranscriptReceived, onFinalSegmentReceived, onInterventionReceived]);
+    }, [room, onInterimRef, onFinalRef, onInterventionRef]);
 
     // Broadcast functions
     const broadcastInterimTranscript = useCallback(

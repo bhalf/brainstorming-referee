@@ -4,6 +4,7 @@ import { TranscriptSegment, Idea, IdeaConnection } from '@/lib/types';
 import { persistIdea, persistConnection } from '@/lib/services/ideaService';
 import { apiPost } from '@/lib/services/apiClient';
 import { EXTRACTION_TICK_MS, STAGGER_EXTRACTION_MS } from '@/lib/decision/tickConfig';
+import { TIMEOUTS } from '@/lib/config/timeouts';
 
 interface UseIdeaExtractionParams {
   isActive: boolean;
@@ -24,7 +25,7 @@ const MIN_NEW_SEGMENTS_CATCHUP = 1;
 const CATCHUP_THRESHOLD_MS = 10_000;
 // LLM extraction calls on Vercel typically take 10-25s.
 // 8s was far too short — every request was being aborted as "stale".
-const STALE_REQUEST_MS = 30_000;
+const STALE_REQUEST_MS = TIMEOUTS.IDEA_EXTRACTION_STALE_MS;
 const STAGGER_DELAY_MS = 300;
 const CONTEXT_WINDOW_SEGMENTS = 15;
 

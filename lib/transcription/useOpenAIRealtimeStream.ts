@@ -123,6 +123,8 @@ export function useOpenAIRealtimeStream({
     // LATEST version of the function, not a stale closure captured at creation time.
     // This prevents silent reconnect failures after token refresh or re-renders.
     const connectWebSocketRef = useRef<() => Promise<WebSocket>>(() => Promise.reject('not initialized'));
+    // Guard to prevent overlapping connection attempts (e.g. token refresh + onclose firing simultaneously)
+    const isConnectingRef = useRef(false);
 
     useEffect(() => { onInterimTranscriptRef.current = onInterimTranscript; }, [onInterimTranscript]);
     useEffect(() => { onFinalSegmentRef.current = onFinalSegment; }, [onFinalSegment]);
@@ -232,15 +234,46 @@ export function useOpenAIRealtimeStream({
 
     // Connect WebSocket with intent=transcription
     const connectWebSocket = useCallback(async (): Promise<WebSocket> => {
-        const tokenData = await fetchToken();
+        // Prevent overlapping connection attempts (token refresh + onclose can fire simultaneously)
+        if (isConnectingRef.current) {
+            console.log('[OpenAIStream] connectWebSocket skipped — already connecting');
+            // Wait for the in-flight connection to finish by polling wsRef
+            return new Promise<WebSocket>((resolve, reject) => {
+                const check = setInterval(() => {
+                    if (!isConnectingRef.current) {
+                        clearInterval(check);
+                        if (wsRef.current?.readyState === WebSocket.OPEN) {
+                            resolve(wsRef.current);
+                        } else {
+                            reject(new Error('Concurrent connection attempt failed'));
+                        }
+                    }
+                }, 200);
+                // Timeout after WS_CONNECT_TIMEOUT_MS to avoid hanging forever
+                setTimeout(() => { clearInterval(check); reject(new Error('Concurrent connection wait timed out')); }, WS_CONNECT_TIMEOUT_MS);
+            });
+        }
+
+        isConnectingRef.current = true;
+        let tokenData: { token: string; expiresAt: number } | null = null;
+        try {
+            tokenData = await fetchToken();
+        } catch (e) {
+            isConnectingRef.current = false;
+            throw e;
+        }
         if (!tokenData) {
+            isConnectingRef.current = false;
             throw new Error('Failed to get OpenAI transcription token');
         }
+
+        // Narrow to const so TypeScript knows it's non-null inside the closure below
+        const validToken = tokenData;
 
         cleanupWebSocket();
 
         // Schedule automatic refresh before this token expires
-        scheduleTokenRefresh(tokenData.expiresAt);
+        scheduleTokenRefresh(validToken.expiresAt);
 
         // intent=transcription tells OpenAI this is a transcription-only session
         const url = 'wss://api.openai.com/v1/realtime?intent=transcription';
@@ -249,13 +282,14 @@ export function useOpenAIRealtimeStream({
         return new Promise<WebSocket>((resolve, reject) => {
             const ws = new WebSocket(url, [
                 'realtime',
-                `openai-insecure-api-key.${tokenData.token}`,
+                `openai-insecure-api-key.${validToken.token}`,
                 'openai-beta.realtime-v1',
             ]);
             wsRef.current = ws;
 
             const connectTimeout = setTimeout(() => {
                 if (ws.readyState !== WebSocket.OPEN) {
+                    isConnectingRef.current = false;
                     ws.close();
                     reject(new Error('WebSocket connection timed out'));
                 }
@@ -263,6 +297,7 @@ export function useOpenAIRealtimeStream({
 
             ws.onopen = () => {
                 clearTimeout(connectTimeout);
+                isConnectingRef.current = false;
                 if (!isMountedRef.current) {
                     ws.close();
                     reject(new Error('Component unmounted'));
@@ -392,11 +427,13 @@ export function useOpenAIRealtimeStream({
 
             ws.onerror = (evt) => {
                 clearTimeout(connectTimeout);
+                isConnectingRef.current = false;
                 console.error('[OpenAIStream] ⚠️ WebSocket onerror — readyState:', ws.readyState, 'event:', evt);
             };
 
             ws.onclose = (event) => {
                 clearTimeout(connectTimeout);
+                isConnectingRef.current = false;
                 if (!isMountedRef.current) return;
 
                 // Map close codes to human-readable descriptions for debugging
@@ -567,19 +604,47 @@ export function useOpenAIRealtimeStream({
         };
 
         // Try AudioWorklet (modern, runs on audio thread)
+        // AudioWorklet sends 128-sample quanta, but our silence/calibration constants
+        // are calibrated for 4096-sample buffers. We accumulate worklet quanta into
+        // a full-size buffer before calling processAudioData.
         let useWorklet = false;
         if (typeof audioContext.audioWorklet !== 'undefined') {
             try {
                 await audioContext.audioWorklet.addModule('/pcm-capture-processor.js');
                 const workletNode = new AudioWorkletNode(audioContext, 'pcm-capture-processor');
+
+                // Accumulator: collect 128-sample worklet quanta until we have AUDIO_BUFFER_SIZE samples
+                let workletAccumulator = new Float32Array(AUDIO_BUFFER_SIZE);
+                let workletAccumulatorOffset = 0;
+
                 workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
-                    processAudioData(e.data);
+                    const chunk = e.data;
+                    const remaining = AUDIO_BUFFER_SIZE - workletAccumulatorOffset;
+
+                    if (chunk.length >= remaining) {
+                        // Fill the current buffer and flush
+                        workletAccumulator.set(chunk.subarray(0, remaining), workletAccumulatorOffset);
+                        processAudioData(workletAccumulator);
+
+                        // Start a new accumulator with any leftover samples
+                        workletAccumulator = new Float32Array(AUDIO_BUFFER_SIZE);
+                        const leftover = chunk.length - remaining;
+                        if (leftover > 0) {
+                            workletAccumulator.set(chunk.subarray(remaining));
+                        }
+                        workletAccumulatorOffset = leftover;
+                    } else {
+                        // Append to accumulator
+                        workletAccumulator.set(chunk, workletAccumulatorOffset);
+                        workletAccumulatorOffset += chunk.length;
+                    }
                 };
+
                 processorNodeRef.current = workletNode;
                 source.connect(workletNode);
                 workletNode.connect(audioContext.destination);
                 useWorklet = true;
-                console.log(`[OpenAIStream] Audio pipeline started with AudioWorklet (PCM ${PCM_SAMPLE_RATE}Hz)`);
+                console.log(`[OpenAIStream] Audio pipeline started with AudioWorklet (PCM ${PCM_SAMPLE_RATE}Hz, accumulating to ${AUDIO_BUFFER_SIZE})`);
             } catch (e) {
                 console.warn('[OpenAIStream] AudioWorklet not available, falling back to ScriptProcessor:', e);
             }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { snapshotToInsert } from '@/lib/supabase/converters';
+import { validateSessionExists } from '@/lib/api/validateSession';
 
 // POST — Persist a metric snapshot
 export async function POST(request: NextRequest) {
@@ -11,6 +12,9 @@ export async function POST(request: NextRequest) {
     if (!sessionId || !snapshot) {
       return NextResponse.json({ error: 'sessionId and snapshot required' }, { status: 400 });
     }
+
+    const validation = await validateSessionExists(sessionId);
+    if (!validation.valid) return validation.response;
 
     const supabase = getServiceClient();
     const row = snapshotToInsert(snapshot, sessionId);

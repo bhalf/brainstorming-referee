@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef, MutableRefObject } from 'react';
-import { TranscriptSegment, MetricSnapshot, ExperimentConfig, ConversationStateInference } from '@/lib/types';
+import { useEffect, useRef, useReducer, MutableRefObject } from 'react';
+import { TranscriptSegment, MetricSnapshot, ExperimentConfig, ConversationStateInference, SpeakingTimeDelta } from '@/lib/types';
 import { computeMetricsAsync } from '@/lib/metrics/computeMetrics';
 import { inferConversationState } from '@/lib/state/inferConversationState';
 import { persistMetricsSnapshot } from '@/lib/services/metricsService';
 import { STAGGER_METRICS_MS } from '@/lib/decision/tickConfig';
+
+// --- Persistence throttle: persist at most once every 30s ---
+const PERSIST_INTERVAL_MS = 30_000;
 
 interface UseMetricsComputationParams {
   isActive: boolean;
@@ -11,10 +14,51 @@ interface UseMetricsComputationParams {
   sessionId: string | null;
   config: ExperimentConfig;
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
-  speakingTimeRef: MutableRefObject<Map<string, number>>;
+  speakingTimeRef: MutableRefObject<SpeakingTimeDelta[]>;
   /** Total number of participants in the room (from LiveKit), including self */
   participantCountRef?: MutableRefObject<number>;
 }
+
+// Consolidated state to avoid multiple setState calls per computation
+interface MetricsState {
+  currentMetrics: MetricSnapshot | null;
+  metricsHistory: MetricSnapshot[];
+  stateHistory: ConversationStateInference[];
+  lastComputedAt: number | null;
+  computationError: string | null;
+}
+
+type MetricsAction =
+  | { type: 'COMPUTATION_SUCCESS'; metrics: MetricSnapshot; inference: ConversationStateInference }
+  | { type: 'COMPUTATION_ERROR'; error: string }
+  | { type: 'RESET' };
+
+function metricsReducer(state: MetricsState, action: MetricsAction): MetricsState {
+  switch (action.type) {
+    case 'COMPUTATION_SUCCESS':
+      return {
+        currentMetrics: action.metrics,
+        metricsHistory: [...state.metricsHistory.slice(-179), action.metrics],
+        stateHistory: [...state.stateHistory.slice(-199), action.inference],
+        lastComputedAt: Date.now(),
+        computationError: null,
+      };
+    case 'COMPUTATION_ERROR':
+      return { ...state, computationError: action.error };
+    case 'RESET':
+      return { currentMetrics: null, metricsHistory: [], stateHistory: [], lastComputedAt: null, computationError: null };
+    default:
+      return state;
+  }
+}
+
+const INITIAL_METRICS_STATE: MetricsState = {
+  currentMetrics: null,
+  metricsHistory: [],
+  stateHistory: [],
+  lastComputedAt: null,
+  computationError: null,
+};
 
 export function useMetricsComputation({
   isActive,
@@ -25,30 +69,22 @@ export function useMetricsComputation({
   speakingTimeRef,
   participantCountRef,
 }: UseMetricsComputationParams) {
-  const [currentMetrics, setCurrentMetrics] = useState<MetricSnapshot | null>(null);
-  const [metricsHistory, setMetricsHistory] = useState<MetricSnapshot[]>([]);
-  const [stateHistory, setStateHistory] = useState<ConversationStateInference[]>([]);
-  const [lastComputedAt, setLastComputedAt] = useState<number | null>(null);
-  const [computationError, setComputationError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(metricsReducer, INITIAL_METRICS_STATE);
+
   const isComputingRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
   const currentMetricsRef = useRef<MetricSnapshot | null>(null);
   const metricsHistoryRef = useRef<MetricSnapshot[]>([]);
   const stateHistoryRef = useRef<ConversationStateInference[]>([]);
   const previousInferenceRef = useRef<ConversationStateInference | null>(null);
+  const lastPersistRef = useRef<number>(0);
 
-  // Keep refs in sync
+  // Keep refs in sync with reducer state (single effect)
   useEffect(() => {
-    currentMetricsRef.current = currentMetrics;
-  }, [currentMetrics]);
-
-  useEffect(() => {
-    metricsHistoryRef.current = metricsHistory;
-  }, [metricsHistory]);
-
-  useEffect(() => {
-    stateHistoryRef.current = stateHistory;
-  }, [stateHistory]);
+    currentMetricsRef.current = state.currentMetrics;
+    metricsHistoryRef.current = state.metricsHistory;
+    stateHistoryRef.current = state.stateHistory;
+  }, [state.currentMetrics, state.metricsHistory, state.stateHistory]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -87,17 +123,17 @@ export function useMetricsComputation({
         metrics.inferredState = inference;
         previousInferenceRef.current = inference;
 
-        setCurrentMetrics(metrics);
-        setMetricsHistory(prev => [...prev.slice(-50), metrics]);
-        setStateHistory(prev => [...prev.slice(-200), inference]);
-        setLastComputedAt(Date.now());
-        setComputationError(null);
-        if (sessionIdRef.current) {
+        // Single dispatch instead of 5 separate setState calls
+        dispatch({ type: 'COMPUTATION_SUCCESS', metrics, inference });
+
+        // Throttled persistence: persist at most once every 30s
+        if (sessionIdRef.current && now - lastPersistRef.current >= PERSIST_INTERVAL_MS) {
+          lastPersistRef.current = now;
           persistMetricsSnapshot(sessionIdRef.current, metrics);
         }
       } catch (error) {
         console.error('Metrics computation error:', error);
-        setComputationError(error instanceof Error ? error.message : 'Unknown error');
+        dispatch({ type: 'COMPUTATION_ERROR', error: error instanceof Error ? error.message : 'Unknown error' });
       } finally {
         isComputingRef.current = false;
       }
@@ -116,14 +152,14 @@ export function useMetricsComputation({
   }, [isActive, isDecisionOwner, config, participantCountRef, transcriptSegmentsRef, speakingTimeRef]);
 
   return {
-    currentMetrics,
-    metricsHistory,
+    currentMetrics: state.currentMetrics,
+    metricsHistory: state.metricsHistory,
     currentMetricsRef,
     metricsHistoryRef,
-    stateHistory,
+    stateHistory: state.stateHistory,
     stateHistoryRef,
-    currentInferredState: currentMetrics?.inferredState ?? null,
-    lastComputedAt,
-    computationError,
+    currentInferredState: state.currentMetrics?.inferredState ?? null,
+    lastComputedAt: state.lastComputedAt,
+    computationError: state.computationError,
   };
 }

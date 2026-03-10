@@ -11,5 +11,5 @@ export function persistMetricsSnapshot(
     apiFireAndForget('/api/metrics/snapshot', {
         method: 'POST',
         body: JSON.stringify({ sessionId, snapshot }),
-    }, 2);
+    }, 0);
 }

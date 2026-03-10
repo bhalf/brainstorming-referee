@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { interventionToInsert } from '@/lib/supabase/converters';
+import { validateSessionExists } from '@/lib/api/validateSession';
 
 // POST — Insert a new intervention
 export async function POST(request: NextRequest) {
@@ -11,6 +12,9 @@ export async function POST(request: NextRequest) {
     if (!sessionId || !intervention) {
       return NextResponse.json({ error: 'sessionId and intervention required' }, { status: 400 });
     }
+
+    const validation = await validateSessionExists(sessionId);
+    if (!validation.valid) return validation.response;
 
     // Validate intervention structure
     if (typeof intervention.id !== 'string' || typeof intervention.text !== 'string') {
@@ -46,6 +50,9 @@ export async function GET(request: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
   }
+
+  const validation = await validateSessionExists(sessionId);
+  if (!validation.valid) return validation.response;
 
   const supabase = getServiceClient();
 

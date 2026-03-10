@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     // Check for existing active session with same room name
     const { data: existing } = await supabase
       .from('sessions')
-      .select('id, host_identity, started_at, created_at')
+      .select('id, host_identity, started_at, created_at, last_heartbeat')
       .eq('room_name', roomName)
       .is('ended_at', null)
       .limit(1)
@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
 
     if (existing) {
       // Auto-end stale sessions instead of blocking new session creation
-      const sessionAge = Date.now() - new Date(existing.started_at || existing.created_at).getTime();
+      const lastActivity = existing.last_heartbeat || existing.started_at || existing.created_at;
+      const sessionAge = Date.now() - new Date(lastActivity).getTime();
       if (sessionAge > MAX_SESSION_AGE_MS) {
         console.warn(`[Session] Auto-ending stale session ${existing.id} before creating new one (age: ${Math.round(sessionAge / 3600000)}h)`);
         await supabase
@@ -93,10 +94,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No active session found' }, { status: 404 });
   }
 
-  // Auto-end stale sessions: if the session is older than 4 hours, it was
+  // Auto-end stale sessions: if no heartbeat for >1 hour, it was
   // likely abandoned (browser closed without proper cleanup). End it and
   // return 404 so the caller creates a fresh session.
-  const sessionAge = Date.now() - new Date(data.started_at || data.created_at).getTime();
+  const lastActivity = data.last_heartbeat || data.started_at || data.created_at;
+  const sessionAge = Date.now() - new Date(lastActivity).getTime();
   if (sessionAge > MAX_SESSION_AGE_MS) {
     console.warn(`[Session] Auto-ending stale session ${data.id} (age: ${Math.round(sessionAge / 3600000)}h)`);
     await supabase

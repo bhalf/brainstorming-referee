@@ -1,41 +1,28 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from '@/lib/context/SessionContext';
-import { decodeConfig, DEFAULT_CONFIG } from '@/lib/config';
-import { Scenario, Intervention, TranscriptSegment, ExperimentConfig } from '@/lib/types';
-import { loadPersistedCache } from '@/lib/metrics/embeddingCache';
-import { segmentRowToApp, interventionRowToApp, ideaRowToApp, connectionRowToApp } from '@/lib/supabase/converters';
+import { DEFAULT_CONFIG } from '@/lib/config';
+import { Scenario, Intervention, TranscriptSegment, ExperimentConfig, SpeakingTimeDelta } from '@/lib/types';
 import { useTTSManager } from '@/lib/hooks/session/useTTSManager';
 import { useTranscriptionManager } from '@/lib/hooks/useTranscriptionManager';
 import { useSegmentUpload } from '@/lib/hooks/session/useSegmentUpload';
 import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { usePeerSync } from '@/lib/hooks/session/usePeerSync';
 import { useSessionLifecycle } from '@/lib/hooks/session/useSessionLifecycle';
+import { useSessionOrchestration } from '@/lib/hooks/session/useSessionOrchestration';
 import { apiFireAndForget } from '@/lib/services/apiClient';
-import { useRealtimeSegments } from '@/lib/hooks/useRealtimeSegments';
-import { useRealtimeInterventions } from '@/lib/hooks/useRealtimeInterventions';
-import { useRealtimeMetrics } from '@/lib/hooks/useRealtimeMetrics';
-import { useDecisionOwnership } from '@/lib/hooks/useDecisionOwnership';
-import { useRealtimeEngineState } from '@/lib/hooks/useRealtimeEngineState';
-import { useMetricsComputation } from '@/lib/hooks/useMetricsComputation';
-import { useDecisionLoop } from '@/lib/hooks/useDecisionLoop';
-import { useRealtimeVoiceSettings } from '@/lib/hooks/useRealtimeVoiceSettings';
-import { useRealtimeIdeas } from '@/lib/hooks/useRealtimeIdeas';
-import { useRealtimeConnections } from '@/lib/hooks/useRealtimeConnections';
-import { useIdeaExtraction } from '@/lib/hooks/useIdeaExtraction';
-import { useLiveSummary } from '@/lib/hooks/useLiveSummary';
-import { SyncInterimPayload, SyncFinalSegmentPayload, SyncInterventionPayload } from '@/lib/hooks/useLiveKitSync';
 import type { InterimEntry } from '@/components/TranscriptFeed';
 import LiveKitRoom from '@/components/LiveKitRoom';
-import OverlayPanel from '@/components/OverlayPanel';
-import DesktopTabLayout from '@/components/DesktopTabLayout';
-import IdeaBoard from '@/components/IdeaBoard';
 import ReadinessCheck from '@/components/ReadinessCheck';
 import type { SystemHealthProps } from '@/components/SystemHealthPanel';
-import { buildExperimentMeta } from '@/lib/config/promptVersion';
-import { loadModelRoutingFromStorage } from '@/lib/config/modelRouting';
+
+// Dynamic imports — these heavy components are behind isMounted gates
+const DesktopTabLayout = dynamic(() => import('@/components/DesktopTabLayout'));
+const OverlayPanel = dynamic(() => import('@/components/OverlayPanel'));
+const IdeaBoard = dynamic(() => import('@/components/IdeaBoard'));
 
 export default function CallPage() {
   const params = useParams();
@@ -71,8 +58,8 @@ export default function CallPage() {
   // --- LiveKit State ---
   const [isConnected, setIsConnected] = useState(false);
   const [participants, setParticipants] = useState<{ id: string; displayName: string }[]>([]);
-  const [remoteSpeakers, setRemoteSpeakers] = useState<{ id: string; displayName: string }[]>([]);
-  const speakingTimeRef = useRef<Map<string, number>>(new Map());
+  const [, setRemoteSpeakers] = useState<{ id: string; displayName: string }[]>([]);
+  const speakingTimeRef = useRef<SpeakingTimeDelta[]>([]);
   const participantCountRef = useRef<number>(1); // self
 
   // Keep participant count ref in sync with LiveKit state
@@ -84,11 +71,11 @@ export default function CallPage() {
     const currentIds = new Set(participants.map(p => p.displayName));
     const previousIds = prevParticipantIdsRef.current;
 
-    // Detect departed participants and remove their speaking time
+    // Detect departed participants and remove their speaking time deltas
     for (const id of previousIds) {
       if (!currentIds.has(id)) {
-        speakingTimeRef.current.delete(id);
-        console.log(`[Participant] ${id} left — removed from speaking time map`);
+        speakingTimeRef.current = speakingTimeRef.current.filter(d => d.speaker !== id);
+        console.log(`[Participant] ${id} left — removed from speaking time deltas`);
       }
     }
 
@@ -98,7 +85,6 @@ export default function CallPage() {
   // --- TTS (OpenAI Cloud TTS) ---
   const {
     speak,
-    cancelSpeech,
     isSpeaking,
     isTTSSupported,
     handleTestVoice,
@@ -137,6 +123,10 @@ export default function CallPage() {
   const broadcastFinalRef = useRef<((segment: TranscriptSegment) => void) | null>(null);
   const broadcastInterventionRef = useRef<((intervention: Intervention) => void) | null>(null);
 
+  // Shared dedup set: prevents double-TTS when the same intervention arrives
+  // via both LiveKit DataChannel (fast) and Supabase Realtime (slower).
+  const spokenInterventionIdsRef = useRef<Set<string>>(new Set());
+
   const {
     peerInterims,
     handleInterimTranscriptReceived,
@@ -148,6 +138,7 @@ export default function CallPage() {
     voiceEnabled: state.voiceSettings.enabled,
     isTTSSupported,
     speak,
+    spokenInterventionIdsRef,
   });
 
   // --- Segment Upload ---
@@ -190,139 +181,53 @@ export default function CallPage() {
 
   // Keep the shared transcriptSegmentsRef in sync with context (single source of truth)
 
-  // --- Realtime Segments (Supabase) ---
-  const { isSubscribed: realtimeSyncConnected } = useRealtimeSegments({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
-    addTranscriptSegment,
-    speakingTimeRef,
-    onError: addError,
-  });
-
   // Stable broadcast callback — extracted to avoid re-renders in useDecisionLoop
   const handleBroadcastIntervention = useCallback((intervention: Intervention) => {
     broadcastInterventionRef.current?.(intervention);
   }, []);
 
-  // Keep interventions ref in sync for decision engine
-  const interventionsRef = useLatestRef(state.interventions);
-
-  // --- Decision Ownership (Supabase-based lock: one decision engine per session) ---
-  const { isDecisionOwner } = useDecisionOwnership({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
-    isParticipant,
-  });
-
-  // --- Realtime Engine State (non-owners see phase transitions via Supabase Realtime) ---
-  useRealtimeEngineState({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
+  // --- Session Orchestration (realtime subscriptions, metrics, decision engine, ideas, summary) ---
+  const {
     isDecisionOwner,
-    updateDecisionState,
-  });
-
-  // --- Realtime Voice Settings (host → participants via Supabase Realtime) ---
-  const { persistVoiceSettings } = useRealtimeVoiceSettings({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
-    isHost: !isParticipant,
-    updateVoiceSettings,
-  });
-
-  // --- Realtime Metrics (all clients receive metric snapshots via Supabase Realtime) ---
-  useRealtimeMetrics({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
-    addMetricSnapshot,
-  });
-
-  // --- Metrics Computation (only runs on the decision owner) ---
-  const { currentMetrics, metricsHistory, currentMetricsRef, metricsHistoryRef, stateHistoryRef, lastComputedAt, computationError } = useMetricsComputation({
-    isActive: state.isActive,
-    isDecisionOwner,
-    sessionId: state.sessionId,
-    config: state.config,
-    transcriptSegmentsRef,
-    speakingTimeRef,
-    participantCountRef,
-  });
-
-  // --- Decision Engine (only runs on the decision owner) ---
-  useDecisionLoop({
-    isActive: state.isActive,
-    isDecisionOwner,
-    sessionId: state.sessionId,
-    transcriptSegmentsRef,
-    interventionsRef,
-    metricsHistoryRef,
+    currentMetrics,
+    metricsHistory,
     currentMetricsRef,
+    metricsHistoryRef,
     stateHistoryRef,
-    decisionState: state.decisionState,
-    config: state.config,
-    voiceSettings: state.voiceSettings,
+    lastComputedAt,
+    computationError,
+    realtimeSyncConnected,
+    persistVoiceSettings,
+    liveSummary,
+  } = useSessionOrchestration({
+    isActive: state.isActive,
+    sessionId: state.sessionId,
     scenario,
     language,
-    speak,
-    isTTSSupported,
+    isParticipant,
+    addTranscriptSegment,
     addIntervention,
     updateIntervention,
-    addModelRoutingLog,
-    addError,
-    updateDecisionState,
-    broadcastIntervention: handleBroadcastIntervention,
-  });
-
-  // --- Realtime Interventions (Supabase → all participants) ---
-  useRealtimeInterventions({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
-    isDecisionOwner,
-    addIntervention,
-    speak,
-    voiceEnabled: state.voiceSettings.enabled,
-    isTTSSupported,
-  });
-
-  // --- Realtime Ideas (Supabase → all participants) ---
-  useRealtimeIdeas({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
+    addMetricSnapshot,
     addIdea,
     updateIdea,
-  });
-
-  // --- Realtime Idea Connections (Supabase → all participants) ---
-  useRealtimeConnections({
-    sessionId: state.sessionId,
-    isActive: state.isActive,
-    addConnection: addIdeaConnection,
-  });
-
-  // --- Idea Extraction (only runs on the decision owner) ---
-  useIdeaExtraction({
-    isActive: state.isActive,
-    isDecisionOwner,
-    sessionId: state.sessionId,
-    transcriptSegmentsRef,
-    ideas: state.ideas,
-    language,
-    addIdea,
     addIdeaConnection,
     addModelRoutingLog,
     addError,
-  });
-
-  // --- Live Summary (decision owner generates, others receive via Supabase Realtime) ---
-  const liveSummary = useLiveSummary({
-    isActive: state.isActive,
-    isDecisionOwner,
-    sessionId: state.sessionId,
-    transcriptSegmentsRef,
+    updateDecisionState,
+    updateVoiceSettings,
+    config: state.config,
+    decisionState: state.decisionState,
+    voiceSettings: state.voiceSettings,
+    interventions: state.interventions,
     ideas: state.ideas,
-    language,
-    addModelRoutingLog,
-    addError,
+    transcriptSegmentsRef,
+    speakingTimeRef,
+    participantCountRef,
+    speak,
+    isTTSSupported,
+    broadcastIntervention: handleBroadcastIntervention,
+    spokenInterventionIdsRef,
   });
 
   // --- Session Initialization & Cleanup ---

@@ -105,6 +105,14 @@ export function useTranscriptionManager({
   // OpenAI Realtime sends character-by-character deltas; without throttling,
   // every delta triggers an unreliable DataChannel message that can saturate
   // the buffer and block reliable final-segment messages behind it.
+  //
+  // Fix: accumulate the latest text in a ref so the deferred setTimeout callback
+  // always broadcasts the most recent value, not a stale closure capture.
+  const latestInterimRef = useRef(displayInterim);
+  latestInterimRef.current = displayInterim;
+  const latestLanguageRef = useRef(language);
+  latestLanguageRef.current = language;
+
   const lastBroadcastTimeRef = useRef(0);
   const pendingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -120,12 +128,12 @@ export function useTranscriptionManager({
     if (elapsed >= THROTTLE_MS) {
       // Enough time passed — broadcast immediately
       lastBroadcastTimeRef.current = now;
-      broadcastInterimRef.current?.(displayInterim, language);
+      broadcastInterimRef.current?.(latestInterimRef.current, latestLanguageRef.current);
     } else {
-      // Too soon — schedule a deferred broadcast
+      // Too soon — schedule a deferred broadcast that reads from refs
       pendingBroadcastRef.current = setTimeout(() => {
         lastBroadcastTimeRef.current = Date.now();
-        broadcastInterimRef.current?.(displayInterim, language);
+        broadcastInterimRef.current?.(latestInterimRef.current, latestLanguageRef.current);
         pendingBroadcastRef.current = null;
       }, THROTTLE_MS - elapsed);
     }
@@ -165,6 +173,38 @@ export function useTranscriptionManager({
       addError(realtime.error, 'openai-realtime');
     }
   }, [realtime.error, addError]);
+
+  // Auto-fallback: if Realtime error persists for 10 seconds, disable Realtime
+  // and let Web Speech API take over. Without this, a stuck error state leaves
+  // the user with no transcription at all because Web Speech won't start while
+  // isRealtimeEnabled is true.
+  const realtimeErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (realtime.error && isRealtimeEnabled) {
+      // Start 10s countdown to fallback
+      realtimeErrorTimerRef.current = setTimeout(() => {
+        // Re-check: only fall back if error is still present and Realtime is still enabled
+        // (the error state is read fresh from the render via the effect closure)
+        console.warn(
+          '[TranscriptionManager] OpenAI Realtime error persisted for 10s — falling back to Web Speech API'
+        );
+        setIsRealtimeEnabled(false);
+      }, 10_000);
+
+      return () => {
+        if (realtimeErrorTimerRef.current) {
+          clearTimeout(realtimeErrorTimerRef.current);
+          realtimeErrorTimerRef.current = null;
+        }
+      };
+    } else {
+      // Error cleared or Realtime already disabled — cancel any pending fallback
+      if (realtimeErrorTimerRef.current) {
+        clearTimeout(realtimeErrorTimerRef.current);
+        realtimeErrorTimerRef.current = null;
+      }
+    }
+  }, [realtime.error, isRealtimeEnabled]);
 
   // Simulation fallback
   const handleAddSimulatedSegment = useCallback((text: string) => {

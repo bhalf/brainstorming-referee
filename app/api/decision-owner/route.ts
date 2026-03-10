@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     if (readError) {
       console.error('Decision owner read error:', readError);
-      return NextResponse.json({ error: 'Failed to read engine state' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to read engine state', details: readError.message }, { status: 500 });
     }
 
     const now = new Date();
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
         });
 
       if (insertError) {
+        console.error('Decision owner insert error:', insertError);
         // Race condition: another client might have inserted first
         // Read again and check if we can claim
         const { data: raceCheck } = await supabase

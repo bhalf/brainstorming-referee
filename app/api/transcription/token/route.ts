@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/api/rateLimit';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -9,7 +10,10 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
  *
  * See: https://developers.openai.com/api/docs/guides/realtime-transcription/
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+    const limited = rateLimit(request, { maxRequests: 10 });
+    if (limited) return limited;
+
     if (!OPENAI_API_KEY) {
         return NextResponse.json(
             { error: 'OPENAI_API_KEY not configured' },

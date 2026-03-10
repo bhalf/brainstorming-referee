@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
+import { rateLimit } from '@/lib/api/rateLimit';
 import { generateId } from '@/lib/utils/generateId';
 
 // POST – compute embeddings for a batch of texts
 export async function POST(request: NextRequest) {
+    const limited = rateLimit(request, { maxRequests: 60 });
+    if (limited) return limited;
+
     try {
         const body = await request.json();
         const { texts } = body as { texts: string[] };

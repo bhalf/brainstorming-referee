@@ -9,7 +9,11 @@
 // --- Constants ---
 
 const STORAGE_KEY_PREFIX = 'uzh-brainstorming-embeddings';
+const STORAGE_MODEL_KEY = 'uzh-brainstorming-embeddings-model';
 const MAX_CACHE_ENTRIES = 500; // LRU limit (~6MB max in localStorage)
+
+/** Track the embedding model used for cached vectors to detect dimension mismatches */
+let cachedModelName: string | null = null;
 
 // Max segments used in O(n²) pairwise operations.
 // 30 segments → 435 pairs, runs in <1ms on any modern device.
@@ -39,22 +43,45 @@ export function loadPersistedCache(sessionId?: string): number {
     if (typeof window === 'undefined') return 0;
 
     try {
+        // Check if the stored model matches the current model.
+        // If the model changed (e.g. text-embedding-3-small → large),
+        // cached vectors have different dimensions and would silently
+        // corrupt cosine similarity (returning 0 for all cross-dimension pairs).
+        const storedModel = localStorage.getItem(STORAGE_MODEL_KEY);
+        if (storedModel && cachedModelName && storedModel !== cachedModelName) {
+            console.warn(`[EmbeddingCache] Model changed (${storedModel} → ${cachedModelName}) — clearing stale cache`);
+            clearEmbeddingCache(sessionId);
+            return 0;
+        }
+        if (storedModel) {
+            cachedModelName = storedModel;
+        }
+
         const stored = localStorage.getItem(getStorageKey(sessionId));
         if (!stored) return 0;
 
         const entries: Record<string, number[]> = JSON.parse(stored);
         let count = 0;
+        let expectedDim: number | null = null;
         const now = Date.now();
 
         for (const [id, embedding] of Object.entries(entries)) {
             if (Array.isArray(embedding) && embedding.length > 0) {
+                // Validate all embeddings have the same dimension
+                if (expectedDim === null) {
+                    expectedDim = embedding.length;
+                } else if (embedding.length !== expectedDim) {
+                    console.warn(`[EmbeddingCache] Dimension mismatch in stored cache (${embedding.length} vs ${expectedDim}) — clearing`);
+                    clearEmbeddingCache(sessionId);
+                    return 0;
+                }
                 embeddingCache.set(id, embedding);
                 accessTimestamp.set(id, now);
                 count++;
             }
         }
 
-        console.log(`[EmbeddingCache] Loaded ${count} embeddings from localStorage`);
+        console.log(`[EmbeddingCache] Loaded ${count} embeddings from localStorage (dim=${expectedDim})`);
         return count;
     } catch (error) {
         console.warn('[EmbeddingCache] Failed to load persisted cache:', error);
@@ -186,6 +213,22 @@ export async function getOrFetchEmbeddings(
                 const data = await response.json();
                 const embeddings: number[][] = data.embeddings;
                 const fetchTime = Date.now();
+
+                // Track the model used for these embeddings to detect future mismatches
+                const modelUsed = data.logEntry?.model;
+                if (modelUsed) {
+                    if (cachedModelName && cachedModelName !== modelUsed) {
+                        // Model changed mid-session — clear cache to avoid dimension mix
+                        console.warn(`[EmbeddingCache] Model changed mid-session (${cachedModelName} → ${modelUsed}) — clearing cache`);
+                        embeddingCache.clear();
+                        accessTimestamp.clear();
+                        result.clear();
+                    }
+                    cachedModelName = modelUsed;
+                    try {
+                        localStorage.setItem(STORAGE_MODEL_KEY, modelUsed);
+                    } catch { /* ignore */ }
+                }
 
                 // Build text → embedding lookup
                 for (let i = 0; i < uniqueTexts.length; i++) {

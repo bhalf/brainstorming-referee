@@ -1,5 +1,6 @@
 import type { TranscriptSegment } from '@/lib/types';
 import { apiPost } from '@/lib/services/apiClient';
+import { TIMEOUTS } from '@/lib/config/timeouts';
 
 // --- Constants ---
 
@@ -46,7 +47,7 @@ export async function checkRuleViolations(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUTS.RULE_CHECK_MS);
 
     const data = await apiPost<{ violated: boolean; rule?: string; severity?: string; evidence?: string }>(
       '/api/rule-check',

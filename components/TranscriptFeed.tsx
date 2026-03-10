@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { TranscriptSegment } from '@/lib/types';
 import { formatTime } from '@/lib/utils/format';
 import EmptyState from './shared/EmptyState';
@@ -18,7 +18,7 @@ interface TranscriptFeedProps {
   maxHeight?: string;
 }
 
-export default function TranscriptFeed({
+function TranscriptFeedInner({
   segments,
   interimEntries = [],
   showTimestamps = true,
@@ -26,32 +26,45 @@ export default function TranscriptFeed({
 }: TranscriptFeedProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-scroll to bottom on new content
+  // Debounced auto-scroll to bottom on new content (500ms debounce)
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = setTimeout(() => {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 500);
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
   }, [segments, interimEntries]);
 
-  // Group consecutive segments by speaker
-  const groupedSegments = segments.reduce<Array<{
-    speaker: string;
-    segments: TranscriptSegment[];
-    startTime: number;
-  }>>((groups, segment) => {
-    const lastGroup = groups[groups.length - 1];
+  // Memoized grouping of consecutive segments by speaker
+  const groupedSegments = useMemo(() =>
+    segments.reduce<Array<{
+      speaker: string;
+      segments: TranscriptSegment[];
+      startTime: number;
+    }>>((groups, segment) => {
+      const lastGroup = groups[groups.length - 1];
 
-    if (lastGroup && lastGroup.speaker === segment.speaker) {
-      lastGroup.segments.push(segment);
-    } else {
-      groups.push({
-        speaker: segment.speaker,
-        segments: [segment],
-        startTime: segment.timestamp,
-      });
-    }
+      if (lastGroup && lastGroup.speaker === segment.speaker) {
+        lastGroup.segments.push(segment);
+      } else {
+        groups.push({
+          speaker: segment.speaker,
+          segments: [segment],
+          startTime: segment.timestamp,
+        });
+      }
 
-    return groups;
-  }, []);
+      return groups;
+    }, []),
+  [segments]);
 
   if (segments.length === 0 && interimEntries.length === 0) {
     return (
@@ -136,3 +149,6 @@ export default function TranscriptFeed({
     </div>
   );
 }
+
+const TranscriptFeed = React.memo(TranscriptFeedInner);
+export default TranscriptFeed;

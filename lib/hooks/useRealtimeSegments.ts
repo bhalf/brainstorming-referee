@@ -2,13 +2,11 @@ import { useState, useCallback, useRef } from 'react';
 import { useSupabaseChannel } from '@/lib/hooks/sync/useSupabaseChannel';
 import { segmentRowToApp } from '@/lib/supabase/converters';
 import { TranscriptSegment } from '@/lib/types';
-import type { MutableRefObject } from 'react';
 
 interface UseRealtimeSegmentsParams {
   sessionId: string | null;
   isActive: boolean;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
-  speakingTimeRef: MutableRefObject<Map<string, number>>;
   onError?: (message: string, context?: string) => void;
 }
 
@@ -16,7 +14,6 @@ export function useRealtimeSegments({
   sessionId,
   isActive,
   addTranscriptSegment,
-  speakingTimeRef,
   onError,
 }: UseRealtimeSegmentsParams) {
   const [isSubscribed, setIsSubscribed] = useState(false);

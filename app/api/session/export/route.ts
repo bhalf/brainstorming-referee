@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { segmentRowToApp, interventionRowToApp, ideaRowToApp, connectionRowToApp } from '@/lib/supabase/converters';
+import { validateSessionExists } from '@/lib/api/validateSession';
 
 // GET — Export full session log from Supabase
 export async function GET(request: NextRequest) {
@@ -9,6 +10,9 @@ export async function GET(request: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
   }
+
+  const validation = await validateSessionExists(sessionId);
+  if (!validation.valid) return validation.response;
 
   const supabase = getServiceClient();
 

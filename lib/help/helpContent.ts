@@ -21,70 +21,98 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
 
   'metric.participationRisk': {
     title: 'Participation Risk',
-    summary: 'Composite score measuring how unevenly participation is distributed across speakers.',
+    summary: 'Shows how ungleich the speaking contributions are distributed. A high value means one person dominates or others are barely speaking.',
     calculation: '0.35 × Hoover imbalance (word volume) + 0.25 × silent participant ratio (<5% share) + 0.25 × dominance streak (consecutive turns) + 0.15 × turn Hoover (turn frequency inequality)',
     goodValue: 'Below 55% — all participants contribute meaningfully.',
     badValue: 'Above 55% — one speaker dominates or others are silent. May trigger a rebalancing intervention.',
-    relevance: 'Balanced participation leads to more diverse ideas in brainstorming. Dominant speakers can suppress quieter contributors.',
+    relevance: 'Balanced participation leads to more diverse ideas. When one person dominates, quieter participants stop contributing.',
   },
 
   'metric.novelty': {
     title: 'Novelty',
-    summary: 'Fraction of recent statements that introduce semantically new content compared to everything said before.',
+    summary: 'How many of the recent statements bring genuinely new ideas vs. repeating what was already said. Higher = more fresh ideas entering the discussion.',
     calculation: 'Each of the last 20 segments is compared to all prior segments via cosine similarity on text embeddings. A segment is "novel" if max similarity < 0.65 (calibrated for text-embedding-3-small).',
     goodValue: 'Above 30% — new ideas are flowing into the conversation.',
     badValue: 'Below 30% — ideas are converging or repeating. May trigger a perspective-broadening intervention.',
-    relevance: 'High novelty indicates active exploration of the idea space — the core goal of brainstorming.',
+    relevance: 'The core indicator for creative brainstorming — are new ideas still being generated, or is the group going in circles?',
     technicalNote: 'Uses OpenAI text-embedding-3-small. Falls back to Jaccard word-set similarity (threshold 0.40) when embeddings unavailable.',
   },
 
   'metric.concentration': {
     title: 'Concentration',
-    summary: 'How strongly the discussion clusters around a few topics versus exploring many.',
+    summary: 'Are all ideas clustering around one single topic, or is the group exploring multiple different directions? High concentration = narrow focus on one theme.',
     calculation: 'Greedy centroid clustering on embeddings (merge threshold 0.60). Concentration = normalized HHI: (HHI - 1/n) / (1 - 1/n), where n = segment count.',
     goodValue: 'Below 70% — topics are well distributed across multiple themes.',
     badValue: 'Above 70% — all ideas cluster into one narrow topic. Indicates groupthink risk.',
-    relevance: 'Low concentration means the group explores diverse angles, which improves brainstorming output quality.',
+    relevance: 'Low concentration means diverse perspectives are being explored, which leads to better brainstorming outcomes.',
     technicalNote: 'Uses OpenAI embeddings for semantic clustering. Falls back to Jaccard-based clustering without embeddings.',
   },
 
   'metric.balance': {
     title: 'Balance',
-    summary: 'How evenly speaking time is distributed. 100% means everyone speaks equally.',
+    summary: 'How evenly speaking time is shared among participants. 100% = perfectly equal, 0% = one person talks the entire time.',
     calculation: '1 minus the Hoover index on speaking time distribution. Uses audio-based speaking time when available, otherwise text length as proxy.',
     goodValue: 'Above 35% — participation is reasonably balanced.',
     badValue: 'Below 35% — one speaker dominates the conversation heavily.',
-    relevance: 'Balanced participation ensures all perspectives are heard, especially important in research brainstorming settings.',
+    relevance: 'When speaking time is balanced, all perspectives are heard — especially important so quieter participants can contribute.',
   },
 
   'metric.repetition': {
     title: 'Repetition',
-    summary: 'How much consecutive statements repeat the same content.',
+    summary: 'How similar consecutive statements are to each other. High repetition means participants keep saying the same things instead of adding new perspectives.',
     calculation: 'Average cosine similarity between each pair of consecutive segment embeddings (last 30 segments).',
     goodValue: 'Below 75% — content is varied, new perspectives are being added.',
     badValue: 'Above 75% — the conversation is going in circles with the same ideas.',
-    relevance: 'High repetition signals the group is stuck and may need a new stimulus to break out of the loop.',
+    relevance: 'When repetition is high, the group is stuck and likely needs a new stimulus to break out of the loop.',
     technicalNote: 'With embeddings: cosine similarity on consecutive pairs. Without: Jaccard word-set similarity on last 10 segments.',
   },
 
   'metric.stagnation': {
     title: 'Stagnation',
-    summary: 'Time (in seconds) since the last truly new idea was introduced.',
+    summary: 'How many seconds have passed since someone last said something genuinely new. A rising number means no fresh ideas are coming in.',
     calculation: 'Walks backwards through the last 30 segments. Finds the most recent segment where avg cosine similarity to all prior segments < 0.85. Reports time elapsed since that segment.',
     goodValue: 'Below 180 seconds — fresh content is still being introduced.',
     badValue: 'Above 180 seconds — no new ideas for 3+ minutes. May trigger a reactivation intervention.',
-    relevance: 'Extended stagnation means the brainstorming has stalled. A moderator prompt can re-energize the discussion.',
+    relevance: 'When stagnation is high, the brainstorming has stalled — a moderator prompt can help re-energize the discussion.',
     technicalNote: 'With embeddings: semantic novelty detection. Without: simple time since last segment (no semantic analysis).',
   },
 
   'metric.diversity': {
     title: 'Diversity',
-    summary: 'How broad the vocabulary used in the discussion is.',
+    summary: 'How broad and varied the language used in the discussion is. High diversity means participants cover many different topics and use diverse vocabulary.',
     calculation: 'With embeddings: 1 minus average pairwise cosine similarity of all segment pairs. Without: Type-Token Ratio = unique words / total words (words > 2 characters).',
     goodValue: 'Above 30% — good vocabulary breadth, diverse topics being discussed.',
     badValue: 'Below 30% — narrow vocabulary, may indicate limited topic exploration.',
-    relevance: 'Vocabulary diversity correlates with the breadth of ideas explored during brainstorming.',
+    relevance: 'Vocabulary diversity correlates with the breadth of ideas explored — narrow language often means narrow thinking.',
     technicalNote: 'Primary: embedding-based semantic diversity. Fallback: Type-Token Ratio (purely algorithmic).',
+  },
+
+  'metric.cumulativeBalance': {
+    title: 'Long-Term Balance',
+    summary: 'Like Balance, but over a much longer time window (10 minutes instead of 3). Shows whether speaking time is evenly distributed across the entire session, not just recently.',
+    calculation: 'Hoover index computed on cumulative speaking time over a 600-second window. Displayed as 1 − Hoover, so 100% = perfectly equal.',
+    goodValue: 'Above 50% — participation has been balanced over the course of the session.',
+    badValue: 'Below 50% — one speaker has consistently dominated over a longer period.',
+    relevance: 'Catches persistent imbalances that the short-term Balance metric might miss — e.g., someone who dominated early but stopped recently.',
+  },
+
+  'metric.piggybacking': {
+    title: 'Build-on',
+    summary: 'Are participants building on each other\'s ideas ("Yes, and...") or talking past each other in parallel monologues? High = good collaborative idea building.',
+    calculation: 'When a speaker changes, compares the new statement to the previous speaker\'s statement using cosine similarity on embeddings. Averaged over the last 30 cross-speaker transitions.',
+    goodValue: 'Above 40% — participants actively reference and expand on each other\'s contributions.',
+    badValue: 'Below 30% — speakers are ignoring each other. Ideas exist in isolation rather than building upon one another.',
+    relevance: 'Collaborative building ("piggybacking") is a hallmark of productive brainstorming — it combines perspectives into stronger ideas.',
+    technicalNote: 'Uses OpenAI embeddings for cross-speaker similarity. Falls back to Jaccard word-set similarity when embeddings unavailable.',
+  },
+
+  'metric.fluency': {
+    title: 'Fluency',
+    summary: 'How many substantive contributions per minute the group produces. Measures the pace and productivity of the brainstorming — more turns per minute means higher idea throughput.',
+    calculation: 'Count of substantive (non-trivial) transcript segments divided by elapsed time in minutes. Only final, meaningful segments are counted (short filler excluded).',
+    goodValue: 'Above 4/min — the conversation has a healthy, productive pace.',
+    badValue: 'Below 2/min — very low activity, the discussion may be stalling or participants are hesitant to speak.',
+    relevance: 'Based on Osborn\'s "quantity first" brainstorming principle — more ideas generated means more potential for quality ideas.',
   },
 
   // ─── Conversation States ───────────────────────────────────

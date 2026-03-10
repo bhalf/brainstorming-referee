@@ -18,6 +18,7 @@ import { apiPost, apiFireAndForget } from '@/lib/services/apiClient';
 import { generateId } from '@/lib/utils/generateId';
 import { persistIntervention as persistInterventionApi } from '@/lib/services/interventionService';
 import { RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
+import { TIMEOUTS } from '@/lib/config/timeouts';
 
 // --- Types ---
 
@@ -84,7 +85,7 @@ function getClientFallbackText(intent: string, role: 'moderator' | 'ally', langu
     return isGerman ? fb.de : fb.en;
 }
 
-const INTERVENTION_TIMEOUT_MS = 20_000;
+const INTERVENTION_TIMEOUT_MS = TIMEOUTS.INTERVENTION_MS;
 
 /**
  * Fire a single intervention (moderator or ally).

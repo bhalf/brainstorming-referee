@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
+import { validateSessionExists } from '@/lib/api/validateSession';
 
 // PUT — Upsert engine state for a session
 export async function PUT(request: NextRequest) {
@@ -10,6 +11,9 @@ export async function PUT(request: NextRequest) {
     if (!sessionId || !state) {
       return NextResponse.json({ error: 'sessionId and state required' }, { status: 400 });
     }
+
+    const validation = await validateSessionExists(sessionId);
+    if (!validation.valid) return validation.response;
 
     const supabase = getServiceClient();
 
@@ -44,6 +48,9 @@ export async function GET(request: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
   }
+
+  const validation = await validateSessionExists(sessionId);
+  if (!validation.valid) return validation.response;
 
   const supabase = getServiceClient();
 

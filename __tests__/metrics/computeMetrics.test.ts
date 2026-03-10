@@ -89,8 +89,11 @@ describe('computeMetricsAsync — orchestration', () => {
             seg('Bob', 'This is a much longer sentence with many words', 1),
         ];
         // Audio says Alice spoke 10s, Bob 2s (opposite of text length)
-        const audioTimes = new Map([['Alice', 10], ['Bob', 2]]);
-        const result = await computeMetricsAsync(segments, config, now, audioTimes);
+        const audioDeltas = [
+            { speaker: 'Alice', seconds: 10, timestamp: now - 1000 },
+            { speaker: 'Bob', seconds: 2, timestamp: now - 1000 },
+        ];
+        const result = await computeMetricsAsync(segments, config, now, audioDeltas);
         // Audio override should give Alice the larger share
         expect(result.speakingTimeDistribution['Alice']).toBeGreaterThan(
             result.speakingTimeDistribution['Bob'],

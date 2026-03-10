@@ -4,6 +4,14 @@
 
 import type { ModelTaskKey } from './config/modelRouting';
 
+// --- Speaking Time (windowed audio tracking) ---
+
+export interface SpeakingTimeDelta {
+  speaker: string;
+  seconds: number;  // duration of this speaking interval
+  timestamp: number; // when this delta was recorded (ms)
+}
+
 // --- Transcript ---
 
 export interface TranscriptSegment {
@@ -146,7 +154,7 @@ export interface ExperimentConfig {
 
   // Trigger Timing
   COOLDOWN_SECONDS: number; // Min time between interventions (default: 180)
-  POST_CHECK_SECONDS: number; // Time to wait before checking improvement (default: 90)
+  POST_CHECK_SECONDS: number; // Time to wait before checking improvement (default: 180)
 
   // Safety Limits
   TTS_RATE_LIMIT_SECONDS: number; // Min time between TTS (default: 30)

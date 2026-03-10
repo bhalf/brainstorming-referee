@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { segmentToInsert } from '@/lib/supabase/converters';
+import { validateSessionExists } from '@/lib/api/validateSession';
 
 // POST — Insert a transcript segment (idempotent via ON CONFLICT)
 export async function POST(request: NextRequest) {
@@ -11,6 +12,9 @@ export async function POST(request: NextRequest) {
     if (!sessionId || !segment) {
       return NextResponse.json({ error: 'sessionId and segment required' }, { status: 400 });
     }
+
+    const validation = await validateSessionExists(sessionId);
+    if (!validation.valid) return validation.response;
 
     // Validate segment structure
     if (typeof segment.id !== 'string' || typeof segment.speaker !== 'string' || typeof segment.text !== 'string') {
@@ -47,6 +51,9 @@ export async function GET(request: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
   }
+
+  const validation = await validateSessionExists(sessionId);
+  if (!validation.valid) return validation.response;
 
   const supabase = getServiceClient();
 
