@@ -17,8 +17,34 @@ import {
 import { evaluateRecovery } from './postCheck';
 import type { RuleViolationResult } from './ruleViolationChecker';
 
-// --- Helper: Reset Intervention Count ---
+// --- Helper: Sliding Window Rate Limit ---
 
+const TEN_MINUTES_MS = 10 * 60 * 1000;
+
+/**
+ * Check if an intervention can be fired within the sliding-window rate limit.
+ * Returns the count of interventions in the last 10 minutes.
+ */
+export function countRecentInterventions(
+  timestamps: number[],
+  currentTime: number = Date.now(),
+): number {
+  const windowStart = currentTime - TEN_MINUTES_MS;
+  return timestamps.filter(t => t >= windowStart).length;
+}
+
+/**
+ * Prune old timestamps outside the 10-minute window.
+ */
+export function pruneInterventionTimestamps(
+  timestamps: number[],
+  currentTime: number = Date.now(),
+): number[] {
+  const windowStart = currentTime - TEN_MINUTES_MS;
+  return timestamps.filter(t => t >= windowStart);
+}
+
+/** @deprecated Use countRecentInterventions + interventionTimestamps instead */
 export function resetInterventionCountIfNeeded(
   currentState: DecisionEngineState,
   lastResetTime: number,
@@ -221,9 +247,10 @@ export function evaluatePolicy(
     return noIntervention(engineState, 'Baseline scenario — logging only');
   }
 
-  // Rate limit
-  if (engineState.interventionCount >= config.MAX_INTERVENTIONS_PER_10MIN) {
-    return noIntervention(engineState, `Rate limit reached (${config.MAX_INTERVENTIONS_PER_10MIN} per 10 min)`);
+  // Rate limit (sliding window)
+  const recentCount = countRecentInterventions(engineState.interventionTimestamps ?? [], currentTime);
+  if (recentCount >= config.MAX_INTERVENTIONS_PER_10MIN) {
+    return noIntervention(engineState, `Rate limit reached (${recentCount}/${config.MAX_INTERVENTIONS_PER_10MIN} in last 10 min)`);
   }
 
   // Cooldown guard

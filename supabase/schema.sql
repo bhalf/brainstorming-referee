@@ -15,6 +15,7 @@ create table if not exists sessions (
   started_at timestamptz not null default now(),
   ended_at timestamptz,
   last_heartbeat timestamptz default now(),
+  report jsonb,
   created_at timestamptz not null default now()
 );
 create index if not exists idx_sessions_room on sessions(room_name);
@@ -72,6 +73,11 @@ create table if not exists interventions (
   metrics_at_intervention jsonb,
   engine_state_snapshot jsonb,
   model text,
+  recovery_result text,
+  recovery_checked_at bigint,
+  rule_violated text,
+  rule_evidence text,
+  rule_severity text,
   created_at timestamptz not null default now()
 );
 create index if not exists idx_interventions_session on interventions(session_id, timestamp);
@@ -150,6 +156,29 @@ create table if not exists intervention_annotations (
 );
 create unique index if not exists idx_annotations_unique on intervention_annotations(intervention_id, annotator);
 create index if not exists idx_annotations_session on intervention_annotations(session_id);
+
+-- Session Errors (runtime errors captured during sessions)
+create table if not exists session_errors (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references sessions(id) on delete cascade,
+  timestamp bigint not null,
+  message text not null,
+  context text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_session_errors_session on session_errors(session_id, timestamp);
+
+-- Session Events (lifecycle / configuration events)
+create table if not exists session_events (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references sessions(id) on delete cascade,
+  event_type text not null,
+  payload jsonb,
+  actor text,
+  timestamp bigint not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_session_events_session on session_events(session_id, timestamp);
 
 -- Enable Realtime (run these in Supabase SQL Editor after creating tables)
 -- alter publication supabase_realtime add table transcript_segments;

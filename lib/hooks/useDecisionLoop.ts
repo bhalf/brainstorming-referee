@@ -12,7 +12,7 @@ import {
   ModelRoutingLogEntry,
   ConversationStateInference,
 } from '@/lib/types';
-import { evaluatePolicy, intentToTrigger, resetInterventionCountIfNeeded, generateInterventionContext } from '@/lib/decision/interventionPolicy';
+import { evaluatePolicy, intentToTrigger, countRecentInterventions, pruneInterventionTimestamps, generateInterventionContext } from '@/lib/decision/interventionPolicy';
 import { checkRuleViolations, RULE_CHECK_INTERVAL_MS, RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
 import { buildTranscriptContext } from '@/lib/decision/transcriptContext';
 import { executeIntervention, persistEngineState, persistRecoveryResult } from '@/lib/decision/interventionExecutor';
@@ -75,12 +75,13 @@ export function useDecisionLoop({
   const isTTSSupportedRef = useLatestRef(isTTSSupported);
   const sessionIdRef = useLatestRef(sessionId);
   const isProcessingRef = useRef(false);
-  const interventionCountResetTimeRef = useRef(Date.now());
   const lastInterventionIdRef = useRef<string | null>(null);
   const lastRuleCheckTimeRef = useRef(0);
   const isRuleCheckingRef = useRef(false);
   // Store pending rule violation for combining with metric interventions
   const pendingRuleViolationRef = useRef<RuleViolationResult | null>(null);
+  // Track recent evidence strings to prevent duplicate rule violation triggers
+  const recentEvidenceRef = useRef<Array<{ evidence: string; timestamp: number }>>([]);
 
   // --- Helper: Persist engine state shorthand ---
   const saveEngineState = (state: DecisionEngineState) => {
@@ -108,20 +109,29 @@ export function useDecisionLoop({
       const cfg = configRef.current;
       const lang = languageRef.current;
 
-      // --- 1. Periodically reset the intervention count (every 10 minutes) ---
-      const resetResult = resetInterventionCountIfNeeded(
-        decisionStateRef.current,
-        interventionCountResetTimeRef.current,
+      // --- 1. Prune old intervention timestamps (sliding window housekeeping) ---
+      const prunedTimestamps = pruneInterventionTimestamps(
+        decisionStateRef.current.interventionTimestamps ?? [],
         now
       );
-      if (resetResult.newResetTime !== interventionCountResetTimeRef.current) {
-        interventionCountResetTimeRef.current = resetResult.newResetTime;
-        // Use applyStateUpdate to keep ref and React state in sync atomically
-        applyStateUpdate({ interventionCount: 0 });
+      if (prunedTimestamps.length !== (decisionStateRef.current.interventionTimestamps ?? []).length) {
+        applyStateUpdate({ interventionTimestamps: prunedTimestamps });
       }
 
       // --- 2. Rule Violation Check (every 15s, detection only) ---
-      if (cfg.RULE_CHECK_ENABLED && !isRuleCheckingRef.current) {
+      // Skip when only 1 unique speaker is active in the last 60s (post-session suppression)
+      const recentSegments60s = transcriptSegmentsRef.current.filter(
+        s => s.isFinal && s.timestamp > now - 60_000
+      );
+      const uniqueSpeakers = new Set(recentSegments60s.map(s => s.speaker));
+      const multipleActiveSpeakers = uniqueSpeakers.size >= 2;
+
+      if (!multipleActiveSpeakers && pendingRuleViolationRef.current) {
+        console.log('[DecisionLoop] Rule check skipped — single speaker active, clearing pending violation');
+        pendingRuleViolationRef.current = null;
+      }
+
+      if (cfg.RULE_CHECK_ENABLED && !isRuleCheckingRef.current && multipleActiveSpeakers) {
         const timeSinceLastRuleCheck = now - lastRuleCheckTimeRef.current;
         if (timeSinceLastRuleCheck >= RULE_CHECK_INTERVAL_MS) {
           const prevRuleCheckTime = lastRuleCheckTimeRef.current;
@@ -207,8 +217,11 @@ export function useDecisionLoop({
 
       const metricIntervention = decision?.shouldIntervene && decision?.intent;
 
-      // Check shared cooldown & budget
-      const budgetAvailable = decisionStateRef.current.interventionCount < cfg.MAX_INTERVENTIONS_PER_10MIN;
+      // Check shared cooldown & budget (sliding window)
+      const recentInterventionCount = countRecentInterventions(
+        decisionStateRef.current.interventionTimestamps ?? [], now
+      );
+      const budgetAvailable = recentInterventionCount < cfg.MAX_INTERVENTIONS_PER_10MIN;
 
       if (!budgetAvailable) {
         console.log('[DecisionLoop] Intervention budget exhausted — dropping pending violation');
@@ -222,9 +235,23 @@ export function useDecisionLoop({
       // Rule violations fire immediately — BUT with a soft cooldown to prevent budget exhaustion
       const lastRuleViolationTime = decisionStateRef.current.lastRuleViolationTime ?? 0;
       const ruleViolationCooldownActive = (now - lastRuleViolationTime) < cfg.RULE_VIOLATION_COOLDOWN_MS;
-      const shouldFireViolation = !!pendingViolation && !ruleViolationCooldownActive;
 
-      if (pendingViolation && ruleViolationCooldownActive) {
+      // Duplicate evidence detection: skip if same evidence was already flagged recently
+      let duplicateEvidence = false;
+      if (pendingViolation?.evidence) {
+        const normalized = pendingViolation.evidence.trim().toLowerCase();
+        // Prune entries older than 5 minutes
+        recentEvidenceRef.current = recentEvidenceRef.current.filter(e => now - e.timestamp < 5 * 60 * 1000);
+        duplicateEvidence = recentEvidenceRef.current.some(e => e.evidence === normalized);
+        if (duplicateEvidence) {
+          console.log(`[DecisionLoop] Rule violation suppressed (duplicate evidence: "${pendingViolation.evidence}")`);
+          pendingRuleViolationRef.current = null;
+        }
+      }
+
+      const shouldFireViolation = !!pendingViolation && !ruleViolationCooldownActive && !duplicateEvidence;
+
+      if (pendingViolation && ruleViolationCooldownActive && !duplicateEvidence) {
         console.log(`[DecisionLoop] Rule violation suppressed (cooldown: ${Math.ceil((cfg.RULE_VIOLATION_COOLDOWN_MS - (now - lastRuleViolationTime)) / 1000)}s remaining)`);
         pendingRuleViolationRef.current = null; // Drop silently
       }
@@ -287,26 +314,36 @@ export function useDecisionLoop({
           }
         }
 
-        // Compute next engine state
+        // Compute next engine state (sliding window: push timestamp instead of incrementing count)
+        const updatedTimestamps = [...(decisionStateRef.current.interventionTimestamps ?? []), now];
         let nextEngineState: DecisionEngineState;
 
         if (shouldFireMetric) {
           nextEngineState = {
             ...decision!.nextEngineState,
             lastInterventionTime: now,
-            interventionCount: decisionStateRef.current.interventionCount + 1,
+            interventionCount: decisionStateRef.current.interventionCount + 1, // legacy compat
+            interventionTimestamps: updatedTimestamps,
           };
         } else {
           nextEngineState = {
             ...decisionStateRef.current,
             lastRuleViolationTime: now,
             lastInterventionTime: now,
-            interventionCount: decisionStateRef.current.interventionCount + 1,
+            interventionCount: decisionStateRef.current.interventionCount + 1, // legacy compat
+            interventionTimestamps: updatedTimestamps,
           };
         }
 
         if (shouldFireViolation) {
           nextEngineState.lastRuleViolationTime = now;
+          // Record evidence for duplicate detection
+          if (pendingViolation?.evidence) {
+            recentEvidenceRef.current.push({
+              evidence: pendingViolation.evidence.trim().toLowerCase(),
+              timestamp: now,
+            });
+          }
         }
 
         const result = await executeIntervention(

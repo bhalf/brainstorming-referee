@@ -22,6 +22,7 @@ import {
   formatDuration,
   formatRelativeTime,
   STATE_BG_COLORS,
+  STATE_BAR_COLORS,
   getSpeakerColor,
 } from '@/components/replay/replayHelpers';
 import { formatPercent } from '@/lib/utils/format';
@@ -69,6 +70,7 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
   const [selectedSnapshot, setSelectedSnapshot] = useState<number | null>(null);
   const [annotations, setAnnotations] = useState<Map<string, InterventionAnnotation>>(new Map());
   const [savingAnnotation, setSavingAnnotation] = useState<string | null>(null);
+  const [ideasExpanded, setIdeasExpanded] = useState(false);
 
   // Fetch session data + annotations in parallel
   useEffect(() => {
@@ -207,6 +209,89 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
       return next;
     });
   }, []);
+
+  // Compute metric health summary: how long each metric was in the "bad" range
+  const metricHealthSummary = useMemo(() => {
+    if (!data || data.metricSnapshots.length < 2) return null;
+    const snaps = data.metricSnapshots;
+    const sessionDurationMs = (snaps[snaps.length - 1].timestamp - snaps[0].timestamp);
+    if (sessionDurationMs <= 0) return null;
+
+    // Track time in bad range for each metric
+    let partBadMs = 0;
+    let repBadMs = 0;
+    let stagBadMs = 0;
+    let divBadMs = 0;
+    // v2 metrics
+    let partRiskBadMs = 0;
+    let noveltyBadMs = 0;
+    let clusterBadMs = 0;
+
+    for (let i = 1; i < snaps.length; i++) {
+      const prev = snaps[i - 1];
+      const dt = snaps[i].timestamp - prev.timestamp;
+
+      // Legacy metrics
+      if (prev.participationImbalance > 0.5) partBadMs += dt;
+      if (prev.semanticRepetitionRate > 0.5) repBadMs += dt;
+      if (prev.stagnationDuration > 60) stagBadMs += dt;
+      if (prev.diversityDevelopment < 0.3) divBadMs += dt;
+
+      // v2 metrics (from config thresholds)
+      const p = prev.participation;
+      const sd = prev.semanticDynamics;
+      if (p && p.participationRiskScore > 0.55) partRiskBadMs += dt;
+      if (sd && sd.noveltyRate < 0.3) noveltyBadMs += dt;
+      if (sd && sd.clusterConcentration > 0.7) clusterBadMs += dt;
+    }
+
+    return {
+      sessionDurationMs,
+      metrics: [
+        { label: 'Participation Imbalance', badMs: partBadMs, threshold: '> 50%', higherIsBetter: false },
+        { label: 'Repetition', badMs: repBadMs, threshold: '> 50%', higherIsBetter: false },
+        { label: 'Stagnation', badMs: stagBadMs, threshold: '> 60s', higherIsBetter: false },
+        { label: 'Low Diversity', badMs: divBadMs, threshold: '< 30%', higherIsBetter: true },
+        { label: 'Participation Risk', badMs: partRiskBadMs, threshold: '> 0.55', higherIsBetter: false },
+        { label: 'Low Novelty', badMs: noveltyBadMs, threshold: '< 0.30', higherIsBetter: false },
+        { label: 'High Cluster Conc.', badMs: clusterBadMs, threshold: '> 0.70', higherIsBetter: false },
+      ],
+    };
+  }, [data]);
+
+  // Compute state duration breakdown
+  const stateDurations = useMemo(() => {
+    if (!data || data.metricSnapshots.length < 2) return null;
+    const snaps = data.metricSnapshots;
+    const durations: Record<string, number> = {};
+    const totalMs = snaps[snaps.length - 1].timestamp - snaps[0].timestamp;
+    if (totalMs <= 0) return null;
+
+    for (let i = 1; i < snaps.length; i++) {
+      const prev = snaps[i - 1];
+      const inferred = prev.inferredState as { state?: string } | undefined;
+      const state = inferred?.state ?? 'UNKNOWN';
+      const dt = snaps[i].timestamp - prev.timestamp;
+      durations[state] = (durations[state] ?? 0) + dt;
+    }
+
+    // Sort: risk states first, then healthy
+    const DISPLAY_ORDER: ConversationStateName[] = [
+      'DOMINANCE_RISK', 'CONVERGENCE_RISK', 'STALLED_DISCUSSION',
+      'HEALTHY_EXPLORATION', 'HEALTHY_ELABORATION',
+    ];
+
+    return {
+      totalMs,
+      entries: DISPLAY_ORDER
+        .filter(s => (durations[s] ?? 0) > 0)
+        .map(state => ({
+          state: state as ConversationStateName,
+          durationMs: durations[state] ?? 0,
+          pct: ((durations[state] ?? 0) / totalMs) * 100,
+        })),
+    };
+  }, [data]);
 
   // --- Render ---
 
@@ -413,25 +498,114 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
               )}
             </Panel>
 
-            {/* Ideas */}
-            {data.ideas.length > 0 && (
+            {/* Metric Health Summary */}
+            {metricHealthSummary && (
               <Panel>
                 <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
-                  Ideas ({data.ideas.length})
+                  Metric Health Summary
                 </h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  Time each metric spent in the unhealthy range over {formatDuration(metricHealthSummary.sessionDurationMs)}
+                </p>
                 <div className="space-y-2">
-                  {data.ideas.map(idea => (
-                    <div key={idea.id} className="bg-slate-800/50 rounded p-2">
-                      <div className="text-sm text-white font-medium">{idea.title}</div>
-                      {idea.description && (
-                        <div className="text-xs text-slate-400 mt-0.5">{idea.description}</div>
-                      )}
-                      <div className="text-xs text-slate-500 mt-1">
-                        {idea.author} &middot; {idea.source}
+                  {metricHealthSummary.metrics.map(m => {
+                    const pct = (m.badMs / metricHealthSummary.sessionDurationMs) * 100;
+                    const isWarning = pct > 20;
+                    const isDanger = pct > 50;
+                    return (
+                      <div key={m.label}>
+                        <div className="flex justify-between text-xs mb-0.5">
+                          <span className="text-slate-300">{m.label}</span>
+                          <span className={isDanger ? 'text-red-400 font-medium' : isWarning ? 'text-yellow-400' : 'text-green-400'}>
+                            {pct.toFixed(1)}% ({formatDuration(m.badMs)})
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${isDanger ? 'bg-red-500' : isWarning ? 'bg-yellow-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min(100, pct)}%` }}
+                          />
+                        </div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">threshold: {m.threshold}</div>
                       </div>
+                    );
+                  })}
+                </div>
+              </Panel>
+            )}
+
+            {/* State Duration Breakdown */}
+            {stateDurations && (
+              <Panel>
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+                  State Duration Breakdown
+                </h3>
+                {/* Stacked bar */}
+                <div className="flex h-4 rounded-md overflow-hidden mb-3">
+                  {stateDurations.entries.map(e => (
+                    <div
+                      key={e.state}
+                      className={`${STATE_BAR_COLORS[e.state] ?? 'bg-slate-600'}`}
+                      style={{ width: `${e.pct}%` }}
+                      title={`${e.state.replace(/_/g, ' ')}: ${e.pct.toFixed(1)}%`}
+                    />
+                  ))}
+                </div>
+                <div className="space-y-1.5">
+                  {stateDurations.entries.map(e => (
+                    <div key={e.state} className="flex justify-between items-center text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-block w-2 h-2 rounded-sm ${STATE_BAR_COLORS[e.state] ?? 'bg-slate-600'}`} />
+                        <span className="text-slate-300">{e.state.replace(/_/g, ' ')}</span>
+                      </div>
+                      <span className="text-slate-400 font-mono">
+                        {formatDuration(e.durationMs)} ({e.pct.toFixed(1)}%)
+                      </span>
                     </div>
                   ))}
                 </div>
+              </Panel>
+            )}
+
+            {/* Ideas (collapsible) */}
+            {data.ideas.length > 0 && (
+              <Panel>
+                <button
+                  onClick={() => setIdeasExpanded(prev => !prev)}
+                  className="flex items-center justify-between w-full text-left"
+                >
+                  <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                    Ideas ({data.ideas.length})
+                  </h3>
+                  <span className="text-slate-500 text-xs">{ideasExpanded ? 'Collapse' : 'Expand'}</span>
+                </button>
+                {!ideasExpanded && (
+                  <div className="mt-2 space-y-1">
+                    {data.ideas.slice(0, 3).map(idea => (
+                      <div key={idea.id} className="text-xs text-slate-400 truncate">
+                        {idea.title}
+                      </div>
+                    ))}
+                    {data.ideas.length > 3 && (
+                      <div className="text-xs text-slate-500">+{data.ideas.length - 3} more</div>
+                    )}
+                  </div>
+                )}
+                {ideasExpanded && (
+                  <div className="mt-3 space-y-2 max-h-96 overflow-y-auto">
+                    {data.ideas.map(idea => (
+                      <div key={idea.id} className="bg-slate-800/50 rounded p-2">
+                        <div className="text-sm text-white font-medium">{idea.title}</div>
+                        {idea.description && (
+                          <div className="text-xs text-slate-400 mt-0.5">{idea.description}</div>
+                        )}
+                        <div className="text-xs text-slate-500 mt-1">
+                          {idea.author} &middot; {idea.source}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Panel>
             )}
 

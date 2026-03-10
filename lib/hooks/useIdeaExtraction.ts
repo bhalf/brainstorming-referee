@@ -276,11 +276,11 @@ export function useIdeaExtraction({
               sourceSegmentIds: extracted.sourceSegmentIds || [],
               positionX: position.x,
               positionY: position.y,
-              color: (extracted.ideaType ?? extracted.type) === 'category' ? 'slate' : getColorForAuthor(extracted.author),
+              color: (extracted.ideaType ?? extracted.type) === 'category' ? 'slate' : (extracted.ideaType ?? extracted.type) === 'action_item' ? 'action' : getColorForAuthor(extracted.author),
               isDeleted: false,
               createdAt: Date.now(),
               updatedAt: Date.now(),
-              ideaType: (extracted.ideaType ?? extracted.type) === 'category' ? 'category' : 'idea',
+              ideaType: (extracted.ideaType ?? extracted.type) === 'category' ? 'category' : (extracted.ideaType ?? extracted.type) === 'action_item' ? 'action_item' : 'idea',
               parentId: resolvedParentId,
             };
 

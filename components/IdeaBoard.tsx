@@ -46,6 +46,7 @@ const COLOR_MAP: Record<string, { bg: string; border: string; badge: string }> =
   'blue': { bg: '#bfdbfe', border: '#60a5fa', badge: '#1e40af' },
   'green': { bg: '#bbf7d0', border: '#4ade80', badge: '#166534' },
   'slate': { bg: '#1e293b', border: '#475569', badge: '#64748b' },
+  'action': { bg: '#fef3c7', border: '#f59e0b', badge: '#92400e' },
 };
 
 function getColor(color: string) {
@@ -134,6 +135,7 @@ const handleStyle = { width: 6, height: 6, background: '#94a3b8', border: 'none'
 
 const StickyNoteNode = memo(function StickyNoteNode({ id, data }: NodeProps<Node<StickyNoteData>>) {
   const isCategory = data.ideaType === 'category';
+  const isActionItem = data.ideaType === 'action_item';
   const colors = getColor(data.color);
 
   if (isCategory) {
@@ -189,6 +191,88 @@ const StickyNoteNode = memo(function StickyNoteNode({ id, data }: NodeProps<Node
             {data.childCount} {data.childCount !== 1 ? 'Ideen' : 'Idee'}
           </span>
         </div>
+      </div>
+    );
+  }
+
+  if (isActionItem) {
+    return (
+      <div
+        className="group relative"
+        style={{
+          width: 200,
+          minHeight: 90,
+          backgroundColor: colors.bg,
+          border: `2px solid ${colors.border}`,
+          borderLeft: `5px solid ${colors.border}`,
+          borderRadius: 10,
+          padding: '12px 14px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          cursor: 'grab',
+        }}
+      >
+        <Handle type="target" position={Position.Top} style={handleStyle} />
+        <Handle type="source" position={Position.Bottom} style={handleStyle} />
+
+        <button
+          className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ backgroundColor: 'rgba(220,38,38,0.8)', color: 'white' }}
+          onClick={(e) => { e.stopPropagation(); data.onDelete(id); }}
+          title="Delete action item"
+        >
+          ×
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+          <span style={{ fontSize: 13, lineHeight: 1.3, flexShrink: 0 }}>☐</span>
+          <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#1e293b', lineHeight: 1.3, paddingRight: 16 }}>
+            {data.title}
+          </h3>
+        </div>
+
+        {data.description && (
+          <p style={{ margin: '6px 0 0 19px', fontSize: 11, color: '#475569', lineHeight: 1.4 }}>
+            {data.description}
+          </p>
+        )}
+
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 500,
+            padding: '2px 6px',
+            borderRadius: 9999,
+            color: 'white',
+            backgroundColor: colors.badge,
+          }}>
+            {data.author}
+          </span>
+          <span style={{
+            fontSize: 9,
+            fontWeight: 600,
+            padding: '1px 5px',
+            borderRadius: 9999,
+            color: '#92400e',
+            backgroundColor: 'rgba(245,158,11,0.15)',
+            border: '1px solid rgba(245,158,11,0.3)',
+          }}>
+            Aufgabe
+          </span>
+          {data.source === 'auto' && (
+            <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>auto</span>
+          )}
+        </div>
+        {data.isNew && (
+          <div style={{
+            position: 'absolute',
+            inset: -3,
+            borderRadius: 13,
+            border: `2px solid ${colors.border}`,
+            animation: 'idea-pulse 1.5s ease-out 2',
+            pointerEvents: 'none',
+            opacity: 0,
+          }} />
+        )}
       </div>
     );
   }

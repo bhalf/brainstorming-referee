@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluatePolicy, intentToTrigger, analyzeInterventionHistory } from '@/lib/decision/interventionPolicy';
+import { evaluatePolicy, intentToTrigger, analyzeInterventionHistory, countRecentInterventions, pruneInterventionTimestamps } from '@/lib/decision/interventionPolicy';
 import {
   MetricSnapshot,
   DecisionEngineState,
@@ -16,6 +16,7 @@ function makeEngineState(overrides: Partial<DecisionEngineState> = {}): Decision
     phase: 'MONITORING',
     lastInterventionTime: null,
     interventionCount: 0,
+    interventionTimestamps: [],
     postCheckStartTime: null,
     cooldownUntil: null,
     metricsAtIntervention: null,
@@ -91,9 +92,15 @@ describe('evaluatePolicy', () => {
     expect(result.reason).toContain('Baseline');
   });
 
-  it('returns no intervention when rate limited', () => {
+  it('returns no intervention when rate limited (sliding window)', () => {
+    const now = Date.now();
+    // Fill timestamps with MAX_INTERVENTIONS_PER_10MIN recent entries
+    const timestamps = Array.from(
+      { length: config.MAX_INTERVENTIONS_PER_10MIN },
+      (_, i) => now - (i + 1) * 60_000, // spaced 1 minute apart, all within 10 min
+    );
     const engine = makeEngineState({
-      interventionCount: config.MAX_INTERVENTIONS_PER_10MIN,
+      interventionTimestamps: timestamps,
     });
     const result = evaluatePolicy(
       makeInference('DOMINANCE_RISK', 0.8),
@@ -102,6 +109,7 @@ describe('evaluatePolicy', () => {
       engine,
       config,
       'A',
+      now,
     );
     expect(result.shouldIntervene).toBe(false);
     expect(result.reason).toContain('Rate limit');
@@ -753,5 +761,49 @@ describe('evaluatePolicy — confirmation reset with oscillating risk states', (
     // Should override to CONVERGENCE_RISK's intent since it's most frequent
     expect(result.intent).toBe('PERSPECTIVE_BROADENING');
     expect(result.triggeringState).toBe('CONVERGENCE_RISK');
+  });
+});
+
+// --- Sliding Window Rate Limit Tests ---
+
+describe('countRecentInterventions', () => {
+  it('returns 0 for empty timestamps', () => {
+    expect(countRecentInterventions([], Date.now())).toBe(0);
+  });
+
+  it('counts only timestamps within the last 10 minutes', () => {
+    const now = Date.now();
+    const timestamps = [
+      now - 5 * 60 * 1000,   // 5 min ago — within window
+      now - 8 * 60 * 1000,   // 8 min ago — within window
+      now - 11 * 60 * 1000,  // 11 min ago — outside window
+      now - 15 * 60 * 1000,  // 15 min ago — outside window
+    ];
+    expect(countRecentInterventions(timestamps, now)).toBe(2);
+  });
+
+  it('counts all timestamps when all are recent', () => {
+    const now = Date.now();
+    const timestamps = [now - 1000, now - 2000, now - 3000];
+    expect(countRecentInterventions(timestamps, now)).toBe(3);
+  });
+});
+
+describe('pruneInterventionTimestamps', () => {
+  it('returns empty array for empty input', () => {
+    expect(pruneInterventionTimestamps([], Date.now())).toEqual([]);
+  });
+
+  it('removes timestamps older than 10 minutes', () => {
+    const now = Date.now();
+    const timestamps = [
+      now - 5 * 60 * 1000,   // keep
+      now - 11 * 60 * 1000,  // prune
+      now - 1 * 60 * 1000,   // keep
+    ];
+    const result = pruneInterventionTimestamps(timestamps, now);
+    expect(result).toHaveLength(2);
+    expect(result).toContain(timestamps[0]);
+    expect(result).toContain(timestamps[2]);
   });
 });

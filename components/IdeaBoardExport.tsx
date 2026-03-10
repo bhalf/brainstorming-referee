@@ -11,13 +11,14 @@ function generateIdeaBoardMarkdown(
 ): string {
     const active = ideas.filter(i => !i.isDeleted);
     const categories = active.filter(i => i.ideaType === 'category');
-    const standalone = active.filter(i => i.ideaType !== 'category' && !i.parentId);
+    const actionItems = active.filter(i => i.ideaType === 'action_item' && !i.parentId);
+    const standalone = active.filter(i => i.ideaType !== 'category' && i.ideaType !== 'action_item' && !i.parentId);
     const now = new Date().toLocaleString();
 
     const lines: string[] = [];
 
     lines.push(`# Idea Board — ${roomName}`);
-    lines.push(`> Exported on ${now} · ${active.length} ideas, ${connections.length} connections`);
+    lines.push(`> Exported on ${now} · ${standalone.length} ideas, ${actionItems.length} action items, ${connections.length} connections`);
     lines.push('');
 
     // Categories with child ideas
@@ -31,7 +32,8 @@ function generateIdeaBoardMarkdown(
             if (children.length > 0) {
                 lines.push('');
                 for (const child of children) {
-                    lines.push(`- **${child.title}** (${child.author})${child.description ? `  \n  ${child.description}` : ''}`);
+                    const prefix = child.ideaType === 'action_item' ? '- [ ] ' : '- ';
+                    lines.push(`${prefix}**${child.title}** (${child.author})${child.description ? `  \n  ${child.description}` : ''}`);
                 }
             } else {
                 lines.push('_No ideas in this category yet._');
@@ -46,6 +48,16 @@ function generateIdeaBoardMarkdown(
         lines.push('');
         for (const idea of standalone) {
             lines.push(`- **${idea.title}** (${idea.author})${idea.description ? `  \n  ${idea.description}` : ''}`);
+        }
+        lines.push('');
+    }
+
+    // Action items
+    if (actionItems.length > 0) {
+        lines.push('## Action Items');
+        lines.push('');
+        for (const item of actionItems) {
+            lines.push(`- [ ] **${item.title}** (${item.author})${item.description ? `  \n  ${item.description}` : ''}`);
         }
         lines.push('');
     }

@@ -52,6 +52,14 @@ export const STATE_BG_COLORS: Record<ConversationStateName, string> = {
     STALLED_DISCUSSION: 'bg-orange-500/20 border-orange-500/40',
 };
 
+export const STATE_BAR_COLORS: Record<ConversationStateName, string> = {
+    HEALTHY_EXPLORATION: 'bg-green-500',
+    HEALTHY_ELABORATION: 'bg-emerald-500',
+    DOMINANCE_RISK: 'bg-red-500',
+    CONVERGENCE_RISK: 'bg-yellow-500',
+    STALLED_DISCUSSION: 'bg-orange-500',
+};
+
 export const RECOVERY_BADGE: Record<string, { text: string; color: string }> = {
     recovered: { text: 'Recovered', color: 'bg-green-500/30 text-green-300' },
     partial: { text: 'Partial', color: 'bg-yellow-500/30 text-yellow-300' },

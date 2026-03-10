@@ -98,6 +98,13 @@ export function useMetricsComputation({
       if (isComputingRef.current) return;
       const segments = transcriptSegmentsRef.current;
       if (segments.length === 0) return;
+
+      // Empty window guard: skip computation if no segments fall within the analysis window.
+      // This prevents metrics from resetting to misleading defaults at session end.
+      const windowStart = Date.now() - config.WINDOW_SECONDS * 1000;
+      const windowedCount = segments.filter(s => s.timestamp >= windowStart).length;
+      if (windowedCount === 0) return;
+
       isComputingRef.current = true;
 
       try {

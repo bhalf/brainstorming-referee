@@ -163,7 +163,9 @@ export function useOpenAIRealtimeStream({
     }, []);
 
     // Clean up WebSocket
-    const cleanupWebSocket = useCallback(() => {
+    // When `silent` is true, we skip setting isConnected=false — used during
+    // reconnection so the UI doesn't flash "Connecting..." between old/new WS.
+    const cleanupWebSocket = useCallback((silent = false) => {
         if (tokenRefreshTimerRef.current) {
             clearTimeout(tokenRefreshTimerRef.current);
             tokenRefreshTimerRef.current = null;
@@ -180,7 +182,9 @@ export function useOpenAIRealtimeStream({
             }
             wsRef.current = null;
         }
-        setIsConnected(false);
+        if (!silent) {
+            setIsConnected(false);
+        }
     }, []);
 
     // Clean up Audio pipeline and mic stream
@@ -270,7 +274,10 @@ export function useOpenAIRealtimeStream({
         // Narrow to const so TypeScript knows it's non-null inside the closure below
         const validToken = tokenData;
 
-        cleanupWebSocket();
+        // Close old WS silently (keep isConnected=true during reconnection so UI
+        // doesn't flash "Connecting..." between old and new WebSocket).
+        // If the new WS fails, onclose/onerror will set isConnected=false.
+        cleanupWebSocket(/* silent */ true);
 
         // Schedule automatic refresh before this token expires
         scheduleTokenRefresh(validToken.expiresAt);

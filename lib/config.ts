@@ -21,7 +21,7 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
 
   // Brainstorming Rules
   RULE_CHECK_ENABLED: true,
-  RULE_VIOLATION_COOLDOWN_MS: 45_000,
+  RULE_VIOLATION_COOLDOWN_MS: 15_000,
 
   // Thresholds
   THRESHOLD_SILENT_PARTICIPANT: 0.05,

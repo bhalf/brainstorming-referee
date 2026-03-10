@@ -58,10 +58,19 @@ export async function checkRuleViolations(
     clearTimeout(timeoutId);
 
     if (data.violated) {
+      const severity = data.severity as RuleViolationResult['severity'];
+
+      // Only act on medium/high severity — low/borderline violations are not worth
+      // interrupting the brainstorming for (high false-positive rate).
+      if (!severity || severity === 'low') {
+        console.log(`[RuleCheck] Low-severity violation ignored: ${data.evidence ?? 'no evidence'}`);
+        return null;
+      }
+
       return {
         violated: true,
         rule: data.rule ?? undefined,
-        severity: data.severity as RuleViolationResult['severity'] ?? undefined,
+        severity,
         evidence: data.evidence ?? undefined,
       };
     }

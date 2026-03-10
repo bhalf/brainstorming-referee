@@ -26,6 +26,7 @@ const initialDecisionState: DecisionEngineState = {
   phase: 'MONITORING',
   lastInterventionTime: null,
   interventionCount: 0,
+  interventionTimestamps: [],
   postCheckStartTime: null,
   cooldownUntil: null,
   metricsAtIntervention: null,

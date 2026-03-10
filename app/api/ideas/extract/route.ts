@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       );
 
       let parsed: {
-        ideas: Array<{ title: string; description?: string; author: string; sourceSegmentIds?: string[]; type?: 'idea' | 'category'; parentTitle?: string | null; parentId?: string | null }>;
+        ideas: Array<{ title: string; description?: string; author: string; sourceSegmentIds?: string[]; type?: 'idea' | 'category' | 'action_item'; parentTitle?: string | null; parentId?: string | null }>;
         connections?: Array<{ sourceTitle: string; targetTitle: string; sourceId?: string | null; targetId?: string | null; label?: string; type?: string }>;
       };
       try {
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
           description: idea.description?.trim() || null,
           author: idea.author || 'Unknown',
           sourceSegmentIds: idea.sourceSegmentIds || [],
-          ideaType: idea.type === 'category' ? 'category' : 'idea',
+          ideaType: idea.type === 'category' ? 'category' : idea.type === 'action_item' ? 'action_item' : 'idea',
           parentTitle: idea.parentTitle?.trim() || null,
           parentId: idea.parentId || titleToIdMap.get(idea.parentTitle?.toLowerCase().trim() || '') || null,
         })),

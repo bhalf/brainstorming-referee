@@ -133,7 +133,8 @@ export interface Intervention {
 export interface DecisionEngineState {
   phase: EnginePhase;
   lastInterventionTime: number | null;
-  interventionCount: number; // within current 10-min window
+  interventionCount: number; // legacy: kept for Supabase backward compat
+  interventionTimestamps: number[]; // sliding window: timestamps of recent interventions
   postCheckStartTime: number | null; // when post-check period started
   cooldownUntil: number | null;
   metricsAtIntervention: MetricSnapshot | null; // state of metrics when intervention fired
@@ -248,7 +249,7 @@ export interface SessionLog {
 
 export type IdeaSource = 'auto' | 'manual';
 
-export type IdeaType = 'idea' | 'category';
+export type IdeaType = 'idea' | 'category' | 'action_item';
 
 export interface Idea {
   id: string;
