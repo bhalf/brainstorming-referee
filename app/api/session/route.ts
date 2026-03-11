@@ -2,7 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { generateSessionReport, generateLLMSessionSummary } from '@/lib/state/generateSessionReport';
 
-// POST — Create a new session (host only)
+/**
+ * POST /api/session — Create a new brainstorming session.
+ *
+ * Only the host calls this endpoint. If an active session with the same room
+ * name already exists and is still fresh (< 1 hour), a 409 conflict is returned.
+ * Stale sessions are auto-ended to allow seamless recreation.
+ *
+ * @param request.body.roomName - Unique LiveKit room identifier.
+ * @param request.body.scenario - Experiment scenario ('baseline' | 'A' | 'B'). Defaults to 'A'.
+ * @param request.body.language - BCP-47 locale for transcription/prompts. Defaults to 'en-US'.
+ * @param request.body.config - Optional experiment configuration overrides.
+ * @param request.body.hostIdentity - Display name / identity of the host.
+ * @returns {{ sessionId: string }} The newly created session's UUID.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -71,7 +84,16 @@ export async function POST(request: NextRequest) {
 // Maximum age for a session to be considered "active" (1 hour)
 const MAX_SESSION_AGE_MS = 1 * 60 * 60 * 1000;
 
-// GET — Get active session for a room
+/**
+ * GET /api/session?room={roomName} — Retrieve the active session for a room.
+ *
+ * Returns the most recently created non-ended session for the given room name.
+ * If the session's last activity exceeds MAX_SESSION_AGE_MS it is auto-ended
+ * and a 404 is returned so the caller can create a fresh session.
+ *
+ * @param request.query.room - The LiveKit room name to look up.
+ * @returns Session metadata including sessionId, scenario, language, config, and hostIdentity.
+ */
 export async function GET(request: NextRequest) {
   const roomName = request.nextUrl.searchParams.get('room');
 
@@ -119,7 +141,16 @@ export async function GET(request: NextRequest) {
   });
 }
 
-// PUT — Update session voice settings
+/**
+ * PUT /api/session — Update session voice (TTS) settings.
+ *
+ * Merges the provided voice settings into the session's existing config JSON
+ * column so other config fields are preserved.
+ *
+ * @param request.body.sessionId - UUID of the session to update.
+ * @param request.body.voiceSettings - Partial voice settings object to merge.
+ * @returns {{ success: true }} on success.
+ */
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
@@ -162,7 +193,16 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// PATCH — End a session (also marks all participants as left + generates report)
+/**
+ * PATCH /api/session — End an active session.
+ *
+ * Marks all remaining participants as left, sets the session's ended_at
+ * timestamp, and kicks off an asynchronous post-session report generation
+ * (including an optional LLM narrative summary).
+ *
+ * @param request.body.sessionId - UUID of the session to end.
+ * @returns {{ success: true }} immediately; the report generates in the background.
+ */
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -207,6 +247,13 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+/**
+ * Generates a post-session analytics report and persists it to the sessions table.
+ *
+ * Fetches all session artifacts (segments, snapshots, interventions, ideas,
+ * participants) in parallel, computes a deterministic statistical report, and
+ * optionally appends an LLM-generated narrative summary.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function generateReport(supabase: any, sessionId: string) {
   const [sessionRes, segmentsRes, snapshotsRes, interventionsRes, ideasRes, participantsRes] = await Promise.all([

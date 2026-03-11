@@ -28,6 +28,28 @@ interface AllyRequest {
 
 // --- Handler ---
 
+/**
+ * POST /api/intervention/ally — Generate an ally (peer impulse) intervention via LLM.
+ *
+ * Only permitted in Scenario B. Constructs a prompt from topic context,
+ * transcript excerpts, existing ideas, participation metrics, and semantic
+ * dynamics, then calls the LLM to produce a natural-sounding peer impulse.
+ * Falls back to a static response if the LLM call fails.
+ *
+ * Rate-limited to 30 requests per window.
+ *
+ * @param request.body.language - BCP-47 locale for prompt and response language.
+ * @param request.body.scenario - Must be 'B'; other values are rejected with 400.
+ * @param request.body.topic - Optional brainstorming topic for context.
+ * @param request.body.previousInterventions - Optional array of prior intervention texts.
+ * @param request.body.transcriptExcerpt - Optional recent transcript lines.
+ * @param request.body.existingIdeas - Optional list of existing idea titles to avoid repetition.
+ * @param request.body.intent - Optional intervention intent from the decision engine.
+ * @param request.body.triggeringState - Optional conversation state that triggered the ally.
+ * @param request.body.participationMetrics - Optional participation risk scores.
+ * @param request.body.semanticDynamics - Optional semantic space metrics.
+ * @returns {{ role, text, intent?, timestamp, logEntry, fallback? }}
+ */
 export async function POST(request: NextRequest) {
   const limited = rateLimit(request, { maxRequests: 30 });
   if (limited) return limited;
@@ -50,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     const routingConfig = loadRoutingConfig();
 
-    // Build prompt
+    // Limit prior interventions to the 3 most recent to keep prompt size manageable
     const interventionContext = previousInterventions.length > 0
       ? previousInterventions.slice(-3).join('; ')
       : 'None yet';
@@ -62,10 +84,11 @@ export async function POST(request: NextRequest) {
     // Select language-appropriate prompts
     const isGerman = language.startsWith('de');
 
-    // Use v2 prompt if triggeringState is available, otherwise v1
+    // v2 prompts include conversation state context; v1 is a simpler format
     const topicText = topic || 'Not specified';
 
-    // Build existing ideas context
+    // Build existing ideas context (capped at 15) so the ally avoids repeating
+    // ideas the group has already generated
     let existingIdeasContext = '';
     if (existingIdeas.length > 0) {
       const ideasList = existingIdeas.slice(0, 15).map(i => `- ${i}`).join('\n');

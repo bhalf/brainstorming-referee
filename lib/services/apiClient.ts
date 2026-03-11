@@ -1,7 +1,18 @@
+/**
+ * Centralised API client with retry logic.
+ *
+ * Wraps `fetchWithRetry` to provide typed JSON request helpers (GET, POST,
+ * PUT, PATCH, DELETE) and a fire-and-forget variant for best-effort calls.
+ * All methods set JSON content-type headers and convert errors into
+ * {@link ApiError} or {@link NetworkError} instances.
+ * @module
+ */
+
 import { fetchWithRetry } from '@/lib/utils/fetchWithRetry';
 
 // --- Error Classes ---
 
+/** Represents an HTTP-level error returned by an API route. */
 export class ApiError extends Error {
     constructor(
         message: string,
@@ -14,6 +25,7 @@ export class ApiError extends Error {
     }
 }
 
+/** Represents a network-level failure (DNS, timeout, no response). */
 export class NetworkError extends Error {
     constructor(message: string, public readonly context?: string) {
         super(message);
@@ -23,6 +35,7 @@ export class NetworkError extends Error {
 
 // --- Options ---
 
+/** Shared options accepted by all typed request helpers. */
 export interface ApiOptions {
     signal?: AbortSignal;
     maxRetries?: number;
@@ -30,6 +43,15 @@ export interface ApiOptions {
 
 // --- Core Functions ---
 
+/**
+ * Internal request handler: sends a JSON request with retries and maps
+ * failures to ApiError / NetworkError. Not exported -- use the typed
+ * wrappers below.
+ * @param url - The API endpoint URL.
+ * @param init - Standard RequestInit (method, body, headers, etc.).
+ * @param options - Abort signal and retry count.
+ * @returns Parsed JSON response body typed as T.
+ */
 async function apiRequest<T>(
     url: string,
     init: RequestInit,
@@ -66,6 +88,7 @@ async function apiRequest<T>(
 
         return data as T;
     } catch (error) {
+        // Re-throw known error types without wrapping
         if (error instanceof ApiError) throw error;
         if (error instanceof NetworkError) throw error;
         if (error instanceof DOMException && error.name === 'AbortError') throw error;
@@ -77,7 +100,13 @@ async function apiRequest<T>(
     }
 }
 
-/** Fire-and-forget variant — logs errors but does not throw */
+/**
+ * Fire-and-forget variant -- logs errors internally but never throws.
+ * Used for best-effort persistence (segments, events, errors).
+ * @param url - The API endpoint URL.
+ * @param init - Standard RequestInit (method, body, headers, etc.).
+ * @param maxRetries - Number of retries before silently giving up.
+ */
 export async function apiFireAndForget(
     url: string,
     init: RequestInit,
@@ -91,10 +120,17 @@ export async function apiFireAndForget(
             silent: true,
         });
     } catch {
-        // Intentionally swallowed — fire-and-forget
+        // Intentionally swallowed -- fire-and-forget
     }
 }
 
+/**
+ * Send a GET request and return the parsed JSON body.
+ * @param url - The API endpoint URL.
+ * @param params - Optional query string parameters.
+ * @param options - Optional abort signal and retry config.
+ * @returns Parsed JSON response typed as T.
+ */
 export async function apiGet<T>(
     url: string,
     params?: Record<string, string>,
@@ -106,6 +142,13 @@ export async function apiGet<T>(
     return apiRequest<T>(`${url}${queryString}`, { method: 'GET' }, options);
 }
 
+/**
+ * Send a POST request with a JSON body.
+ * @param url - The API endpoint URL.
+ * @param body - Request payload (will be JSON-stringified).
+ * @param options - Optional abort signal and retry config.
+ * @returns Parsed JSON response typed as T.
+ */
 export async function apiPost<T>(
     url: string,
     body: unknown,
@@ -118,6 +161,13 @@ export async function apiPost<T>(
     );
 }
 
+/**
+ * Send a PUT request with a JSON body.
+ * @param url - The API endpoint URL.
+ * @param body - Request payload (will be JSON-stringified).
+ * @param options - Optional abort signal and retry config.
+ * @returns Parsed JSON response typed as T.
+ */
 export async function apiPut<T>(
     url: string,
     body: unknown,
@@ -130,6 +180,13 @@ export async function apiPut<T>(
     );
 }
 
+/**
+ * Send a PATCH request with a JSON body.
+ * @param url - The API endpoint URL.
+ * @param body - Request payload (will be JSON-stringified).
+ * @param options - Optional abort signal and retry config.
+ * @returns Parsed JSON response typed as T.
+ */
 export async function apiPatch<T>(
     url: string,
     body: unknown,
@@ -142,6 +199,13 @@ export async function apiPatch<T>(
     );
 }
 
+/**
+ * Send a DELETE request with an optional JSON body.
+ * @param url - The API endpoint URL.
+ * @param body - Optional request payload (will be JSON-stringified).
+ * @param options - Optional abort signal and retry config.
+ * @returns Parsed JSON response typed as T (defaults to void).
+ */
 export async function apiDelete<T = void>(
     url: string,
     body?: unknown,

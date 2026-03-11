@@ -1,8 +1,9 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useSupabaseChannel } from '@/lib/hooks/sync/useSupabaseChannel';
 import { segmentRowToApp } from '@/lib/supabase/converters';
 import { TranscriptSegment } from '@/lib/types';
 
+/** Parameters for the realtime segments subscription hook. */
 interface UseRealtimeSegmentsParams {
   sessionId: string | null;
   isActive: boolean;
@@ -10,13 +11,20 @@ interface UseRealtimeSegmentsParams {
   onError?: (message: string, context?: string) => void;
 }
 
+/**
+ * Subscribes to new transcript segments via Supabase Realtime (INSERT events).
+ * Deduplicates against segments already received through the faster LiveKit
+ * DataChannel path using an in-memory Set capped at 5000 entries.
+ *
+ * @param params - Session ID, active flag, segment dispatcher, and optional error handler.
+ * @returns Whether the Realtime subscription is currently active.
+ */
 export function useRealtimeSegments({
   sessionId,
   isActive,
   addTranscriptSegment,
   onError,
 }: UseRealtimeSegmentsParams) {
-  const [isSubscribed, setIsSubscribed] = useState(false);
 
   // Track segment IDs already processed (received via LiveKit DataChannel or local).
   // This avoids redundant dispatch calls when Supabase Realtime delivers segments
@@ -38,10 +46,9 @@ export function useRealtimeSegments({
     }
     knownIdsRef.current.add(row.id as string);
 
-    // Cap the Set size to prevent unbounded growth (~5000 segments max)
+    // Evict oldest 1000 entries when Set exceeds 5000 to prevent unbounded memory growth
     if (knownIdsRef.current.size > 5000) {
       const iterator = knownIdsRef.current.values();
-      // Delete the oldest 1000 entries
       for (let i = 0; i < 1000; i++) {
         const next = iterator.next();
         if (next.done) break;
@@ -59,7 +66,6 @@ export function useRealtimeSegments({
 
   const handleError = useCallback((message: string, context?: string) => {
     onError?.(message, context);
-    setIsSubscribed(false);
   }, [onError]);
 
   const result = useSupabaseChannel<Record<string, unknown>>({
@@ -72,5 +78,5 @@ export function useRealtimeSegments({
     onError: handleError,
   });
 
-  return { isSubscribed: result.isSubscribed || isSubscribed };
+  return { isSubscribed: result.isSubscribed };
 }

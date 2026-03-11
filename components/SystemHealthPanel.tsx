@@ -5,8 +5,7 @@ import { formatTime } from '@/lib/utils/format';
 import Panel from './shared/Panel';
 import SectionHeader from './shared/SectionHeader';
 
-// --- Types ---
-
+/** Health status data for all subsystems, consumed by SystemHealthPanel. */
 export interface SystemHealthProps {
   transcription: {
     isConnected: boolean;
@@ -44,8 +43,7 @@ interface SubsystemStatus {
   detail: string;
 }
 
-// --- Helpers ---
-
+/** Returns the Tailwind background class for a health status dot. */
 function getStatusDotColor(status: HealthLevel): string {
   switch (status) {
     case 'healthy': return 'bg-green-400';
@@ -55,6 +53,7 @@ function getStatusDotColor(status: HealthLevel): string {
   }
 }
 
+/** Returns the Tailwind text color class for a health status label. */
 function getStatusTextColor(status: HealthLevel): string {
   switch (status) {
     case 'healthy': return 'text-green-400';
@@ -64,6 +63,7 @@ function getStatusTextColor(status: HealthLevel): string {
   }
 }
 
+/** Evaluates all subsystem health statuses based on current connection and error states. */
 function getSubsystems(props: SystemHealthProps, now: number): SubsystemStatus[] {
   const subsystems: SubsystemStatus[] = [];
 
@@ -139,8 +139,12 @@ export function computeOverallHealth(props: SystemHealthProps): HealthLevel {
   return 'healthy';
 }
 
-// --- Component ---
-
+/**
+ * System health indicator panel showing per-subsystem status (transcription, LiveKit,
+ * realtime sync, metrics engine, decision engine, TTS) and a chronological error log.
+ *
+ * @param health - Health status data for all subsystems.
+ */
 export default function SystemHealthPanel({ health }: { health: SystemHealthProps }) {
   const [now, setNow] = useState(Date.now());
 

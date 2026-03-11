@@ -58,8 +58,14 @@ interface SessionExport {
 
 // --- Helpers, types, and sub-components now imported from components/replay/ ---
 
-// --- Component ---
-
+/**
+ * Post-session replay view that loads all session data from the export API
+ * and presents an interactive timeline with filterable events (segments,
+ * interventions, state changes), a metric snapshot scrubber, health summaries,
+ * state duration breakdown, and intervention annotations for researcher review.
+ *
+ * @param sessionId - Supabase session ID to load and replay.
+ */
 export default function SessionReplayView({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const [data, setData] = useState<SessionExport | null>(null);
@@ -72,7 +78,7 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
   const [savingAnnotation, setSavingAnnotation] = useState<string | null>(null);
   const [ideasExpanded, setIdeasExpanded] = useState(false);
 
-  // Fetch session data + annotations in parallel
+  // Load session export data and researcher annotations in parallel on mount
   useEffect(() => {
     async function load() {
       try {
@@ -144,7 +150,7 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
     setSavingAnnotation(null);
   }, [sessionId, annotations]);
 
-  // Derive speakers
+  // Extract unique speaker names from transcript segments
   const speakers = useMemo(() => {
     if (!data) return [];
     const set = new Set<string>();
@@ -152,7 +158,7 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
     return Array.from(set);
   }, [data]);
 
-  // Build timeline events
+  // Merge segments, interventions, and state changes into a single sorted timeline
   const timelineEvents = useMemo(() => {
     if (!data) return [];
     const events: TimelineEvent[] = [];
@@ -210,7 +216,7 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
     });
   }, []);
 
-  // Compute metric health summary: how long each metric was in the "bad" range
+  // Compute cumulative time each metric spent in unhealthy range across the session
   const metricHealthSummary = useMemo(() => {
     if (!data || data.metricSnapshots.length < 2) return null;
     const snaps = data.metricSnapshots;
@@ -259,7 +265,7 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
     };
   }, [data]);
 
-  // Compute state duration breakdown
+  // Calculate how long the session spent in each conversation state for the breakdown chart
   const stateDurations = useMemo(() => {
     if (!data || data.metricSnapshots.length < 2) return null;
     const snaps = data.metricSnapshots;
@@ -653,8 +659,7 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
   );
 }
 
-// --- Sub-components ---
-
+/** Compact stat display card used in the session overview grid. */
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3 text-center">
@@ -670,6 +675,7 @@ const FILTER_ACTIVE_STYLES: Record<string, string> = {
   emerald: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300',
 };
 
+/** Toggle button for filtering timeline events by type (segment, intervention, state change). */
 function FilterButton({ label, active, onClick, color }: {
   label: string;
   active: boolean;

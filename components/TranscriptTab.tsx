@@ -5,12 +5,16 @@ import { TranscriptControlProps } from './OverlayPanel';
 import TranscriptFeed from './TranscriptFeed';
 
 /**
- * Transcript tab content extracted from OverlayPanel.
- * Includes transcription controls, simulation input, error display, and the feed.
+ * Transcript tab displaying live transcription feed with recording controls.
+ * Shows different UIs depending on transcription mode: real-time speech recognition,
+ * server-side Whisper, or manual text simulation fallback.
+ *
+ * @param transcript - Transcription state including segments, controls, and error info.
  */
 export default function TranscriptTab({ transcript }: { transcript: TranscriptControlProps }) {
   const [simText, setSimText] = useState('');
 
+  // Determine which transcription mode UI to show based on capability detection
   const showSpeechControls = transcript.isTranscriptionSupported;
   const showWhisperStatus = !showSpeechControls && transcript.isWhisperActive;
   const showSimulation = !showSpeechControls && !showWhisperStatus;

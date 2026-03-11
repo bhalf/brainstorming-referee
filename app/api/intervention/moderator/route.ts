@@ -57,6 +57,29 @@ interface ModeratorRequest {
 
 // --- Handler ---
 
+/**
+ * POST /api/intervention/moderator — Generate a moderator intervention via LLM.
+ *
+ * Constructs a context-aware prompt from participation metrics, semantic
+ * dynamics, transcript excerpts, and rule-violation details, then calls the
+ * LLM to produce a natural-language moderator message. Falls back to a
+ * static response if the LLM call fails.
+ *
+ * Blocked for 'baseline' scenario (no interventions allowed).
+ * Rate-limited to 30 requests per window.
+ *
+ * @param request.body.trigger - What triggered the intervention ('imbalance' | 'repetition' | 'stagnation' | 'rule_violation').
+ * @param request.body.intent - Intervention intent (e.g. 'PARTICIPATION_REBALANCING', 'PERSPECTIVE_BROADENING').
+ * @param request.body.speakerDistribution - Human-readable speaker turn distribution.
+ * @param request.body.language - BCP-47 locale for prompt and response language.
+ * @param request.body.scenario - Experiment scenario; 'baseline' is rejected.
+ * @param request.body.transcriptExcerpt - Optional recent transcript lines for context.
+ * @param request.body.participationMetrics - Optional participation risk scores.
+ * @param request.body.semanticDynamics - Optional semantic space metrics.
+ * @param request.body.ruleViolation - Optional rule violation details for combined interventions.
+ * @param request.body.existingIdeas - Optional list of existing idea titles for context.
+ * @returns {{ role, text, trigger, intent, timestamp, logEntry, fallback? }}
+ */
 export async function POST(request: NextRequest) {
   const limited = rateLimit(request, { maxRequests: 30 });
   if (limited) return limited;
@@ -73,7 +96,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate: need intent
+    // Select the appropriate prompt template based on intent, whether this is a
+    // combined rule+metric intervention, and whether a rule violation is present
     const promptTemplate = getModeratorPromptTemplate(
       language,
       intent || '',
@@ -105,13 +129,15 @@ export async function POST(request: NextRequest) {
 
     // Prompt template was already resolved via getModeratorPromptTemplate above
 
-    // Build quiet participant info string
+    // Build quiet participant info: prefer explicit names from the client,
+    // fall back to the silent-participant ratio from computed metrics
     const quietInfo = quietSpeakers
       ? `Quiet participants: ${quietSpeakers} `
       : participationMetrics?.silentParticipantRatio
         ? `${(participationMetrics.silentParticipantRatio * 100).toFixed(0)}% of participants have been quiet.`
         : '';
 
+    // Interpolate all metric values into the selected prompt template
     const userPrompt = buildModeratorUserPrompt(promptTemplate, {
       speakerDistribution: speakerDistribution || 'Not available',
       totalTurns: String(totalTurns),
@@ -153,6 +179,8 @@ export async function POST(request: NextRequest) {
         logEntry,
       });
     } catch (error) {
+      // LLM call failed — return a static intent-aware fallback with HTTP 200
+      // so the client can still deliver a useful intervention
       const logEntry = error instanceof LLMError ? error.logEntry : null;
       console.error('Moderator LLM call failed:', error);
 

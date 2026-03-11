@@ -7,6 +7,14 @@ interface ConfigGroupProps {
   helpKey?: string;
 }
 
+/**
+ * Config group wrapper that renders a titled section with an optional help popover.
+ * Used to visually group related configuration inputs.
+ *
+ * @param title - Section title displayed as an uppercase label.
+ * @param children - Configuration input elements.
+ * @param helpKey - Optional key for an InfoPopover with section-level help.
+ */
 export default function ConfigGroup({ title, children, helpKey }: ConfigGroupProps) {
   return (
     <div className="space-y-3 min-w-0">

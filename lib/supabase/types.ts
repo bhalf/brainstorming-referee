@@ -1,6 +1,14 @@
+/**
+ * Supabase Database type interface.
+ *
+ * Mirrors the Supabase schema defined in `supabase/schema.sql`.
+ * Each table has Row (read), Insert (create), and Update (patch) shapes.
+ * Used for type-safe queries throughout the app and converters.
+ */
 export interface Database {
   public: {
     Tables: {
+      /** Brainstorming sessions -- one per room, created by the host. */
       sessions: {
         Row: {
           id: string;
@@ -31,6 +39,7 @@ export interface Database {
           last_heartbeat?: string | null;
         };
       };
+      /** Participants who joined a session, tracked for presence and roles. */
       session_participants: {
         Row: {
           id: string;
@@ -57,6 +66,7 @@ export interface Database {
           left_at?: string | null;
         };
       };
+      /** Speech-to-text transcript segments with speaker attribution. */
       transcript_segments: {
         Row: {
           id: string;
@@ -83,6 +93,7 @@ export interface Database {
           is_final?: boolean;
         };
       };
+      /** Periodic snapshots of computed participation and semantic metrics. */
       metric_snapshots: {
         Row: {
           id: string;
@@ -102,6 +113,7 @@ export interface Database {
         };
         Update: Record<string, never>;
       };
+      /** AI-generated moderator and ally interventions with delivery status. */
       interventions: {
         Row: {
           id: string;
@@ -152,6 +164,7 @@ export interface Database {
           rule_severity?: string | null;
         };
       };
+      /** Decision engine state (one row per session, upserted on phase changes). */
       engine_state: {
         Row: {
           session_id: string;
@@ -186,6 +199,7 @@ export interface Database {
           updated_at?: string;
         };
       };
+      /** Brainstorming ideas extracted from transcript or added manually. */
       ideas: {
         Row: {
           id: string;
@@ -233,6 +247,7 @@ export interface Database {
           updated_at?: string;
         };
       };
+      /** Edges between ideas on the idea board (builds_on, contrasts, etc.). */
       idea_connections: {
         Row: {
           id: string;
@@ -254,6 +269,7 @@ export interface Database {
         };
         Update: Record<string, never>;
       };
+      /** Per-call LLM routing logs (model, latency, tokens, errors). */
       model_routing_logs: {
         Row: {
           id: string;
@@ -279,6 +295,7 @@ export interface Database {
         };
         Update: Record<string, never>;
       };
+      /** Post-hoc annotations on interventions (rating, relevance, notes). */
       intervention_annotations: {
         Row: {
           id: string;
@@ -312,6 +329,7 @@ export interface Database {
           updated_at?: string;
         };
       };
+      /** Client-side errors logged during a session for debugging. */
       session_errors: {
         Row: {
           id: string;
@@ -331,6 +349,7 @@ export interface Database {
         };
         Update: Record<string, never>;
       };
+      /** Session lifecycle events (start, join, leave, end) for timeline analysis. */
       session_events: {
         Row: {
           id: string;

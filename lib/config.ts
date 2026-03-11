@@ -32,7 +32,7 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   RECOVERY_IMPROVEMENT_THRESHOLD: 0.15,
 
   // Computation parameters
-  // ⚠️ CALIBRATED via scripts/calibrate-thresholds.ts (2026-03-09)
+  // Cosine similarity thresholds calibrated via scripts/calibrate-thresholds.ts.
   // Tested with text-embedding-3-small AND text-embedding-3-large.
   // Both models produce nearly identical cosine distributions:
   //   Same-topic pairs: 0.55–0.69, different-topic: 0.15–0.35, median: 0.27

@@ -12,7 +12,16 @@ interface SectionHeaderProps {
   helpKey?: string;
 }
 
-/** Consistent section heading used across all panels and pages. */
+/**
+ * Consistent section heading used across all panels and pages.
+ * Supports an optional icon prefix, help popover, and description text.
+ *
+ * @param icon - Optional emoji or icon string displayed before the heading.
+ * @param children - Heading text content.
+ * @param description - Optional subtitle shown below the heading.
+ * @param size - 'panel' for smaller uppercase headings, 'page' for larger section titles.
+ * @param helpKey - Optional key to attach an InfoPopover for contextual help.
+ */
 export default function SectionHeader({
   icon,
   children,

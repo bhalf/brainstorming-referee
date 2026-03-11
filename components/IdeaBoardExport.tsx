@@ -2,8 +2,10 @@
 
 import { Idea, IdeaConnection } from '@/lib/types';
 
-// --- Markdown generation ---
-
+/**
+ * Converts the idea board state into a structured Markdown document,
+ * grouping ideas by category, standalone ideas, action items, and connections.
+ */
 function generateIdeaBoardMarkdown(
     ideas: Idea[],
     connections: IdeaConnection[],
@@ -79,8 +81,14 @@ function generateIdeaBoardMarkdown(
     return lines.join('\n');
 }
 
-// --- Download trigger ---
-
+/**
+ * Generates a Markdown export of the idea board and triggers a browser download.
+ * The filename includes the room name and an ISO timestamp.
+ *
+ * @param ideas - All ideas (deleted ones are filtered internally).
+ * @param connections - Connections between ideas.
+ * @param roomName - Room name for the export filename.
+ */
 export function downloadIdeaBoard(
     ideas: Idea[],
     connections: IdeaConnection[],
@@ -93,6 +101,7 @@ export function downloadIdeaBoard(
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
     const filename = `idea-board-${roomName}-${timestamp}.md`;
 
+    // Programmatic download via temporary anchor element
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;

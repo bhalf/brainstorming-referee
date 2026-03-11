@@ -5,9 +5,10 @@ import { inferConversationState } from '@/lib/state/inferConversationState';
 import { persistMetricsSnapshot } from '@/lib/services/metricsService';
 import { STAGGER_METRICS_MS } from '@/lib/decision/tickConfig';
 
-// --- Persistence throttle: persist at most once every 30s ---
+/** Throttle for Supabase persistence: snapshots are stored at most once every 30s. */
 const PERSIST_INTERVAL_MS = 30_000;
 
+/** Parameters for the metrics computation hook. */
 interface UseMetricsComputationParams {
   isActive: boolean;
   isDecisionOwner: boolean;
@@ -15,11 +16,11 @@ interface UseMetricsComputationParams {
   config: ExperimentConfig;
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
   speakingTimeRef: MutableRefObject<SpeakingTimeDelta[]>;
-  /** Total number of participants in the room (from LiveKit), including self */
+  /** Total number of participants in the room (from LiveKit), including self. */
   participantCountRef?: MutableRefObject<number>;
 }
 
-// Consolidated state to avoid multiple setState calls per computation
+/** Consolidated state managed via useReducer to avoid multiple setState calls per tick. */
 interface MetricsState {
   currentMetrics: MetricSnapshot | null;
   metricsHistory: MetricSnapshot[];
@@ -33,11 +34,13 @@ type MetricsAction =
   | { type: 'COMPUTATION_ERROR'; error: string }
   | { type: 'RESET' };
 
+/** Reducer for metrics state transitions (success appends to capped history arrays). */
 function metricsReducer(state: MetricsState, action: MetricsAction): MetricsState {
   switch (action.type) {
     case 'COMPUTATION_SUCCESS':
       return {
         currentMetrics: action.metrics,
+        // Keep the last 180 metric snapshots and 200 state inferences (rolling window)
         metricsHistory: [...state.metricsHistory.slice(-179), action.metrics],
         stateHistory: [...state.stateHistory.slice(-199), action.inference],
         lastComputedAt: Date.now(),
@@ -60,6 +63,15 @@ const INITIAL_METRICS_STATE: MetricsState = {
   computationError: null,
 };
 
+/**
+ * Periodically computes brainstorming quality metrics (participation balance,
+ * semantic dynamics, stagnation) and infers the conversation state. Only the
+ * decision owner runs computation; snapshots are persisted to Supabase at
+ * a throttled interval and broadcast to other participants via Realtime.
+ *
+ * @param params - Session state, config, and transcript/speaking-time refs.
+ * @returns Current and historical metrics, state history, and refs for the decision engine.
+ */
 export function useMetricsComputation({
   isActive,
   isDecisionOwner,
@@ -99,8 +111,7 @@ export function useMetricsComputation({
       const segments = transcriptSegmentsRef.current;
       if (segments.length === 0) return;
 
-      // Empty window guard: skip computation if no segments fall within the analysis window.
-      // This prevents metrics from resetting to misleading defaults at session end.
+      // Skip if no segments fall within the analysis window (prevents misleading resets at session end).
       const windowStart = Date.now() - config.WINDOW_SECONDS * 1000;
       const windowedCount = segments.filter(s => s.timestamp >= windowStart).length;
       if (windowedCount === 0) return;

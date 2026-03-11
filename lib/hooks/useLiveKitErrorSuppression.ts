@@ -11,6 +11,7 @@ import { useEffect, useRef } from 'react';
  * LiveKit room context component.
  */
 
+/** Substring patterns for benign LiveKit errors that should be silently suppressed. */
 const KNOWN_LIVEKIT_ERRORS = [
     'not part of the array',
     'Unknown DataChannel error',
@@ -18,10 +19,20 @@ const KNOWN_LIVEKIT_ERRORS = [
     'updatePages()',
 ];
 
+/**
+ * Checks whether an error message matches a known benign LiveKit error.
+ * @param msg - The error message string to test.
+ * @returns True if the message contains any known LiveKit error substring.
+ */
 function isKnownLiveKitError(msg: string): boolean {
     return KNOWN_LIVEKIT_ERRORS.some(pattern => msg.includes(pattern));
 }
 
+/**
+ * Monkey-patches console.error, window.onerror, and unhandledrejection to
+ * suppress known benign LiveKit errors. Restores original handlers on unmount.
+ * Should only be mounted inside a LiveKit room context component.
+ */
 export function useLiveKitErrorSuppression() {
     const originalConsoleErrorRef = useRef<typeof console.error | null>(null);
     const originalOnErrorRef = useRef<OnErrorEventHandler>(null);

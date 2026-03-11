@@ -24,6 +24,25 @@ const DesktopTabLayout = dynamic(() => import('@/components/DesktopTabLayout'));
 const OverlayPanel = dynamic(() => import('@/components/OverlayPanel'));
 const IdeaBoard = dynamic(() => import('@/components/IdeaBoard'));
 
+/**
+ * Main brainstorming session page.
+ *
+ * Orchestrates all session concerns: LiveKit video conferencing, real-time
+ * transcription (OpenAI Realtime API), the decision engine (metrics,
+ * interventions, idea extraction), and peer synchronization via LiveKit
+ * DataChannel and Supabase Realtime.
+ *
+ * URL parameters:
+ * - `[room]` — LiveKit room name (path segment).
+ * - `role` — 'host' (default) or 'participant'.
+ * - `name` — Participant display name.
+ * - `scenario` — Experiment scenario ('baseline' | 'A' | 'B').
+ * - `lang` — BCP-47 locale for transcription and prompts.
+ * - `config` — Base64-encoded experiment config overrides.
+ *
+ * Renders a responsive layout: desktop uses a tabbed sidebar (`DesktopTabLayout`),
+ * mobile uses a bottom tab bar switching between video, ideas, and panel views.
+ */
 export default function CallPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -124,7 +143,8 @@ export default function CallPage() {
   const broadcastInterventionRef = useRef<((intervention: Intervention) => void) | null>(null);
 
   // Shared dedup set: prevents double-TTS when the same intervention arrives
-  // via both LiveKit DataChannel (fast) and Supabase Realtime (slower).
+  // via both LiveKit DataChannel (fast, ~50ms) and Supabase Realtime (slower, ~200ms).
+  // The first delivery path wins; the second is silently ignored.
   const spokenInterventionIdsRef = useRef<Set<string>>(new Set());
 
   const {
@@ -408,6 +428,7 @@ export default function CallPage() {
     onUpdateConfig: handleUpdateConfig,
     onResetConfig: handleResetConfig,
     health: healthProps,
+    liveSummary,
   }), [
     state.scenario, state.isActive, handleEndSession, language, roomName,
     state.transcriptSegments, interimEntries, transcription.isTranscribing, transcription.isTranscriptionSupported,
@@ -415,7 +436,7 @@ export default function CallPage() {
     transcription.isRealtimeEnabled, isDecisionOwner, currentMetrics, state.metricSnapshots, metricsHistory,
     state.config, state.decisionState, state.voiceSettings, handleUpdateSettings,
     isSpeaking, handleTestVoice, handleCancelVoice, state.interventions, sessionLog, state.modelRoutingLog,
-    handleUpdateConfig, handleResetConfig, healthProps
+    handleUpdateConfig, handleResetConfig, healthProps, liveSummary
   ]);
 
   // --- Readiness Check Gate ---

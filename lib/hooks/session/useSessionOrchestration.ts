@@ -30,6 +30,11 @@ import { useLatestRef } from '@/lib/hooks/useLatestRef';
 
 // --- Params ---
 
+/**
+ * Parameters for the session orchestration hook.
+ * Aggregates all session state, dispatch functions, refs, and callbacks needed
+ * by the sub-hooks (realtime subscriptions, metrics, decision engine, etc.).
+ */
 interface UseSessionOrchestrationParams {
   // Session state
   isActive: boolean;
@@ -70,12 +75,13 @@ interface UseSessionOrchestrationParams {
   // Broadcast callback for interventions via LiveKit DataChannel
   broadcastIntervention: (intervention: Intervention) => void;
 
-  /** Shared dedup set to prevent double-TTS from DataChannel + Supabase Realtime */
+  /** Shared dedup set to prevent double-TTS from DataChannel + Supabase Realtime. */
   spokenInterventionIdsRef: MutableRefObject<Set<string>>;
 }
 
 // --- Return ---
 
+/** Values and refs exposed by the session orchestration hook. */
 interface UseSessionOrchestrationReturn {
   isDecisionOwner: boolean;
   currentMetrics: MetricSnapshot | null;
@@ -92,6 +98,18 @@ interface UseSessionOrchestrationReturn {
 
 // --- Hook ---
 
+/**
+ * Top-level orchestration hook that composes all session-related sub-hooks.
+ * Wires up Supabase Realtime subscriptions (segments, interventions, metrics,
+ * engine state, voice settings, ideas, connections), decision ownership negotiation,
+ * metrics computation, the decision engine loop, idea extraction, and live summary.
+ *
+ * This is the single entry point mounted by the call page; individual sub-hooks
+ * are never mounted directly by page components.
+ *
+ * @param params - Full session state, dispatch functions, refs, and callbacks.
+ * @returns Decision ownership status, computed metrics, realtime sync state, and live summary.
+ */
 export function useSessionOrchestration({
   isActive,
   sessionId,
@@ -164,8 +182,8 @@ export function useSessionOrchestration({
     addMetricSnapshot,
   });
 
-  // Memoize config to prevent useMetricsComputation interval reset on unrelated state changes.
-  // Uses JSON.stringify as deep-comparison dep since ExperimentConfig is a plain object.
+  // Memoize config using JSON.stringify for deep comparison to avoid resetting
+  // the metrics computation interval on unrelated state changes.
   const configJson = JSON.stringify(config);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableConfig = useMemo(() => config, [configJson]);

@@ -3,7 +3,17 @@ import { getServiceClient } from '@/lib/supabase/server';
 import { segmentToInsert } from '@/lib/supabase/converters';
 import { validateSessionExists } from '@/lib/api/validateSession';
 
-// POST — Insert a transcript segment (idempotent via ON CONFLICT)
+/**
+ * POST /api/segments — Insert a transcript segment (idempotent).
+ *
+ * Uses Supabase upsert with ON CONFLICT on the segment id so duplicate
+ * submissions (e.g. from retries) are silently ignored.
+ *
+ * @param request.body.sessionId - UUID of the owning session.
+ * @param request.body.segment - Segment object with id (string), speaker (string),
+ *        text (string), and optional timestamp (number, epoch ms).
+ * @returns {{ success: true }} on successful insert or no-op duplicate.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -43,7 +53,17 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET — Fetch segments for a session (for initial load on join)
+/**
+ * GET /api/segments?sessionId={id}&since={timestamp} — Fetch transcript segments.
+ *
+ * Returns all segments for the given session that were created after the
+ * optional `since` timestamp. Used for initial load when a participant joins
+ * mid-session and needs to hydrate the transcript.
+ *
+ * @param request.query.sessionId - UUID of the session.
+ * @param request.query.since - Optional epoch-ms cutoff; only newer segments are returned.
+ * @returns {{ segments: object[] }} Array of raw segment rows.
+ */
 export async function GET(request: NextRequest) {
   const sessionId = request.nextUrl.searchParams.get('sessionId');
   const since = parseInt(request.nextUrl.searchParams.get('since') || '0', 10);

@@ -10,6 +10,18 @@ interface ConfigInputProps {
   helpKey?: string;
 }
 
+/**
+ * Numeric configuration input with label, min/max constraints, and optional help.
+ * Displays a tooltip below the input when no helpKey is provided.
+ *
+ * @param label - Input label text.
+ * @param value - Current numeric value.
+ * @param onChange - Callback with the updated numeric value.
+ * @param constraints - Min/max bounds for the input.
+ * @param step - Step increment for the input control.
+ * @param tooltip - Descriptive text shown below (only when helpKey is absent).
+ * @param helpKey - Optional key for an InfoPopover replacing the tooltip.
+ */
 export default function ConfigInput({ label, value, onChange, constraints, step = 1, tooltip, helpKey }: ConfigInputProps) {
   return (
     <div className="flex flex-col group">

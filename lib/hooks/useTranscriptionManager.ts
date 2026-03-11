@@ -4,13 +4,14 @@ import { generateId } from '@/lib/utils/generateId';
 import { useOpenAIRealtimeStream } from '@/lib/transcription/useOpenAIRealtimeStream';
 import { useSpeechRecognition } from '@/lib/transcription/useSpeechRecognition';
 
+/** Parameters for the transcription manager hook. */
 interface UseTranscriptionManagerParams {
   language: string;
   isSessionActive: boolean;
-  /** When true, keeps the WebSocket alive but pauses audio sending (mic mute) */
+  /** When true, keeps the WebSocket alive but pauses audio sending (mic mute). */
   isMuted?: boolean;
   displayName: string;
-  /** Updated by LiveKit when local participant is speaking — used to filter echo */
+  /** Updated by LiveKit when local participant is speaking -- used to filter echo. */
   lastLocalSpeakingTimeRef?: MutableRefObject<number | null>;
   addTranscriptSegment: (segment: TranscriptSegment) => void;
   addError: (message: string, context?: string) => void;
@@ -19,6 +20,15 @@ interface UseTranscriptionManagerParams {
   broadcastFinalTranscript?: (segment: TranscriptSegment) => void;
 }
 
+/**
+ * Manages local microphone transcription using OpenAI Realtime as the primary
+ * engine with Web Speech API as an automatic fallback. Handles interim/final
+ * transcript routing, throttled peer broadcasting via DataChannel, and
+ * auto-fallback when Realtime errors persist for 3 seconds.
+ *
+ * @param params - Language, session state, display name, and dispatch/broadcast callbacks.
+ * @returns Transcription state (interim text, connection status, controls, health indicators).
+ */
 export function useTranscriptionManager({
   language,
   isSessionActive,
@@ -48,10 +58,9 @@ export function useTranscriptionManager({
     }
   }, [addTranscriptSegment, uploadSegment, broadcastFinalTranscript]);
 
-  // --- Web Speech API ---
-  // When Realtime is enabled: used ONLY for live interim display (yellow box).
-  //   Final segments come exclusively from OpenAI Realtime — no duplication.
-  // When Realtime is disabled: used as full fallback, producing final segments.
+  // --- Web Speech API (dual-mode) ---
+  // Realtime ON: Web Speech is completely disabled (mic contention prevention).
+  // Realtime OFF: Web Speech produces final segments as a fallback.
   const isRealtimeEnabledRef = useRef(isRealtimeEnabled);
   useEffect(() => { isRealtimeEnabledRef.current = isRealtimeEnabled; }, [isRealtimeEnabled]);
 
@@ -101,13 +110,9 @@ export function useTranscriptionManager({
     ? realtimeInterimTranscript
     : speechInterimTranscript;
 
-  // Broadcast interim to peers — throttled to prevent DataChannel flooding.
-  // OpenAI Realtime sends character-by-character deltas; without throttling,
-  // every delta triggers an unreliable DataChannel message that can saturate
-  // the buffer and block reliable final-segment messages behind it.
-  //
-  // Fix: accumulate the latest text in a ref so the deferred setTimeout callback
-  // always broadcasts the most recent value, not a stale closure capture.
+  // Throttled peer broadcast (150ms). OpenAI Realtime sends char-by-char deltas;
+  // unthrottled broadcasting saturates the DataChannel buffer and blocks reliable messages.
+  // Latest text is stored in a ref so deferred callbacks always read the current value.
   const latestInterimRef = useRef(displayInterim);
   latestInterimRef.current = displayInterim;
   const latestLanguageRef = useRef(language);
@@ -174,22 +179,20 @@ export function useTranscriptionManager({
     }
   }, [realtime.error, addError]);
 
-  // Auto-fallback: if Realtime error persists for 10 seconds, disable Realtime
-  // and let Web Speech API take over. Without this, a stuck error state leaves
-  // the user with no transcription at all because Web Speech won't start while
-  // isRealtimeEnabled is true.
+  // Auto-fallback: if Realtime error persists for 3s, disable Realtime and switch
+  // to Web Speech. Without this, a stuck error leaves the user with no transcription.
   const realtimeErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (realtime.error && isRealtimeEnabled) {
-      // Start 10s countdown to fallback
+      // Start 3s countdown to fallback (fast recovery for live sessions with 6 participants)
       realtimeErrorTimerRef.current = setTimeout(() => {
         // Re-check: only fall back if error is still present and Realtime is still enabled
         // (the error state is read fresh from the render via the effect closure)
         console.warn(
-          '[TranscriptionManager] OpenAI Realtime error persisted for 10s — falling back to Web Speech API'
+          '[TranscriptionManager] OpenAI Realtime error persisted for 3s — falling back to Web Speech API'
         );
         setIsRealtimeEnabled(false);
-      }, 10_000);
+      }, 3_000);
 
       return () => {
         if (realtimeErrorTimerRef.current) {

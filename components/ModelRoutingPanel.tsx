@@ -20,6 +20,13 @@ interface ModelRoutingPanelProps {
     logEntries: ModelRoutingLogEntry[];
 }
 
+/**
+ * Model routing configuration and log viewer.
+ * Allows selecting primary/fallback LLM models per task (moderator, ally, embeddings, etc.),
+ * adjusting temperature, max tokens, and timeout, and viewing call success/failure logs.
+ *
+ * @param logEntries - History of model API calls with latency, success, and fallback info.
+ */
 export default function ModelRoutingPanel({ logEntries }: ModelRoutingPanelProps) {
     const [config, setConfig] = useState<ModelRoutingConfig>(DEFAULT_MODEL_ROUTING);
     const [loading, setLoading] = useState(true);
@@ -27,7 +34,7 @@ export default function ModelRoutingPanel({ logEntries }: ModelRoutingPanelProps
     const [expandedTask, setExpandedTask] = useState<ModelTaskKey | null>(null);
     const [showLog, setShowLog] = useState(false);
 
-    // Load config on mount
+    // Fetch persisted model routing config from server on mount
     useEffect(() => {
         fetch('/api/model-routing')
             .then((r) => r.json())
@@ -38,7 +45,7 @@ export default function ModelRoutingPanel({ logEntries }: ModelRoutingPanelProps
             .finally(() => setLoading(false));
     }, []);
 
-    // Save config
+    // Persist model routing config to server via PUT
     const saveConfig = useCallback(async (newConfig: ModelRoutingConfig) => {
         setSaving(true);
         try {
@@ -322,8 +329,7 @@ export default function ModelRoutingPanel({ logEntries }: ModelRoutingPanelProps
     );
 }
 
-// --- Task Icon Helper ---
-
+/** Maps each model task key to its display icon. */
 function TaskIcon({ task }: { task: ModelTaskKey }) {
     const icons: Partial<Record<ModelTaskKey, string>> = {
         moderator_intervention: '🎯',

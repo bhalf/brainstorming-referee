@@ -7,18 +7,21 @@ import type { Database } from '@/lib/supabase/types';
 
 type EngineStateRow = Database['public']['Tables']['engine_state']['Row'];
 
+/** Parameters for the realtime engine state subscription hook. */
 interface UseRealtimeEngineStateParams {
   sessionId: string | null;
   isActive: boolean;
-  /** Don't apply Realtime updates if we are the decision owner (we already have local state) */
+  /** Don't apply Realtime updates if we are the decision owner (we already have local state). */
   isDecisionOwner: boolean;
   updateDecisionState: (updates: Partial<DecisionEngineState>) => void;
 }
 
 /**
  * Subscribes to Supabase Realtime for engine_state UPDATE events.
- * This allows non-owner clients to see the current engine phase,
- * and supports recovery when decision ownership transfers.
+ * Non-owner clients receive phase transitions and cooldown state from the
+ * decision owner. Also supports state recovery when ownership transfers.
+ *
+ * @param params - Session ID, active/owner flags, and state update dispatcher.
  */
 export function useRealtimeEngineState({
   sessionId,

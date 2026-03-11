@@ -3,7 +3,18 @@ import { getServiceClient } from '@/lib/supabase/server';
 import { segmentRowToApp, interventionRowToApp, ideaRowToApp, connectionRowToApp } from '@/lib/supabase/converters';
 import { validateSessionExists } from '@/lib/api/validateSession';
 
-// GET — Export full session log from Supabase
+/**
+ * GET /api/session/export?sessionId={id} — Export the complete session log.
+ *
+ * Fetches all session artifacts from Supabase in parallel (transcript segments,
+ * metric snapshots, interventions, ideas, connections, annotations, routing
+ * logs, errors, events) and assembles them into a single JSON export object
+ * suitable for offline analysis and reproducibility.
+ *
+ * @param request.query.sessionId - UUID of the session to export.
+ * @returns A comprehensive session log object with metadata, transcripts,
+ *          metrics, interventions, ideas, connections, annotations, and events.
+ */
 export async function GET(request: NextRequest) {
   const sessionId = request.nextUrl.searchParams.get('sessionId');
 
@@ -36,6 +47,7 @@ export async function GET(request: NextRequest) {
   }
 
   const session = sessionRes.data;
+  // Extract experiment metadata (prompt/engine version) embedded in the config JSON
   const config = (session.config || {}) as Record<string, unknown>;
   const experimentMeta = config._experimentMeta as Record<string, unknown> | undefined;
 
@@ -51,7 +63,9 @@ export async function GET(request: NextRequest) {
     activeConfig: session.config,
     promptVersion: experimentMeta?.promptVersion ?? null,
     engineVersion: experimentMeta?.engineVersion ?? null,
+    // Convert DB rows to app-level types using shared converters
     transcriptSegments: (segmentsRes.data || []).map(segmentRowToApp),
+    // Flatten metrics JSON column and attach state inference at top level
     metricSnapshots: (snapshotsRes.data || []).map(s => ({
       ...s.metrics,
       inferredState: s.state_inference,

@@ -16,6 +16,17 @@ interface DebugPanelProps {
   showConfig?: boolean;
 }
 
+/**
+ * Debug panel showing raw metric values, conversation state details,
+ * decision engine internals, speaking time distribution, and metrics history.
+ * Used for researcher diagnostics inside the Settings tab.
+ *
+ * @param currentMetrics - Latest metric snapshot with all computed values.
+ * @param metricsHistory - Rolling history of metric snapshots.
+ * @param config - Active experiment configuration for threshold display.
+ * @param decisionState - Decision engine phase, cooldown, and confirming state.
+ * @param showConfig - Whether to display the raw config key-value grid.
+ */
 export default function DebugPanel({
   currentMetrics,
   metricsHistory,
@@ -23,7 +34,7 @@ export default function DebugPanel({
   decisionState,
   showConfig = false,
 }: DebugPanelProps) {
-  // Live-updating current time for cooldown display
+  // Tick every second so cooldown/confirming timers update in real time
   const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {

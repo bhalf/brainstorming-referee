@@ -38,6 +38,15 @@ interface ResizableLayoutProps {
     right: ReactNode;
 }
 
+/**
+ * Desktop-only resizable 2-column layout with a vertical splitter in the left column.
+ * Persists horizontal (left/right) and vertical (video/idea board) ratios to localStorage.
+ * Double-click a handle to reset to default ratios.
+ *
+ * @param topLeft - Content for the top-left zone (typically video).
+ * @param bottomLeft - Content for the bottom-left zone (typically idea board).
+ * @param right - Content for the right zone (typically overlay panel).
+ */
 export default function ResizableLayout({ topLeft, bottomLeft, right }: ResizableLayoutProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [hRatio, setHRatio] = useState(() => loadRatio(STORAGE_KEY_H, DEFAULT_H));
@@ -47,7 +56,7 @@ export default function ResizableLayout({ topLeft, bottomLeft, right }: Resizabl
     useEffect(() => { saveRatio(STORAGE_KEY_H, hRatio); }, [hRatio]);
     useEffect(() => { saveRatio(STORAGE_KEY_V, vRatio); }, [vRatio]);
 
-    // --- Drag state ---
+    // Tracks which handle is being dragged ('h' for horizontal, 'v' for vertical)
     const dragging = useRef<'h' | 'v' | null>(null);
 
     const onMouseMove = useCallback((e: MouseEvent) => {

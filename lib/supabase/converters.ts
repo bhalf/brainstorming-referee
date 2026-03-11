@@ -1,3 +1,16 @@
+/**
+ * Supabase row <-> app type converters.
+ *
+ * Each entity (segment, intervention, snapshot, engine state, idea,
+ * idea connection, routing log) has a pair of converter functions:
+ *   - `*RowToApp` -- converts a Supabase row into the app-level type.
+ *   - `*ToInsert` -- converts an app-level object into a Supabase insert payload.
+ *
+ * These converters centralise the snake_case/camelCase mapping and keep
+ * API route handlers free of manual field remapping.
+ * @module
+ */
+
 import type { Database } from './types';
 import type {
   TranscriptSegment,
@@ -25,6 +38,11 @@ type IdeaConnectionInsert = Database['public']['Tables']['idea_connections']['In
 
 // --- Transcript Segments ---
 
+/**
+ * Convert a Supabase transcript_segments row to the app-level TranscriptSegment.
+ * @param row - The raw database row.
+ * @returns A TranscriptSegment with camelCase fields.
+ */
 export function segmentRowToApp(row: SegmentRow): TranscriptSegment {
   return {
     id: row.id,
@@ -36,6 +54,12 @@ export function segmentRowToApp(row: SegmentRow): TranscriptSegment {
   };
 }
 
+/**
+ * Convert an app-level TranscriptSegment to a Supabase insert payload.
+ * @param segment - The app-level segment.
+ * @param sessionId - The session this segment belongs to.
+ * @returns A SegmentInsert object ready for Supabase upsert.
+ */
 export function segmentToInsert(segment: TranscriptSegment, sessionId: string): SegmentInsert {
   return {
     id: segment.id,
@@ -50,6 +74,11 @@ export function segmentToInsert(segment: TranscriptSegment, sessionId: string): 
 
 // --- Interventions ---
 
+/**
+ * Convert a Supabase interventions row to the app-level Intervention.
+ * @param row - The raw database row.
+ * @returns An Intervention with camelCase fields and typed enums.
+ */
 export function interventionRowToApp(row: InterventionRow): Intervention {
   return {
     id: row.id,
@@ -66,6 +95,15 @@ export function interventionRowToApp(row: InterventionRow): Intervention {
   };
 }
 
+/**
+ * Convert an app-level Intervention to a Supabase insert payload.
+ * Includes optional engine state snapshot and rule violation metadata.
+ * @param intervention - The app-level intervention.
+ * @param sessionId - The session this intervention belongs to.
+ * @param engineState - Optional decision engine state at time of intervention.
+ * @param ruleViolation - Optional rule violation details.
+ * @returns An InterventionInsert object ready for Supabase insert.
+ */
 export function interventionToInsert(
   intervention: Intervention,
   sessionId: string,
@@ -95,6 +133,12 @@ export function interventionToInsert(
 
 type SnapshotRow = Database['public']['Tables']['metric_snapshots']['Row'];
 
+/**
+ * Convert a Supabase metric_snapshots row to the app-level MetricSnapshot.
+ * The `metrics` JSONB column is destructured into individual typed fields.
+ * @param row - The raw database row.
+ * @returns A MetricSnapshot with all computed metrics and inferred state.
+ */
 export function snapshotRowToApp(row: SnapshotRow): MetricSnapshot {
   const m = row.metrics as Record<string, unknown>;
   const si = row.state_inference as Record<string, unknown> | null;
@@ -114,6 +158,13 @@ export function snapshotRowToApp(row: SnapshotRow): MetricSnapshot {
   };
 }
 
+/**
+ * Convert an app-level MetricSnapshot to a Supabase insert payload.
+ * Separates the inferred state from the raw metrics for the DB schema.
+ * @param snapshot - The app-level metric snapshot.
+ * @param sessionId - The session this snapshot belongs to.
+ * @returns A SnapshotInsert object ready for Supabase insert.
+ */
 export function snapshotToInsert(snapshot: MetricSnapshot, sessionId: string): SnapshotInsert {
   const { inferredState, ...metricsData } = snapshot;
   return {
@@ -126,6 +177,12 @@ export function snapshotToInsert(snapshot: MetricSnapshot, sessionId: string): S
 
 // --- Engine State ---
 
+/**
+ * Convert a Supabase engine_state row to a partial DecisionEngineState.
+ * Returns a partial because the DB only stores a subset of the full engine state.
+ * @param row - The raw database row.
+ * @returns A partial DecisionEngineState for merging into the client state.
+ */
 export function engineStateRowToApp(row: EngineStateRow): Partial<DecisionEngineState> {
   return {
     phase: row.phase as DecisionEngineState['phase'],
@@ -138,6 +195,12 @@ export function engineStateRowToApp(row: EngineStateRow): Partial<DecisionEngine
 
 // --- Ideas ---
 
+/**
+ * Convert a Supabase ideas row to the app-level Idea.
+ * Converts ISO date strings to Unix timestamps for client-side use.
+ * @param row - The raw database row.
+ * @returns An Idea with camelCase fields and numeric timestamps.
+ */
 export function ideaRowToApp(row: IdeaRow): Idea {
   return {
     id: row.id,
@@ -158,6 +221,12 @@ export function ideaRowToApp(row: IdeaRow): Idea {
   };
 }
 
+/**
+ * Convert an app-level Idea to a Supabase insert payload.
+ * @param idea - The app-level idea.
+ * @param sessionId - The session this idea belongs to.
+ * @returns An IdeaInsert object ready for Supabase insert.
+ */
 export function ideaToInsert(idea: Idea, sessionId: string): IdeaInsert {
   return {
     id: idea.id,
@@ -178,6 +247,11 @@ export function ideaToInsert(idea: Idea, sessionId: string): IdeaInsert {
 
 // --- Idea Connections ---
 
+/**
+ * Convert a Supabase idea_connections row to the app-level IdeaConnection.
+ * @param row - The raw database row.
+ * @returns An IdeaConnection with camelCase fields and a numeric timestamp.
+ */
 export function connectionRowToApp(row: IdeaConnectionRow): IdeaConnection {
   return {
     id: row.id,
@@ -190,6 +264,12 @@ export function connectionRowToApp(row: IdeaConnectionRow): IdeaConnection {
   };
 }
 
+/**
+ * Convert an app-level IdeaConnection to a Supabase insert payload.
+ * @param conn - The app-level connection.
+ * @param sessionId - The session this connection belongs to.
+ * @returns An IdeaConnectionInsert object ready for Supabase insert.
+ */
 export function connectionToInsert(conn: IdeaConnection, sessionId: string): IdeaConnectionInsert {
   return {
     id: conn.id,
@@ -203,6 +283,13 @@ export function connectionToInsert(conn: IdeaConnection, sessionId: string): Ide
 
 // --- Model Routing Logs ---
 
+/**
+ * Convert an app-level ModelRoutingLogEntry to a Supabase insert payload.
+ * Sums input and output tokens into a single `token_count` column.
+ * @param entry - The log entry from the LLM client.
+ * @param sessionId - The session this log belongs to.
+ * @returns A RoutingLogInsert object ready for Supabase insert.
+ */
 export function routingLogToInsert(entry: ModelRoutingLogEntry, sessionId: string): RoutingLogInsert {
   return {
     session_id: sessionId,

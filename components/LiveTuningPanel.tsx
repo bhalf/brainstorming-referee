@@ -5,6 +5,8 @@ import { ExperimentConfig } from '@/lib/types';
 import { CONFIG_CONSTRAINTS, DEFAULT_CONFIG } from '@/lib/config';
 import Panel from './shared/Panel';
 import SectionHeader from './shared/SectionHeader';
+import TuningSlider from './shared/TuningSlider';
+import WeightsEditor from './shared/WeightsEditor';
 
 interface LiveTuningPanelProps {
   config: ExperimentConfig;
@@ -12,76 +14,7 @@ interface LiveTuningPanelProps {
   onResetAll: () => void;
 }
 
-// --- Slider + Input combo ---
-
-interface TuningSliderProps {
-  label: string;
-  value: number;
-  defaultValue: number;
-  min: number;
-  max: number;
-  step: number;
-  unit?: string;
-  description?: string;
-  onChange: (value: number) => void;
-}
-
-function TuningSlider({ label, value, defaultValue, min, max, step, unit, description, onChange }: TuningSliderProps) {
-  const isModified = Math.abs(value - defaultValue) > step * 0.1;
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-          {label}
-          {isModified && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Modified" />}
-        </label>
-        <div className="flex items-center gap-1.5">
-          <input
-            type="number"
-            value={value}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (!isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
-            }}
-            min={min}
-            max={max}
-            step={step}
-            className="w-20 px-1.5 py-0.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          {unit && <span className="text-[10px] text-slate-500 w-4">{unit}</span>}
-          {isModified && (
-            <button
-              onClick={() => onChange(defaultValue)}
-              className="text-[10px] text-slate-500 hover:text-blue-400 transition-colors"
-              title={`Reset to ${defaultValue}`}
-            >
-              ↩
-            </button>
-          )}
-        </div>
-      </div>
-      <input
-        type="range"
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        min={min}
-        max={max}
-        step={step}
-        className="w-full h-1 bg-slate-700 rounded-full appearance-none cursor-pointer
-          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500
-          [&::-webkit-slider-thumb]:hover:bg-blue-400 [&::-webkit-slider-thumb]:transition-colors"
-      />
-      {description && (
-        <p className="text-[10px] text-slate-500 leading-tight">{description}</p>
-      )}
-    </div>
-  );
-}
-
-// --- Collapsible Group ---
-
+/** Collapsible group wrapper with an optional per-group reset button. */
 interface TuningGroupProps {
   title: string;
   children: React.ReactNode;
@@ -120,95 +53,15 @@ function TuningGroup({ title, children, defaultOpen = false, onReset }: TuningGr
   );
 }
 
-// --- Weights Editor ---
-
-interface WeightsEditorProps {
-  weights: [number, number, number, number];
-  labels: string[];
-  onChange: (weights: [number, number, number, number]) => void;
-}
-
-function WeightsEditor({ weights, labels, onChange }: WeightsEditorProps) {
-  const sum = weights.reduce((a, b) => a + b, 0);
-  const isValid = Math.abs(sum - 1.0) <= 0.01;
-  const defaults = DEFAULT_CONFIG.PARTICIPATION_RISK_WEIGHTS;
-
-  const handleChange = (index: number, value: number) => {
-    const newWeights = [...weights] as [number, number, number, number];
-    newWeights[index] = value;
-    onChange(newWeights);
-  };
-
-  const handleNormalize = () => {
-    if (sum === 0) {
-      onChange([0.25, 0.25, 0.25, 0.25]);
-      return;
-    }
-    const normalized = weights.map(w => Math.round((w / sum) * 100) / 100) as [number, number, number, number];
-    const diff = 1.0 - normalized.reduce((a, b) => a + b, 0);
-    normalized[0] = Math.round((normalized[0] + diff) * 100) / 100;
-    onChange(normalized);
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-300">Risk Weights</span>
-        <div className="flex items-center gap-2">
-          <span className={`text-[10px] font-mono ${isValid ? 'text-green-400' : 'text-red-400'}`}>
-            Σ = {sum.toFixed(2)}
-          </span>
-          {!isValid && (
-            <button onClick={handleNormalize} className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
-              Normalize
-            </button>
-          )}
-          <button
-            onClick={() => onChange([...defaults] as [number, number, number, number])}
-            className="text-[10px] text-slate-500 hover:text-blue-400 transition-colors"
-            title="Reset to defaults"
-          >
-            ↩
-          </button>
-        </div>
-      </div>
-      {weights.map((w, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-400 w-20 truncate">{labels[i]}</span>
-          <input
-            type="range"
-            value={w}
-            onChange={(e) => handleChange(i, parseFloat(e.target.value))}
-            min={0}
-            max={1}
-            step={0.05}
-            className="flex-1 h-1 bg-slate-700 rounded-full appearance-none cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500"
-          />
-          <input
-            type="number"
-            value={w}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (!isNaN(v)) handleChange(i, Math.max(0, Math.min(1, v)));
-            }}
-            min={0}
-            max={1}
-            step={0.05}
-            className="w-14 px-1 py-0.5 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-right focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-      ))}
-      <p className="text-[10px] text-slate-500 leading-tight">
-        Hoover Index, Silent Ratio, Dominance Streak, Turn Hoover. Must sum to 1.0.
-      </p>
-    </div>
-  );
-}
-
-// --- Main Component ---
-
+/**
+ * Live experiment tuning panel providing real-time adjustment of detection thresholds,
+ * intervention timing, and advanced cosine similarity parameters.
+ * Changes take effect on the next analysis cycle.
+ *
+ * @param config - Current experiment configuration values.
+ * @param onUpdateConfig - Callback to update a single config key.
+ * @param onResetAll - Callback to reset all config values to defaults.
+ */
 export default function LiveTuningPanel({ config, onUpdateConfig, onResetAll }: LiveTuningPanelProps) {
   const handleUpdate = useCallback((key: keyof ExperimentConfig, value: number) => {
     onUpdateConfig(key, value);
@@ -218,6 +71,7 @@ export default function LiveTuningPanel({ config, onUpdateConfig, onResetAll }: 
     onUpdateConfig('PARTICIPATION_RISK_WEIGHTS', weights);
   }, [onUpdateConfig]);
 
+  // Reset a subset of config keys to their default values
   const resetGroup = useCallback((keys: (keyof ExperimentConfig)[]) => {
     for (const key of keys) {
       onUpdateConfig(key, DEFAULT_CONFIG[key]);

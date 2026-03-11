@@ -19,8 +19,10 @@ import { useLiveKitErrorSuppression } from '@/lib/hooks/useLiveKitErrorSuppressi
 import { TranscriptSegment, Intervention, SpeakingTimeDelta } from '@/lib/types';
 
 
-// --- Error Boundary for LiveKit render-time exceptions ---
-
+/**
+ * Error boundary that catches render-time exceptions from the LiveKit SDK
+ * and displays a retry UI instead of crashing the entire page.
+ */
 interface LiveKitErrorBoundaryProps {
   children: React.ReactNode;
   onReset?: () => void;
@@ -75,6 +77,7 @@ class LiveKitErrorBoundary extends Component<LiveKitErrorBoundaryProps, LiveKitE
   }
 }
 
+/** Renders participant video tiles in an adaptive grid layout based on participant count. */
 function CustomVideoLayout() {
   const tracks = useTracks(
     [
@@ -84,16 +87,24 @@ function CustomVideoLayout() {
     { onlySubscribed: false },
   );
 
+  // Adapt grid columns to participant count for optimal space usage
+  const count = tracks.length;
+  const gridCols =
+    count <= 1 ? 'grid-cols-1' :
+    count === 2 ? 'grid-cols-2' :
+    count === 3 ? 'grid-cols-3' :
+    'grid-cols-2';
+
   return (
     <div className="flex flex-col w-full h-full relative bg-slate-900 overflow-hidden">
       <div
-        className="flex-1 flex flex-wrap content-center justify-center items-center p-2 gap-2 overflow-y-auto"
+        className={`flex-1 grid ${gridCols} gap-2 p-2 place-items-center`}
         style={{ height: 'calc(100% - var(--lk-control-bar-height, 60px))' }}
       >
         {tracks.map((trackRef, idx) => (
           <div
             key={`${trackRef.participant.identity}-${trackRef.source}-${idx}`}
-            className="flex-1 min-w-[200px] max-w-full lg:max-w-[800px] h-full max-h-[50vh] sm:max-h-[60vh] lg:max-h-full basis-full sm:basis-[calc(50%-0.5rem)] rounded-xl overflow-hidden relative shadow-lg bg-slate-950"
+            className="w-full h-full rounded-xl overflow-hidden relative shadow-lg bg-slate-950"
           >
             <ParticipantTile
               trackRef={trackRef}
@@ -127,7 +138,11 @@ interface LiveKitRoomProps {
   onInterventionReceived?: (payload: SyncInterventionPayload) => void;
 }
 
-// Inner component that runs inside LiveKit context
+/**
+ * Headless component running inside the LiveKit provider context.
+ * Tracks connection state, participants, speaking time, mic mute state,
+ * and synchronizes transcripts/interventions via P2P DataChannels.
+ */
 function LiveKitSession({
   displayName,
   onConnectionChange,
@@ -196,7 +211,7 @@ function LiveKitSession({
     onParticipantsChange(mapped);
   }, [remoteParticipants, onParticipantsChange]);
 
-  // Track speaking time + active speakers (500ms interval)
+  // Poll speaking state every 500ms to accumulate speaking time and detect active speakers
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -222,20 +237,18 @@ function LiveKitSession({
         speakingTimeRef.current.push({ speaker: displayName, seconds: delta, timestamp: now });
       }
 
-      // Prune entries older than 10 minutes to prevent unbounded growth
-      const pruneThreshold = now - 600_000;
+      // Prune entries older than 5 minutes to limit memory with 6 active speakers
+      const pruneThreshold = now - 300_000;
       if (speakingTimeRef.current.length > 0 && speakingTimeRef.current[0].timestamp < pruneThreshold) {
         speakingTimeRef.current = speakingTimeRef.current.filter(d => d.timestamp >= pruneThreshold);
       }
 
       onRemoteSpeakersChange(activeSpeakers);
 
-      // Track local mic mute state (debounced to avoid flicker from LiveKit reconnects)
+      // Debounce mic mute state changes (1s) to avoid transcription start/stop flicker
       const isMicMuted = !localParticipant.isMicrophoneEnabled;
       if (lastMicMutedRef.current !== isMicMuted) {
         lastMicMutedRef.current = isMicMuted;
-        // Debounce: only propagate after state is stable for 1s
-        // This prevents transcription start/stop flicker during brief LiveKit glitches
         if (micMuteDebounceRef.current) clearTimeout(micMuteDebounceRef.current);
         micMuteDebounceRef.current = setTimeout(() => {
           onLocalMicMuteChangeRef.current?.(isMicMuted);
@@ -252,6 +265,18 @@ function LiveKitSession({
   return null;
 }
 
+/**
+ * LiveKit video conferencing wrapper that handles token acquisition,
+ * error recovery, and connection lifecycle.
+ * Renders the video grid, audio renderer, and headless session tracker.
+ *
+ * @param roomName - LiveKit room to join.
+ * @param displayName - Local participant's display name.
+ * @param onConnectionChange - Fires when connection state changes.
+ * @param onParticipantsChange - Fires when remote participants join/leave.
+ * @param onRemoteSpeakersChange - Fires every 500ms with currently speaking participants.
+ * @param speakingTimeRef - Mutable ref accumulating per-speaker time deltas.
+ */
 export default function LiveKitRoomComponent({
   roomName,
   displayName,
@@ -357,12 +382,11 @@ export default function LiveKitRoomComponent({
           onError={(err) => {
             const msg = err.message || '';
             console.warn('[LiveKit] Room error:', msg);
-            // Only show persistent error after repeated failures
+            // Show persistent error only after 3+ consecutive failures; otherwise auto-clear after 3s
             errorCountRef.current++;
             if (errorCountRef.current >= 3) {
               setError(msg);
             } else {
-              // Show transient error briefly, then auto-clear
               setError(msg);
               if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
               errorTimerRef.current = setTimeout(() => {

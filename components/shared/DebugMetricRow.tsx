@@ -7,7 +7,15 @@ interface DebugMetricRowProps {
   isBreached?: boolean;
 }
 
-/** Compact metric row for debug/diagnostic panels showing value vs threshold. */
+/**
+ * Compact metric row for debug/diagnostic panels showing value vs threshold.
+ * Highlights the value in red and shows a pulsing dot when the threshold is breached.
+ *
+ * @param label - Metric name displayed on the left.
+ * @param value - Formatted metric value string.
+ * @param threshold - Formatted threshold string shown after the value.
+ * @param isBreached - Whether the metric has exceeded its threshold.
+ */
 export default function DebugMetricRow({ label, value, threshold, isBreached }: DebugMetricRowProps) {
   return (
     <div className="flex items-center justify-between">

@@ -1,12 +1,16 @@
-// ============================================
-// Model Routing Configuration
-// ============================================
-// Central config for per-task model assignment,
-// parameters, fallback chains, and runtime tuning.
-// ============================================
+/**
+ * Model Routing Configuration.
+ *
+ * Central config for per-task LLM model assignment, generation parameters,
+ * fallback chains, and runtime tuning. Each AI-powered feature (moderator,
+ * ally, embeddings, transcription, idea extraction, rule check, live summary)
+ * is mapped to a specific model with temperature, token limits, and timeout.
+ * @module
+ */
 
 // --- Task Keys ---
 
+/** Union of all task identifiers that can be routed to an LLM. */
 export type ModelTaskKey =
     | 'moderator_intervention'
     | 'ally_intervention'
@@ -16,6 +20,7 @@ export type ModelTaskKey =
     | 'rule_check'
     | 'live_summary';
 
+/** Ordered list of all task keys, used for iteration in UI and validation. */
 export const MODEL_TASK_KEYS: ModelTaskKey[] = [
     'moderator_intervention',
     'ally_intervention',
@@ -26,6 +31,7 @@ export const MODEL_TASK_KEYS: ModelTaskKey[] = [
     'live_summary',
 ];
 
+/** Human-readable short labels shown in the settings UI. */
 export const TASK_LABELS: Record<ModelTaskKey, string> = {
     moderator_intervention: 'Moderator',
     ally_intervention: 'Ally',
@@ -36,6 +42,7 @@ export const TASK_LABELS: Record<ModelTaskKey, string> = {
     live_summary: 'Live Summary',
 };
 
+/** Longer descriptions explaining what each task does, shown as tooltips. */
 export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
     moderator_intervention: 'Process-oriented reflections (low variance, fast)',
     ally_intervention: 'Creative impulses during escalation (higher variance)',
@@ -48,8 +55,10 @@ export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
 
 // --- Provider & Model Definitions ---
 
+/** Supported LLM providers (currently OpenAI only). */
 export type ModelProvider = 'openai';
 
+/** A selectable model with its provider, API identifier, display label, and capability type. */
 export interface ModelOption {
     provider: ModelProvider;
     model: string;
@@ -57,6 +66,7 @@ export interface ModelOption {
     type: 'chat' | 'embedding' | 'transcription';
 }
 
+/** Registry of all models available for routing. */
 export const AVAILABLE_MODELS: ModelOption[] = [
     // Chat models — GPT-4o family
     { provider: 'openai', model: 'gpt-4o', label: 'GPT-4o', type: 'chat' },
@@ -68,6 +78,12 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     { provider: 'openai', model: 'whisper-1', label: 'Whisper', type: 'transcription' },
 ];
 
+/**
+ * Return the subset of available models compatible with a given task.
+ * Chat tasks get chat models, embedding tasks get embedding models, etc.
+ * @param task - The task key to filter models for.
+ * @returns Filtered array of compatible ModelOption entries.
+ */
 export function getModelsForTask(task: ModelTaskKey): ModelOption[] {
     switch (task) {
         case 'moderator_intervention':
@@ -85,11 +101,13 @@ export function getModelsForTask(task: ModelTaskKey): ModelOption[] {
 
 // --- Per-Task Config ---
 
+/** A fallback model entry (provider + model ID) tried when the primary fails. */
 export interface FallbackModel {
     provider: ModelProvider;
     model: string;
 }
 
+/** Full configuration for a single task: model selection, generation params, and fallback chain. */
 export interface TaskModelConfig {
     provider: ModelProvider;
     model: string;
@@ -100,10 +118,12 @@ export interface TaskModelConfig {
     enabled: boolean;
 }
 
+/** Complete routing table mapping every task key to its model configuration. */
 export type ModelRoutingConfig = Record<ModelTaskKey, TaskModelConfig>;
 
 // --- Defaults ---
 
+/** Production-ready default routing config. Used when no overrides are stored. */
 export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
     moderator_intervention: {
         provider: 'openai',
@@ -176,17 +196,24 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
 
 // --- Validation ---
 
+/** Result of validating a ModelRoutingConfig against constraints. */
 export interface ModelRoutingValidation {
     isValid: boolean;
     errors: string[];
 }
 
+/** Allowed ranges for numeric task config fields, enforced by {@link validateModelRouting}. */
 export const TASK_CONFIG_CONSTRAINTS = {
     temperature: { min: 0, max: 2 },
     maxTokens: { min: 0, max: 4096 },
     timeoutMs: { min: 1000, max: 60000 },
 } as const;
 
+/**
+ * Validate a full routing config against constraints (ranges, required fields).
+ * @param config - The routing config to validate.
+ * @returns Validation result with a list of human-readable error strings.
+ */
 export function validateModelRouting(config: ModelRoutingConfig): ModelRoutingValidation {
     const errors: string[] = [];
 
@@ -222,6 +249,13 @@ export function validateModelRouting(config: ModelRoutingConfig): ModelRoutingVa
 
 // --- Merge with defaults (for partial updates) ---
 
+/**
+ * Merge a partial routing config with defaults. Missing tasks or fields
+ * fall back to {@link DEFAULT_MODEL_ROUTING} values. Used when loading
+ * from storage or file to handle newly added tasks.
+ * @param partial - A sparse config with overrides for some tasks/fields.
+ * @returns A complete ModelRoutingConfig.
+ */
 export function mergeModelRouting(
     partial: Partial<Record<ModelTaskKey, Partial<TaskModelConfig>>>
 ): ModelRoutingConfig {
@@ -240,6 +274,11 @@ export function mergeModelRouting(
 
 const MODEL_ROUTING_STORAGE_KEY = 'uzh-brainstorming-model-routing';
 
+/**
+ * Save the routing config to localStorage (client-side only).
+ * Silently no-ops on the server or when storage is unavailable.
+ * @param config - The complete routing config to persist.
+ */
 export function saveModelRoutingToStorage(config: ModelRoutingConfig): void {
     if (typeof window === 'undefined') return;
     try {
@@ -249,6 +288,11 @@ export function saveModelRoutingToStorage(config: ModelRoutingConfig): void {
     }
 }
 
+/**
+ * Load routing config from localStorage, merging with defaults for
+ * forward-compatibility with newly added tasks.
+ * @returns The merged config, or null if nothing is stored.
+ */
 export function loadModelRoutingFromStorage(): ModelRoutingConfig | null {
     if (typeof window === 'undefined') return null;
     try {
@@ -265,13 +309,24 @@ export function loadModelRoutingFromStorage(): ModelRoutingConfig | null {
 // --- Runtime accessor (used by API routes) ---
 // In-memory runtime config; file persistence handled by modelRoutingPersistence.ts
 
+/** Mutable in-memory config, set via {@link setModelRoutingConfig}. */
 let runtimeConfig: ModelRoutingConfig | null = null;
 
+/**
+ * Get the active routing config. Returns the in-memory override if set,
+ * otherwise falls back to {@link DEFAULT_MODEL_ROUTING}.
+ * @returns The current ModelRoutingConfig.
+ */
 export function getModelRoutingConfig(): ModelRoutingConfig {
     if (runtimeConfig) return runtimeConfig;
     return DEFAULT_MODEL_ROUTING;
 }
 
+/**
+ * Override the in-memory routing config. Typically called after loading
+ * from file or receiving an update from the settings UI.
+ * @param config - The new routing config to activate.
+ */
 export function setModelRoutingConfig(config: ModelRoutingConfig): void {
     runtimeConfig = config;
 }

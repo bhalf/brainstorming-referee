@@ -8,6 +8,15 @@ interface ExportButtonProps {
   disabled?: boolean;
 }
 
+/**
+ * Session export controls providing JSON download and clipboard copy.
+ * Displays session statistics (segment count, metrics, interventions, duration)
+ * and warns about any errors logged during the session.
+ *
+ * @param sessionLog - Full session log data to export.
+ * @param roomName - Room name used in the export filename.
+ * @param disabled - Whether export actions are disabled.
+ */
 export default function ExportButton({ sessionLog, roomName, disabled = false }: ExportButtonProps) {
   const handleExportJSON = () => {
     const dataStr = JSON.stringify(sessionLog, null, 2);

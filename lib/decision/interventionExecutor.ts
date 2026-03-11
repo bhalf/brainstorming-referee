@@ -1,10 +1,18 @@
 /**
- * Intervention executor — extracted from useDecisionLoop.
- * Handles the actual HTTP call, intervention creation, persistence,
- * TTS, and model routing log persistence.
+ * Intervention Executor — HTTP call, fallback, TTS, and persistence.
  *
- * This is framework-agnostic: it takes callbacks instead of mutating
- * React state directly, making it testable and reusable.
+ * Extracted from useDecisionLoop to be framework-agnostic. All side effects
+ * (state updates, UI notifications, Supabase persistence) are performed via
+ * injected callbacks, making this module testable without React.
+ *
+ * Execution flow:
+ *   1. POST to the moderator/ally API endpoint with an abort timeout.
+ *   2. On success: build an Intervention record, optionally speak via TTS,
+ *      persist to Supabase, and log model routing metadata.
+ *   3. On failure: use a hardcoded client-side fallback text so the
+ *      brainstorming session is never left without guidance.
+ *
+ * @module interventionExecutor
  */
 import {
     InterventionTrigger,
@@ -20,38 +28,53 @@ import { persistIntervention as persistInterventionApi } from '@/lib/services/in
 import { RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
 import { TIMEOUTS } from '@/lib/config/timeouts';
 
-// --- Types ---
-
+/** Parameters describing a single intervention to fire. */
 export interface FireInterventionParams {
+    /** API route to call (e.g. '/api/intervention/moderator'). */
     endpoint: string;
+    /** JSON body for the API request. */
     body: Record<string, unknown>;
+    /** Intervention intent (e.g. 'PARTICIPATION_REBALANCING'). */
     intent: string;
+    /** Legacy trigger type for backward-compatible records. */
     trigger: InterventionTrigger;
     role: 'moderator' | 'ally';
+    /** Metric snapshot at the moment the intervention was triggered. */
     metrics: MetricSnapshot | null;
     triggeringState?: string;
     stateConfidence?: number;
+    /** Engine state to apply after the intervention fires. */
     nextEngineState: DecisionEngineState;
     ruleViolation?: RuleViolationResult | null;
 }
 
+/**
+ * Callback interface injected by the caller (typically useDecisionLoop).
+ * Keeps the executor framework-agnostic by delegating all side effects.
+ */
 export interface InterventionCallbacks {
     updateDecisionState: (updates: Partial<DecisionEngineState> | DecisionEngineState) => void;
     addIntervention: (intervention: Intervention) => void;
     addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
     addError: (message: string, context?: string) => void;
+    /** Speak text via Web Speech API. Returns true if speech was initiated. */
     speak: (text: string) => boolean;
+    /** Optional: broadcast the intervention to other participants via LiveKit data channel. */
     broadcastIntervention?: (intervention: Intervention) => void;
 }
 
-export interface InterventionContext {
+/** Ambient context needed for execution (session identity, voice config). */
+export interface ExecutionContext {
     sessionId: string | null;
     voiceSettings: VoiceSettings;
     isTTSSupported: boolean;
 }
 
-// --- Client-side fallback texts ---
-// Mirrors the server-side fallbacks so interventions always succeed.
+/**
+ * Client-side fallback texts, mirroring server-side fallbacks.
+ * These ensure an intervention is always delivered even if the LLM API
+ * is unreachable, times out, or returns a 503.
+ */
 const CLIENT_FALLBACKS: Record<string, { en: string; de: string }> = {
     PARTICIPATION_REBALANCING: {
         en: "It feels like we could benefit from hearing more perspectives. Who else has thoughts to share?",
@@ -75,8 +98,17 @@ const CLIENT_FALLBACKS: Record<string, { en: string; de: string }> = {
     },
 };
 
+/**
+ * Select the appropriate fallback text for a given intent, role, and language.
+ * Defaults to German for UZH experiments when no language is specified.
+ *
+ * @param intent - Intervention intent key.
+ * @param role - Whether this is a moderator or ally intervention.
+ * @param language - BCP-47 language tag (e.g. 'de-CH', 'en').
+ * @returns A pre-written fallback intervention string.
+ */
 function getClientFallbackText(intent: string, role: 'moderator' | 'ally', language?: string): string {
-    const isGerman = language?.startsWith('de') ?? true; // Default to German for UZH experiments
+    const isGerman = language?.startsWith('de') ?? true;
     if (role === 'ally') {
         const fb = CLIENT_FALLBACKS.ALLY_DEFAULT;
         return isGerman ? fb.de : fb.en;
@@ -89,12 +121,22 @@ const INTERVENTION_TIMEOUT_MS = TIMEOUTS.INTERVENTION_MS;
 
 /**
  * Fire a single intervention (moderator or ally).
- * Returns true if the intervention was successfully created.
+ *
+ * Calls the LLM API with a timeout. On success, builds an Intervention record,
+ * optionally speaks it via TTS, persists to Supabase, and logs model routing.
+ * On any failure, a client-side fallback text is used instead so the
+ * brainstorming session always receives guidance.
+ *
+ * @param params - Intervention parameters (endpoint, body, intent, etc.).
+ * @param callbacks - Side-effect callbacks for state updates, persistence, TTS.
+ * @param ctx - Execution context (session ID, voice settings).
+ * @returns Object with success=true and the generated interventionId (always succeeds
+ *          due to fallback logic; success=false is currently unreachable).
  */
 export async function executeIntervention(
     params: FireInterventionParams,
     callbacks: InterventionCallbacks,
-    ctx: InterventionContext,
+    ctx: ExecutionContext,
 ): Promise<{ success: boolean; interventionId: string | null }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), INTERVENTION_TIMEOUT_MS);
@@ -232,7 +274,11 @@ export async function executeIntervention(
 }
 
 /**
- * Persist engine state to the backend (fire-and-forget).
+ * Persist the current decision engine state to Supabase (fire-and-forget).
+ * No-ops if sessionId is null (e.g. during local-only testing).
+ *
+ * @param sessionId - Supabase session identifier.
+ * @param state - Full engine state to persist.
  */
 export function persistEngineState(sessionId: string | null, state: DecisionEngineState): void {
     if (!sessionId) return;
@@ -243,7 +289,13 @@ export function persistEngineState(sessionId: string | null, state: DecisionEngi
 }
 
 /**
- * Persist a recovery result for an intervention.
+ * Persist a recovery result for a specific intervention (fire-and-forget).
+ * Called after the post-check phase evaluates whether the conversation recovered.
+ *
+ * @param sessionId - Supabase session identifier.
+ * @param interventionId - ID of the intervention being updated.
+ * @param recoveryResult - Recovery outcome ('recovered', 'not_recovered', 'partial').
+ * @param recoveryCheckedAt - Epoch-ms timestamp when recovery was evaluated.
  */
 export function persistRecoveryResult(
     sessionId: string | null,

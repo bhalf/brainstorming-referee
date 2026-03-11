@@ -1,17 +1,31 @@
-// ============================================
-// Participation Metrics — Composite Diagnostics
-// ============================================
+/**
+ * Participation Metrics -- Composite Diagnostics
+ *
+ * Computes participation balance metrics from transcript segments:
+ *   - Volume share (word count per speaker)
+ *   - Turn share (segments per speaker, excluding backchannels)
+ *   - Silent participant ratio
+ *   - Dominance streak score (consecutive turns by one speaker)
+ *   - Hoover index (normalized inequality measure)
+ *   - Composite participation risk score
+ *
+ * These metrics feed into the conversation state inference engine
+ * to detect DOMINANCE_RISK and gate HEALTHY_* states.
+ *
+ * @module participation
+ */
 
 import { TranscriptSegment, ParticipationMetrics, ExperimentConfig } from '../types';
 import { isActivityMarker } from '../utils/transcript';
 
+/** Maximum number of recent segments to analyze (sliding window). */
 const MAX_SEGMENTS = 30;
 
 /**
- * Backchannel words — short confirmatory/reactive utterances that are real speech
- * but should not count as substantive turns for participation metrics.
- * Unlike hallucination filler words, this list is focused on conversational
- * backchannels commonly seen in brainstorming contexts.
+ * Backchannel words -- short confirmatory/reactive utterances (e.g. "ja", "mhm")
+ * that are real speech but should not count as substantive turns for participation
+ * metrics. Covers German, Swiss German, and English backchannels commonly seen
+ * in brainstorming contexts.
  */
 const BACKCHANNEL_WORDS = new Set([
   // German
@@ -31,9 +45,14 @@ const BACKCHANNEL_WORDS = new Set([
 const MAX_BACKCHANNEL_WORDS = 3;
 
 /**
- * Check if a segment is a backchannel (short confirmatory utterance).
- * Backchannels are real speech that should remain in the transcript,
- * but should not count as substantive turns for participation metrics.
+ * Determine if a transcript segment is a backchannel (short confirmatory utterance).
+ *
+ * A segment is a backchannel if it has at most MAX_BACKCHANNEL_WORDS words and
+ * every word is in the BACKCHANNEL_WORDS set. Backchannels remain in the transcript
+ * but are excluded from turn-based participation metrics.
+ *
+ * @param segment - Transcript segment to evaluate.
+ * @returns True if the segment is a backchannel.
  */
 export function isBackchannel(segment: TranscriptSegment): boolean {
   const text = segment.text.trim().toLowerCase().replace(/[.!?,;:…]+$/g, '');
@@ -45,18 +64,22 @@ export function isBackchannel(segment: TranscriptSegment): boolean {
   return words.every(w => BACKCHANNEL_WORDS.has(w));
 }
 
+/** Filter to finalized segments, excluding activity markers (join/leave events). */
 function getFinalSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return segments.filter(s => s.isFinal && !isActivityMarker(s));
 }
 
-/** Final segments excluding backchannels — used for turn-based metrics */
+/** Filter to finalized, non-backchannel, non-marker segments (substantive speech only). */
 function getSubstantiveSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return segments.filter(s => s.isFinal && !isActivityMarker(s) && !isBackchannel(s));
 }
 
-// --- Volume Share ---
-// Word count per speaker, normalized to fractions summing to 1.
-
+/**
+ * Compute volume share: word count per speaker, normalized to fractions summing to 1.
+ *
+ * @param segments - Transcript segments to analyze.
+ * @returns Map of speaker name to their fraction of total words.
+ */
 export function computeVolumeShare(segments: TranscriptSegment[]): Record<string, number> {
   const finalSegs = getFinalSegments(segments);
   const wordCounts: Record<string, number> = {};
@@ -78,9 +101,13 @@ export function computeVolumeShare(segments: TranscriptSegment[]): Record<string
   return shares;
 }
 
-// --- Turn Share ---
-// Fraction of final segments per speaker.
-
+/**
+ * Compute turn share: fraction of substantive segments per speaker.
+ * Excludes backchannels so that "ja"/"mhm" do not inflate turn counts.
+ *
+ * @param segments - Transcript segments to analyze.
+ * @returns Map of speaker name to their fraction of total turns.
+ */
 export function computeTurnShare(segments: TranscriptSegment[]): Record<string, number> {
   const finalSegs = getSubstantiveSegments(segments);
   const turnCounts: Record<string, number> = {};
@@ -99,11 +126,18 @@ export function computeTurnShare(segments: TranscriptSegment[]): Record<string, 
   return shares;
 }
 
-// --- Silent Participant Ratio ---
-// Fraction of participants with volumeShare below threshold.
-// Accepts optional knownParticipantCount from LiveKit to detect
-// participants who never spoke (invisible to transcript-only analysis).
-
+/**
+ * Compute the fraction of participants who are silent or near-silent.
+ *
+ * A participant is considered silent if their volume share is below the threshold.
+ * Accepts an optional knownParticipantCount from LiveKit to account for participants
+ * who never spoke (invisible to transcript-only analysis).
+ *
+ * @param volumeShare - Map of speaker name to volume fraction.
+ * @param threshold - Volume share below which a speaker is "silent" (default 0.05 = 5%).
+ * @param knownParticipantCount - Total participants in the room (from LiveKit).
+ * @returns Fraction [0, 1] of participants who are silent.
+ */
 export function computeSilentParticipantRatio(
   volumeShare: Record<string, number>,
   threshold: number = 0.05,
@@ -124,9 +158,17 @@ export function computeSilentParticipantRatio(
   return (silentSpeakers + neverSpoke) / totalParticipants;
 }
 
-// --- Dominance Streak Score ---
-// Measures how much one speaker controls consecutive turns.
-
+/**
+ * Measure how much one speaker controls consecutive turns (dominance streak).
+ *
+ * Finds the longest consecutive run by any single speaker, then normalizes
+ * against the expected run length for a balanced conversation:
+ *   score = (maxRun/total - 1/speakerCount) / (1 - 1/speakerCount)
+ *
+ * @param segments - Transcript segments to analyze (uses last MAX_SEGMENTS substantive).
+ * @param knownParticipantCount - Total participants (to detect single-speaker dominance).
+ * @returns Score in [0, 1] where 0 = no dominance, 1 = complete dominance.
+ */
 export function computeDominanceStreakScore(
   segments: TranscriptSegment[],
   knownParticipantCount?: number,
@@ -162,12 +204,21 @@ export function computeDominanceStreakScore(
   return Math.max(0, Math.min(1, (rawStreak - expectedStreak) / denominator));
 }
 
-// --- Hoover Index (aka Pietra Index) for any distribution ---
-// Reusable helper: 0 = perfectly equal, 1 = maximally unequal.
-// Note: This computes the normalized Hoover index (sum of |share - 1/n| / max_deviation),
-// NOT the Gini coefficient (which would be sum_i sum_j |x_i - x_j| / (2n * sum(x))).
-// The Hoover index is simpler and sufficient for participation imbalance detection.
-
+/**
+ * Compute the normalized Hoover index (aka Pietra index) for a distribution.
+ *
+ * Measures inequality on a [0, 1] scale:
+ *   0 = perfectly equal distribution
+ *   1 = maximally unequal (all value in one entry)
+ *
+ * Formula: sum(|share_i - 1/n|) / (2 * (1 - 1/n))
+ *
+ * Note: this is NOT the Gini coefficient. The Hoover index is simpler and
+ * sufficient for participation imbalance detection.
+ *
+ * @param values - Raw values (e.g. word counts) for each participant.
+ * @returns Normalized Hoover index in [0, 1].
+ */
 export function computeHooverIndex(values: number[]): number {
   if (values.length <= 1) return 0; // No inequality possible with 0 or 1 values
 
@@ -182,9 +233,19 @@ export function computeHooverIndex(values: number[]): number {
   return maxDeviation > 0 ? deviationSum / maxDeviation : 0;
 }
 
-// --- Participation Risk Score ---
-// Weighted composite of all participation sub-metrics.
-
+/**
+ * Compute the composite participation risk score from sub-metrics.
+ *
+ * Weighted sum: w0*hooverImbalance + w1*silentRatio + w2*streakScore + w3*turnHoover
+ * Default weights: [0.35, 0.25, 0.25, 0.15].
+ *
+ * @param hooverImbalance - Hoover index of volume (word count) distribution.
+ * @param silentParticipantRatio - Fraction of silent participants.
+ * @param dominanceStreakScore - Consecutive-turn dominance score.
+ * @param turnShare - Map of speaker name to turn fraction.
+ * @param weights - 4-element weight vector for the sub-metrics.
+ * @returns Composite risk score clamped to [0, 1].
+ */
 export function computeParticipationRiskScore(
   hooverImbalance: number,
   silentParticipantRatio: number,
@@ -203,8 +264,20 @@ export function computeParticipationRiskScore(
   return Math.max(0, Math.min(1, score));
 }
 
-// --- Main Orchestrator ---
-
+/**
+ * Compute all participation metrics for a set of transcript segments.
+ *
+ * Orchestrates the individual sub-metric functions and assembles the
+ * final ParticipationMetrics object. Also computes a cumulative (long-window)
+ * participation imbalance when cumulativeSegments are provided.
+ *
+ * @param segments - Recent transcript segments (short analysis window).
+ * @param config - Experiment configuration (thresholds, weights).
+ * @param hooverImbalance - Pre-computed Hoover index from the caller's volume data.
+ * @param knownParticipantCount - Total participants from LiveKit (optional).
+ * @param cumulativeSegments - All segments since session start for long-window imbalance.
+ * @returns Complete ParticipationMetrics object.
+ */
 export function computeParticipationMetrics(
   segments: TranscriptSegment[],
   config: ExperimentConfig,

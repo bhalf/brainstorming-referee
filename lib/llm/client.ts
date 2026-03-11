@@ -1,9 +1,12 @@
-// ============================================
-// Unified LLM Client
-// ============================================
-// Handles model routing, timeouts, fallback chains,
-// and structured logging for every AI call.
-// ============================================
+/**
+ * Unified LLM Client.
+ *
+ * Handles model routing, timeouts, fallback chains, and structured
+ * logging for every AI call (chat completions and embeddings).
+ * Each call walks the fallback chain (primary model, then fallbacks)
+ * and produces a {@link ModelRoutingLogEntry} for observability.
+ * @module
+ */
 
 import type { ModelRoutingLogEntry } from '@/lib/types';
 import type { ModelTaskKey, ModelRoutingConfig, TaskModelConfig } from '@/lib/config/modelRouting';
@@ -11,16 +14,19 @@ import { generateId } from '@/lib/utils/generateId';
 
 // --- Types ---
 
+/** A single message in a chat completion request. */
 export interface LLMMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
 }
 
+/** Result of a successful chat completion, including the generated text and a log entry. */
 export interface LLMResult {
     text: string;
     logEntry: ModelRoutingLogEntry;
 }
 
+/** Result of a successful embedding call, including the vector and a log entry. */
 export interface EmbeddingResult {
     embedding: number[];
     logEntry: ModelRoutingLogEntry;
@@ -28,10 +34,21 @@ export interface EmbeddingResult {
 
 // --- Chat Completions ---
 
+/** Optional parameters for chat completion calls. */
 export interface LLMOptions {
     responseFormat?: { type: 'json_object' };
 }
 
+/**
+ * Call the LLM for a chat completion task, walking the fallback chain on failure.
+ * @param task - The task key determining which model config to use.
+ * @param config - The full model routing config.
+ * @param messages - The chat messages (system + user + optional assistant).
+ * @param apiKey - The OpenAI API key.
+ * @param options - Optional response format (e.g. JSON mode).
+ * @returns The generated text and a routing log entry.
+ * @throws {LLMError} When all models in the chain fail, with the log entry attached.
+ */
 export async function callLLM(
     task: ModelTaskKey,
     config: ModelRoutingConfig,
@@ -109,6 +126,15 @@ export async function callLLM(
 
 // --- Embeddings ---
 
+/**
+ * Compute embeddings for the given input, walking the fallback chain on failure.
+ * @param task - The task key (typically `'embeddings_similarity'`).
+ * @param config - The full model routing config.
+ * @param input - A single string or array of strings to embed.
+ * @param apiKey - The OpenAI API key.
+ * @returns The embedding vector and a routing log entry.
+ * @throws {LLMError} When all models in the chain fail, with the log entry attached.
+ */
 export async function callEmbeddings(
     task: ModelTaskKey,
     config: ModelRoutingConfig,
@@ -172,11 +198,18 @@ export async function callEmbeddings(
 
 // --- Internal: OpenAI Chat Call with Timeout ---
 
+/** Raw result from the OpenAI chat completions endpoint. */
 interface OpenAIChatResult {
     text: string;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
+/**
+ * Send a chat completion request to OpenAI with an AbortController timeout.
+ * Handles API differences between GPT-4o and GPT-5/o-series models
+ * (max_tokens vs max_completion_tokens, temperature support).
+ * Retries once on empty response (known GPT-5 issue).
+ */
 async function callOpenAIChatWithTimeout(
     model: string,
     messages: LLMMessage[],
@@ -264,11 +297,15 @@ async function callOpenAIChatWithTimeout(
 
 // --- Internal: OpenAI Embeddings Call with Timeout ---
 
+/** Raw result from the OpenAI embeddings endpoint. */
 interface OpenAIEmbeddingResult {
     embedding: number[];
     usage?: { prompt_tokens: number };
 }
 
+/**
+ * Send an embedding request to OpenAI with an AbortController timeout.
+ */
 async function callOpenAIEmbeddingsWithTimeout(
     model: string,
     input: string | string[],
@@ -318,6 +355,15 @@ async function callOpenAIEmbeddingsWithTimeout(
 
 // --- Log Entry Factory ---
 
+/**
+ * Build a standardised routing log entry with latency, token counts, and error info.
+ * @param task - The task key for this call.
+ * @param provider - The model provider used.
+ * @param model - The specific model used.
+ * @param startTime - Unix timestamp (ms) when the call started.
+ * @param result - Outcome details (success/failure, tokens, fallback info).
+ * @returns A complete ModelRoutingLogEntry.
+ */
 function createLogEntry(
     task: ModelTaskKey,
     provider: string,
@@ -350,6 +396,10 @@ function createLogEntry(
 
 // --- Custom Error (carries logEntry) ---
 
+/**
+ * Error thrown when all models in the fallback chain fail.
+ * Carries the log entry from the last failed attempt for observability.
+ */
 export class LLMError extends Error {
     logEntry: ModelRoutingLogEntry;
 

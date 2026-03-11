@@ -1,7 +1,19 @@
+/**
+ * UI display configuration for conversation states and engine phases.
+ *
+ * Provides labels, descriptions, colors, and severity levels used by
+ * the dashboard and overlay panels to visualize the current state of
+ * the decision engine.
+ *
+ * @module stateConfig
+ */
+
 import { ConversationStateName, EnginePhase } from '@/lib/types';
 
 /**
- * Display configuration for inferred conversation states (v2).
+ * Display configuration for each of the 5 inferred conversation states.
+ * Maps each state name to its human-readable label, description,
+ * Tailwind background color class, and severity level.
  */
 export const CONVERSATION_STATE_CONFIG: Record<ConversationStateName, {
   label: string;
@@ -42,7 +54,8 @@ export const CONVERSATION_STATE_CONFIG: Record<ConversationStateName, {
 };
 
 /**
- * Display configuration for engine phases.
+ * Display configuration for the 4 engine phases (MONITORING, CONFIRMING,
+ * POST_CHECK, COOLDOWN). Used to render phase badges in the dashboard.
  */
 export const ENGINE_PHASE_CONFIG: Record<EnginePhase, {
   label: string;

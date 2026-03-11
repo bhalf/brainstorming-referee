@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 
-// POST — Insert connection (idempotent via ON CONFLICT)
+/**
+ * POST /api/ideas/connections — Insert an idea connection (idempotent).
+ *
+ * Creates a directional link between two ideas (e.g. builds_on, contrasts).
+ * Uses Supabase upsert with ON CONFLICT on the connection id.
+ *
+ * @param request.body.sessionId - UUID of the owning session.
+ * @param request.body.connection - Connection object with id, sourceIdeaId, targetIdeaId,
+ *        and optional label and connectionType (defaults to 'related').
+ * @returns {{ success: true }} on successful insert.
+ */
 export async function POST(request: NextRequest) {
   try {
     const { sessionId, connection } = await request.json();
@@ -38,7 +48,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET — Fetch connections for session
+/**
+ * GET /api/ideas/connections?sessionId={id} — Fetch all idea connections for a session.
+ *
+ * @param request.query.sessionId - UUID of the session.
+ * @returns {{ connections: object[] }} Array of raw connection rows ordered by creation time.
+ */
 export async function GET(request: NextRequest) {
   const sessionId = request.nextUrl.searchParams.get('sessionId');
 

@@ -1,3 +1,12 @@
+/**
+ * Shared API route helpers.
+ *
+ * Provides reusable utilities for Next.js API routes: API key validation,
+ * model routing config loading (with cold-start recovery), and a
+ * standardised error-handling wrapper.
+ * @module
+ */
+
 import { NextResponse } from 'next/server';
 import {
   getModelRoutingConfig,
@@ -8,8 +17,8 @@ import {
 import { loadConfigFromFile } from '@/lib/config/modelRoutingPersistence';
 
 /**
- * Check that the OPENAI_API_KEY environment variable is set.
- * Returns an error response if missing, or the key string if present.
+ * Validate that the OPENAI_API_KEY environment variable is set.
+ * @returns An object with either `{ key }` on success or `{ error }` with a 503 response.
  */
 export function requireApiKey(): { key: string } | { error: NextResponse } {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -26,10 +35,13 @@ export function requireApiKey(): { key: string } | { error: NextResponse } {
 
 /**
  * Load the model routing config, restoring from disk on cold start.
- * Avoids serverless reset to defaults.
+ * On a fresh serverless invocation the in-memory config is still the default,
+ * so this checks for a persisted file override and applies it.
+ * @returns The active ModelRoutingConfig.
  */
 export function loadRoutingConfig(): ModelRoutingConfig {
   let config = getModelRoutingConfig();
+  // Identity check: if still pointing at the DEFAULT object, try loading from file
   if (config === DEFAULT_MODEL_ROUTING) {
     const fileConfig = loadConfigFromFile();
     if (fileConfig) {
@@ -41,11 +53,17 @@ export function loadRoutingConfig(): ModelRoutingConfig {
 }
 
 /**
- * Wraps a Next.js route handler with standardised error handling.
- * Catches thrown errors and returns a consistent JSON error response.
+ * Wrap a Next.js route handler with standardised error handling.
+ * Catches thrown errors and returns a consistent JSON error response
+ * with the appropriate HTTP status code.
  *
- * Usage:
- *   export const POST = withErrorHandler(async (request) => { ... });
+ * @example
+ * ```ts
+ * export const POST = withErrorHandler(async (request) => { ... });
+ * ```
+ *
+ * @param handler - The async route handler function.
+ * @returns A wrapped handler that catches and formats errors.
  */
 export function withErrorHandler(
   handler: (request: Request) => Promise<NextResponse>,

@@ -8,7 +8,15 @@ interface ToggleProps {
   disabled?: boolean;
 }
 
-/** Consistent toggle switch used across settings, model routing, etc. */
+/**
+ * Consistent toggle switch used across settings, model routing, etc.
+ * Renders as an accessible switch element with animated thumb position.
+ *
+ * @param checked - Whether the toggle is on.
+ * @param onChange - Callback with the new checked state.
+ * @param size - 'sm' for compact inline use, 'md' for settings panels.
+ * @param disabled - Whether the toggle is non-interactive.
+ */
 export default function Toggle({
   checked,
   onChange,

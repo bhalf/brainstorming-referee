@@ -3,7 +3,18 @@ import { getServiceClient } from '@/lib/supabase/server';
 import { snapshotToInsert } from '@/lib/supabase/converters';
 import { validateSessionExists } from '@/lib/api/validateSession';
 
-// POST — Persist a metric snapshot
+/**
+ * POST /api/metrics/snapshot — Persist a computed metric snapshot.
+ *
+ * Called fire-and-forget by the client's metrics computation hook each time
+ * new participation and semantic metrics are computed. The snapshot includes
+ * the full metrics object and the inferred conversation state.
+ *
+ * @param request.body.sessionId - UUID of the owning session.
+ * @param request.body.snapshot - Metrics snapshot object (participation scores,
+ *        semantic dynamics, inferred state, timestamp).
+ * @returns {{ success: true }} on successful insert.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

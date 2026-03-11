@@ -12,6 +12,17 @@ interface ReadinessCheckProps {
 
 type CheckStatus = 'pending' | 'checking' | 'ok' | 'error';
 
+/**
+ * Pre-session readiness UI that verifies microphone access before joining a room.
+ * Requests mic permission, monitors audio levels in real time, and detects speech
+ * to confirm the microphone is working. Supports German and English labels.
+ *
+ * @param roomName - Name of the room the user is about to join.
+ * @param displayName - User's display name shown in the info section.
+ * @param language - Language code for UI label localization (de/en).
+ * @param onReady - Callback when the user confirms readiness.
+ * @param onBack - Callback to navigate back to the previous screen.
+ */
 export default function ReadinessCheck({
   roomName,
   displayName,
@@ -41,7 +52,7 @@ export default function ReadinessCheck({
     analyserRef.current = null;
   }, []);
 
-  // Request microphone permission and start level monitoring
+  // Request microphone permission and start real-time audio level monitoring via Web Audio API
   const checkMicrophone = useCallback(async () => {
     setMicStatus('checking');
     setMicError(null);
@@ -209,6 +220,7 @@ export default function ReadinessCheck({
   );
 }
 
+/** Colored dot indicator reflecting the check status (pending/checking/ok/error). */
 function StatusDot({ status }: { status: CheckStatus }) {
   const colors: Record<CheckStatus, string> = {
     pending: 'bg-slate-500',

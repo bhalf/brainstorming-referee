@@ -5,6 +5,7 @@ import { VoiceSettings } from '@/lib/types';
 import { logSessionEvent } from '@/lib/services/eventService';
 import { updateVoiceSettings as persistVoiceSettingsToServer } from '@/lib/services/sessionService';
 
+/** Parameters for the realtime voice settings hook. */
 interface UseRealtimeVoiceSettingsParams {
   sessionId: string | null;
   isActive: boolean;
@@ -13,11 +14,12 @@ interface UseRealtimeVoiceSettingsParams {
 }
 
 /**
- * Subscribes to voice settings changes on the sessions table.
- * When the host updates voice settings, participants receive them via Realtime.
- * The host persists voice settings changes; participants only listen.
+ * Synchronizes voice settings (TTS enabled, voice, speed) between the host and
+ * participants via Supabase Realtime. The host persists changes to the sessions
+ * table; participants subscribe to UPDATE events to receive them.
  *
- * Now uses the generic useSupabaseChannel hook instead of custom subscription logic.
+ * @param params - Session ID, active/host flags, and voice settings dispatcher.
+ * @returns A `persistVoiceSettings` function for the host to save changes.
  */
 export function useRealtimeVoiceSettings({
   sessionId,
@@ -27,7 +29,7 @@ export function useRealtimeVoiceSettings({
 }: UseRealtimeVoiceSettingsParams) {
   const updateVoiceSettingsRef = useLatestRef(updateVoiceSettings);
 
-  // Host: persist voice settings to Supabase on change
+  /** (Host only) Persists voice settings to Supabase and logs the event. */
   const persistVoiceSettings = useCallback((settings: Partial<VoiceSettings>) => {
     if (!sessionId || !isHost) return;
 

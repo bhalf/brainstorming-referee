@@ -14,6 +14,23 @@ interface ExtractionRequest {
 
 // --- System prompt now managed centrally in lib/prompts/extraction/prompts.ts ---
 
+/**
+ * POST /api/ideas/extract — LLM-based idea extraction from transcript segments.
+ *
+ * Sends new transcript segments (with optional prior context) to the LLM to
+ * identify discrete ideas, their authors, and inter-idea connections. Results
+ * are deduplicated against existing titles before returning.
+ *
+ * Rate-limited to 30 requests per window.
+ *
+ * @param request.body.segments - New transcript segments to extract ideas from.
+ * @param request.body.contextSegments - Optional prior segments for LLM context (not re-extracted).
+ * @param request.body.existingTitles - Titles of already-known ideas for deduplication.
+ * @param request.body.existingIdeas - Full existing idea objects (id + title + description + type) for
+ *        connection resolution and parent linking.
+ * @param request.body.language - BCP-47 locale for prompt language selection.
+ * @returns {{ ideas: object[], connections: object[], logEntry: object | null }}
+ */
 export async function POST(request: NextRequest) {
   const limited = rateLimit(request, { maxRequests: 30 });
   if (limited) return limited;
@@ -47,6 +64,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`[IdeaExtraction] Processing ${segments.length} new + ${contextSegments.length} context segments (${existingIdeas.length} existing ideas)`);
 
+    // Format existing ideas as a reference list for the LLM so it can create
+    // connections to them by ID without re-extracting them as new ideas
     const existingList = existingIdeas.length > 0
       ? `Existing ideas (do NOT repeat these, but you CAN create connections TO them using their ID):\n${existingIdeas.map(ei => `- [ID: ${ei.id}] "${ei.title}"${ei.description ? ` — ${ei.description}` : ''}${ei.ideaType === 'category' ? ' (CATEGORY)' : ''}`).join('\n')}`
       : 'No existing ideas yet.';
@@ -101,7 +120,9 @@ export async function POST(request: NextRequest) {
         titleToIdMap.set(ei.title.toLowerCase().trim(), ei.id);
       }
 
-      // Process connections — resolve IDs via map if the LLM didn't provide them
+      // Process connections — the LLM returns connections by title, but the client
+      // needs UUIDs. Resolve IDs via the title-to-id map when the LLM omitted them.
+      // Self-referencing connections are filtered out, and unknown types default to 'related'.
       const connections = (parsed.connections || [])
         .filter(c => c.sourceTitle && c.targetTitle && c.sourceTitle !== c.targetTitle)
         .map(c => ({
@@ -115,6 +136,8 @@ export async function POST(request: NextRequest) {
             : 'related') as string,
         }));
 
+      // Normalize and sanitize ideas before returning. Parent IDs are resolved
+      // from the title map when the LLM returned a parentTitle but no parentId.
       return NextResponse.json({
         ideas: filteredIdeas.map(idea => ({
           title: idea.title.trim(),

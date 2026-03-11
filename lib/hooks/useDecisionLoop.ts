@@ -18,6 +18,7 @@ import { buildTranscriptContext } from '@/lib/decision/transcriptContext';
 import { executeIntervention, persistEngineState, persistRecoveryResult } from '@/lib/decision/interventionExecutor';
 import { DECISION_TICK_MS } from '@/lib/decision/tickConfig';
 
+/** Parameters for the decision engine loop hook. */
 interface UseDecisionLoopParams {
   isActive: boolean;
   isDecisionOwner: boolean;
@@ -42,6 +43,15 @@ interface UseDecisionLoopParams {
   broadcastIntervention?: (intervention: Intervention) => void;
 }
 
+/**
+ * Core decision engine loop that runs on the decision owner client.
+ * On each tick it: (1) prunes stale intervention timestamps, (2) checks for rule
+ * violations via LLM, (3) evaluates the policy engine for metric-based interventions,
+ * and (4) fires interventions when budget and cooldown constraints allow.
+ * In baseline scenario, detection runs but interventions are suppressed.
+ *
+ * @param params - Session state, refs, config, scenario, TTS, and dispatch callbacks.
+ */
 export function useDecisionLoop({
   isActive,
   isDecisionOwner,
@@ -75,12 +85,13 @@ export function useDecisionLoop({
   const isTTSSupportedRef = useLatestRef(isTTSSupported);
   const sessionIdRef = useLatestRef(sessionId);
   const isProcessingRef = useRef(false);
+  /** Tracks the last fired intervention ID for post-intervention recovery checks. */
   const lastInterventionIdRef = useRef<string | null>(null);
   const lastRuleCheckTimeRef = useRef(0);
   const isRuleCheckingRef = useRef(false);
-  // Store pending rule violation for combining with metric interventions
+  /** Holds a detected rule violation until the next tick can combine it with metric interventions. */
   const pendingRuleViolationRef = useRef<RuleViolationResult | null>(null);
-  // Track recent evidence strings to prevent duplicate rule violation triggers
+  /** Sliding window of recent evidence strings to suppress duplicate rule violation triggers. */
   const recentEvidenceRef = useRef<Array<{ evidence: string; timestamp: number }>>([]);
 
   // --- Helper: Persist engine state shorthand ---
@@ -88,9 +99,9 @@ export function useDecisionLoop({
     persistEngineState(sessionIdRef.current, state);
   };
 
-  // --- Helper: Apply a partial state update atomically to both React state and the stable ref ---
-  // This prevents the race window where React's asynchronous re-render hasn't propagated
-  // the new value back into the ref yet, causing the next decision tick to read stale data.
+  // Applies a partial state update atomically to both React state and the stable ref.
+  // This prevents the race window where React's async re-render hasn't propagated
+  // the new value into the ref yet, causing the next tick to read stale data.
   const applyStateUpdate = (updates: Partial<DecisionEngineState>) => {
     updateDecisionState(updates);
     decisionStateRef.current = { ...decisionStateRef.current, ...updates };
@@ -118,8 +129,8 @@ export function useDecisionLoop({
         applyStateUpdate({ interventionTimestamps: prunedTimestamps });
       }
 
-      // --- 2. Rule Violation Check (every 15s, detection only) ---
-      // Skip when only 1 unique speaker is active in the last 60s (post-session suppression)
+      // --- 2. Rule Violation Check (periodic LLM-based detection) ---
+      // Suppressed when only 1 speaker is active in the last 60s (avoids false positives post-session)
       const recentSegments60s = transcriptSegmentsRef.current.filter(
         s => s.isFinal && s.timestamp > now - 60_000
       );
@@ -204,8 +215,8 @@ export function useDecisionLoop({
         }
       }
 
-      // --- 4. Combine & Act ---
-      // In baseline: everything above runs (state inference, logging), but we never intervene
+      // --- 4. Combine & Act: decide whether to fire a rule-based or metric-based intervention ---
+      // In baseline scenario: all detection/logging runs, but no interventions are delivered.
       if (currentScenario === 'baseline') {
         // Log violation detections without acting
         if (pendingRuleViolationRef.current) {
@@ -217,7 +228,7 @@ export function useDecisionLoop({
 
       const metricIntervention = decision?.shouldIntervene && decision?.intent;
 
-      // Check shared cooldown & budget (sliding window)
+      // Sliding window budget: count interventions in the last 10 minutes
       const recentInterventionCount = countRecentInterventions(
         decisionStateRef.current.interventionTimestamps ?? [], now
       );
@@ -231,12 +242,11 @@ export function useDecisionLoop({
 
       const cooldownActive = decisionStateRef.current.cooldownUntil != null && now < decisionStateRef.current.cooldownUntil;
 
-      // Determine what to fire
-      // Rule violations fire immediately — BUT with a soft cooldown to prevent budget exhaustion
+      // Rule violations fire immediately but with a soft cooldown to prevent budget exhaustion
       const lastRuleViolationTime = decisionStateRef.current.lastRuleViolationTime ?? 0;
       const ruleViolationCooldownActive = (now - lastRuleViolationTime) < cfg.RULE_VIOLATION_COOLDOWN_MS;
 
-      // Duplicate evidence detection: skip if same evidence was already flagged recently
+      // Dedup: skip if the same evidence string was already flagged within the last 5 minutes
       let duplicateEvidence = false;
       if (pendingViolation?.evidence) {
         const normalized = pendingViolation.evidence.trim().toLowerCase();
@@ -314,7 +324,7 @@ export function useDecisionLoop({
           }
         }
 
-        // Compute next engine state (sliding window: push timestamp instead of incrementing count)
+        // Build next engine state: append current timestamp to the sliding window
         const updatedTimestamps = [...(decisionStateRef.current.interventionTimestamps ?? []), now];
         let nextEngineState: DecisionEngineState;
 
@@ -381,8 +391,9 @@ export function useDecisionLoop({
         if (result.interventionId) {
           lastInterventionIdRef.current = result.interventionId;
         } else {
-          // Bug 2 fix: API call failed — clear the stale ID so the next tick's recovery check
-          // does not accidentally update the wrong (previous) intervention with a new result.
+          // Clear stale intervention ID on failure: prevents the next tick's recovery
+          // check from accidentally marking the previous (unrelated) intervention
+          // as "recovered" when it was never the one that just fired.
           lastInterventionIdRef.current = null;
         }
 

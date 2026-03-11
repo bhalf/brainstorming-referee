@@ -2,8 +2,22 @@ import { AccessToken } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/api/rateLimit';
 
+/**
+ * POST /api/livekit/token — Generate a LiveKit access token (JWT).
+ *
+ * Creates a short-lived JWT granting the caller permission to join a
+ * specific LiveKit room with publish and subscribe capabilities. The token
+ * is valid for 6 hours.
+ *
+ * Rate-limited to 30 requests per window.
+ *
+ * @param request.body.room - LiveKit room name (alphanumeric + hyphens, max 128 chars).
+ * @param request.body.identity - Unique participant identity string.
+ * @param request.body.name - Optional display name (falls back to identity).
+ * @returns {{ token: string }} Signed JWT for LiveKit client SDK.
+ */
 export async function POST(request: NextRequest) {
-  const limited = rateLimit(request, { maxRequests: 10 });
+  const limited = rateLimit(request, { maxRequests: 30 });
   if (limited) return limited;
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
@@ -39,6 +53,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build JWT with full publish/subscribe permissions for the target room
     const at = new AccessToken(apiKey, apiSecret, {
       identity,
       name: name || identity,

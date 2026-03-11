@@ -21,6 +21,7 @@ import { Idea, IdeaConnection } from '@/lib/types';
 import { persistIdea, updateIdea as updateIdeaApi } from '@/lib/services/ideaService';
 import { downloadIdeaBoard } from './IdeaBoardExport';
 
+/** Props for the IdeaBoard component. */
 interface IdeaBoardProps {
   ideas: Idea[];
   connections: IdeaConnection[];
@@ -34,7 +35,7 @@ interface IdeaBoardProps {
   roomName?: string;
 }
 
-// --- Color mapping ---
+// --- Color mapping for idea type badges and sticky note backgrounds ---
 
 const COLOR_MAP: Record<string, { bg: string; border: string; badge: string }> = {
   'yellow': { bg: '#fef9c3', border: '#fde047', badge: '#a16207' },
@@ -66,8 +67,7 @@ const EDGE_STYLES: Record<string, {
   related: { stroke: '#64748b', label: 'related', labelDE: 'Verwandt', desc: 'thematisch ähnlich', animated: false, strokeDash: '4 4', strokeWidth: 1.5 },
 };
 
-// --- Connection Legend ---
-
+/** Displays a visual legend of all connection types with their icons and descriptions. */
 const ConnectionLegend = memo(function ConnectionLegend() {
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -115,8 +115,7 @@ const ConnectionLegend = memo(function ConnectionLegend() {
   );
 });
 
-// --- Custom Sticky Note Node ---
-
+/** Data payload carried by each React Flow sticky note node. */
 interface StickyNoteData {
   title: string;
   description: string | null;
@@ -133,6 +132,7 @@ interface StickyNoteData {
 
 const handleStyle = { width: 6, height: 6, background: '#94a3b8', border: 'none', opacity: 0.4 };
 
+/** Custom React Flow node rendering ideas as draggable sticky notes with category, action item, and standard idea variants. */
 const StickyNoteNode = memo(function StickyNoteNode({ id, data }: NodeProps<Node<StickyNoteData>>) {
   const isCategory = data.ideaType === 'category';
   const isActionItem = data.ideaType === 'action_item';
@@ -372,8 +372,23 @@ if (typeof document !== 'undefined' && !document.getElementById('idea-board-styl
 
 const nodeTypes: NodeTypes = { stickyNote: StickyNoteNode };
 
-// --- Main Component ---
-
+/**
+ * Interactive idea visualization board built on React Flow.
+ * Renders brainstorming ideas as draggable sticky notes with auto-generated connections,
+ * supports manual idea creation, drag-to-reposition with Supabase persistence,
+ * and Markdown export.
+ *
+ * @param ideas - All ideas in the session (including soft-deleted ones).
+ * @param connections - LLM-generated connections between ideas.
+ * @param sessionId - Active Supabase session ID for persistence.
+ * @param onAddIdea - Callback when a new idea is created.
+ * @param onUpdateIdea - Callback when an idea's position or data changes.
+ * @param onRemoveIdea - Callback when an idea is deleted.
+ * @param displayName - Current user's display name for authoring new ideas.
+ * @param isCollapsed - Whether the board is collapsed to save space.
+ * @param onToggleCollapse - Callback to toggle collapsed state.
+ * @param roomName - Room name used for export filenames.
+ */
 export default function IdeaBoard({
   ideas,
   connections,
@@ -391,13 +406,13 @@ export default function IdeaBoard({
   const draggingNodeRef = useRef<string | null>(null);
   const newIdeaIdsRef = useRef<Set<string>>(new Set());
 
-  // Stable refs for callbacks used in node data
+  // Stable refs prevent node data churn when parent re-renders with new callback identities
   const onRemoveIdeaRef = useRef(onRemoveIdea);
   onRemoveIdeaRef.current = onRemoveIdea;
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
 
-  // Stable delete handler (never changes → no node data churn)
+  // Stable delete handler using refs so node data objects never change identity
   const stableDelete = useCallback((ideaId: string) => {
     onRemoveIdeaRef.current(ideaId);
     const sid = sessionIdRef.current;
@@ -406,13 +421,14 @@ export default function IdeaBoard({
     }
   }, []);
 
-  // Sync ideas → React Flow nodes (only non-deleted)
+  // Filter out soft-deleted ideas for rendering
   const activeIdeas = useMemo(() => ideas.filter(i => !i.isDeleted), [ideas]);
 
+  // Sync ideas array into React Flow node state, preserving drag position and selection
   useEffect(() => {
     setNodes(currentNodes => {
       const currentMap = new Map(currentNodes.map(n => [n.id, n]));
-      // Count children per category
+      // Count children per category for badge display
       const childCounts = new Map<string, number>();
       for (const idea of activeIdeas) {
         if (idea.parentId) {
@@ -425,12 +441,12 @@ export default function IdeaBoard({
         connectionCounts.set(conn.sourceIdeaId, (connectionCounts.get(conn.sourceIdeaId) || 0) + 1);
         connectionCounts.set(conn.targetIdeaId, (connectionCounts.get(conn.targetIdeaId) || 0) + 1);
       }
-      // Detect new ideas (not yet in current nodes)
+      // Track newly added ideas so we can show a pulse animation for 3 seconds
       const currentIds = new Set(currentNodes.map(n => n.id));
       for (const idea of activeIdeas) {
         if (!currentIds.has(idea.id)) {
           newIdeaIdsRef.current.add(idea.id);
-          // Remove "new" flag after 3 seconds
+          // Auto-clear "new" visual flag after animation completes
           setTimeout(() => {
             newIdeaIdsRef.current.delete(idea.id);
             setNodes(prev => prev.map(n => n.id === idea.id
@@ -534,7 +550,7 @@ export default function IdeaBoard({
 
   // Add manual idea
   const handleAddIdea = useCallback(() => {
-    // Place at center of existing ideas or default position
+    // Place new ideas in a grid-like pattern relative to existing ones
     const currentIdeas = ideas.filter(i => !i.isDeleted);
     let x = 100, y = 100;
     if (currentIdeas.length > 0) {

@@ -10,6 +10,15 @@ interface InfoPopoverProps {
   size?: 'xs' | 'sm';
 }
 
+/**
+ * Contextual help popover triggered by an info icon button.
+ * Renders as a positioned popover on desktop and a bottom sheet on mobile.
+ * Content is loaded from the help content registry by key.
+ * Closes on ESC, click-outside, or scroll.
+ *
+ * @param helpKey - Key to look up help content (title, summary, calculation, etc.).
+ * @param size - Icon size variant ('xs' or 'sm').
+ */
 export default function InfoPopover({ helpKey, size = 'xs' }: InfoPopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
   const iconRef = useRef<HTMLButtonElement>(null);
@@ -56,7 +65,7 @@ export default function InfoPopover({ helpKey, size = 'xs' }: InfoPopoverProps) 
     return () => window.removeEventListener('scroll', handleScroll, true);
   }, [isOpen, close]);
 
-  // Compute desktop position
+  // Position the popover next to the icon, preferring right side with viewport boundary fallback
   const getPosition = (): React.CSSProperties => {
     if (isMobile || !iconRef.current) return {};
     const rect = iconRef.current.getBoundingClientRect();

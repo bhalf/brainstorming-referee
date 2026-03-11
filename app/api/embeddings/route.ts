@@ -3,7 +3,19 @@ import { requireApiKey, loadRoutingConfig } from '@/lib/api/routeHelpers';
 import { rateLimit } from '@/lib/api/rateLimit';
 import { generateId } from '@/lib/utils/generateId';
 
-// POST – compute embeddings for a batch of texts
+/**
+ * POST /api/embeddings — Compute embeddings for a batch of texts.
+ *
+ * Calls the OpenAI embeddings API with model fallback support. If the primary
+ * model fails, iterates through configured fallback models before giving up.
+ * Maximum batch size is 50 texts per request.
+ *
+ * Rate-limited to 60 requests per window.
+ *
+ * @param request.body.texts - Array of strings to embed (1..50 items).
+ * @returns {{ embeddings: number[][], count: number, logEntry: object }}
+ *          Embedding vectors in input order, plus a routing log entry.
+ */
 export async function POST(request: NextRequest) {
     const limited = rateLimit(request, { maxRequests: 60 });
     if (limited) return limited;
@@ -51,6 +63,7 @@ export async function POST(request: NextRequest) {
         const startTime = Date.now();
         let lastError = '';
 
+        // Try each model in the chain sequentially; on failure, fall through to the next
         for (let attempt = 0; attempt < chain.length; attempt++) {
             const model = chain[attempt];
             const isFallback = attempt > 0;
@@ -107,7 +120,7 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // All models exhausted
+        // All models in the fallback chain failed — return a 502 with the last error
         const logEntry = {
             id: `llm-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
             timestamp: Date.now(),

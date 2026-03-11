@@ -2,15 +2,27 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { apiPost, apiDelete, ApiError } from '@/lib/services/apiClient';
 
+/** Parameters for the decision ownership negotiation hook. */
 interface UseDecisionOwnershipParams {
   sessionId: string | null;
   isActive: boolean;
   isParticipant: boolean;
 }
 
-const HEARTBEAT_INTERVAL_MS = 10_000; // 10s heartbeat (was 5s — too aggressive for Vercel)
-const MAX_BACKOFF_MS = 60_000;        // Max 60s backoff on 429
+/** Heartbeat interval for claiming/renewing decision ownership. */
+const HEARTBEAT_INTERVAL_MS = 10_000;
+/** Maximum backoff delay on 429 rate limiting. */
+const MAX_BACKOFF_MS = 60_000;
 
+/**
+ * Negotiates which browser tab runs the decision engine for a given session.
+ * Uses a server-side lock with periodic heartbeats. Only host clients (non-participants)
+ * attempt to claim ownership. Implements exponential backoff with jitter on 429 responses,
+ * and releases ownership on tab close (via sendBeacon) or unmount (via DELETE).
+ *
+ * @param params - Session ID, active flag, and whether the current user is a participant.
+ * @returns Whether this client is the current decision owner.
+ */
 export function useDecisionOwnership({
   sessionId,
   isActive,
@@ -21,6 +33,7 @@ export function useDecisionOwnership({
   const sessionIdRef = useLatestRef(sessionId);
   const backoffRef = useRef(0); // Consecutive 429 count for exponential backoff
 
+  /** Attempts to claim or renew decision ownership via the server lock API. */
   const claimOrHeartbeat = useCallback(async (): Promise<{ isOwner: boolean; rateLimited: boolean }> => {
     const sid = sessionIdRef.current;
     if (!sid) return { isOwner: false, rateLimited: false };
@@ -43,6 +56,7 @@ export function useDecisionOwnership({
     return { isOwner: false, rateLimited: false };
   }, [sessionIdRef]);
 
+  /** Releases ownership using sendBeacon (works during beforeunload). */
   const releaseOwnership = useCallback(() => {
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -69,14 +83,13 @@ export function useDecisionOwnership({
 
       setIsDecisionOwner(isOwner);
 
-      // Schedule next heartbeat with optional backoff
+      // Schedule next heartbeat with exponential backoff on rate limiting
       let nextInterval = HEARTBEAT_INTERVAL_MS;
       if (rateLimited) {
-        // Exponential backoff: 10s, 20s, 40s, 60s (capped)
         nextInterval = Math.min(HEARTBEAT_INTERVAL_MS * Math.pow(2, backoffRef.current), MAX_BACKOFF_MS);
         console.warn(`[DecisionOwner] Rate limited — backing off ${nextInterval / 1000}s`);
       }
-      // Add jitter (±15%) to prevent thundering herd
+      // Add +/-15% jitter to prevent thundering herd when multiple tabs recover simultaneously
       const jitter = nextInterval * (0.85 + Math.random() * 0.3);
       timeoutId = setTimeout(run, jitter);
     };

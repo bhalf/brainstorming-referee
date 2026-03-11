@@ -175,6 +175,11 @@ AUSGABEFORMAT
 Antworte auf Deutsch. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
 {"ideas": [{"title": "Kurzer Titel", "description": "Was gesagt wurde", "author": "Sprechername", "sourceSegmentIds": ["seg-id"], "type": "idea|action_item|category", "parentTitle": null, "parentId": null}], "connections": [{"sourceTitle": "A", "targetTitle": "B", "sourceId": null, "targetId": null, "label": "kurze Beschreibung", "type": "related"}]}`;
 
+/**
+ * Return the idea extraction system prompt for the given language.
+ * @param language - BCP-47 language tag (e.g. `'en-US'`, `'de-CH'`).
+ * @returns The full system prompt string in the appropriate language.
+ */
 export function getExtractionSystemPrompt(language: string): string {
     return selectLanguage(language, SYSTEM_PROMPT_EN, SYSTEM_PROMPT_DE);
 }

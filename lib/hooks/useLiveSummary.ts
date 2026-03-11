@@ -7,17 +7,21 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // --- Config ---
 
-const SUMMARY_INTERVAL_MS = 60_000; // Generate every 60 seconds
-const MIN_NEW_SEGMENTS = 3;          // Minimum new segments before triggering
+/** How often the decision owner generates a new summary. */
+const SUMMARY_INTERVAL_MS = 60_000;
+/** Minimum new transcript segments required before triggering a summary generation. */
+const MIN_NEW_SEGMENTS = 3;
 
 // --- Types ---
 
+/** Public state exposed by the live summary hook. */
 export interface LiveSummaryState {
     summary: string | null;
     isLoading: boolean;
     lastUpdatedAt: number | null;
 }
 
+/** Parameters for the live summary hook. */
 interface UseLiveSummaryParams {
     isActive: boolean;
     isDecisionOwner: boolean;
@@ -31,6 +35,15 @@ interface UseLiveSummaryParams {
 
 // --- Hook ---
 
+/**
+ * Generates and distributes a rolling AI summary of the brainstorming session.
+ * The decision owner periodically calls the summary API and persists results to
+ * session_events. Non-owner participants receive updates via Supabase Realtime
+ * subscription on the session_events table.
+ *
+ * @param params - Session state, transcript ref, ideas, and dispatch callbacks.
+ * @returns The current summary text, loading state, and last update timestamp.
+ */
 export function useLiveSummary({
     isActive,
     isDecisionOwner,
@@ -51,7 +64,7 @@ export function useLiveSummary({
     const ideasRef = useLatestRef(ideas);
     const channelRef = useRef<RealtimeChannel | null>(null);
 
-    // --- Decision owner: periodically generate summary ---
+    /** Calls the summary API with new segments and the previous summary for incremental updates. */
     const generateSummary = useCallback(async () => {
         if (!sessionId || isLoadingRef.current) return;
 
@@ -113,7 +126,7 @@ export function useLiveSummary({
         return () => clearInterval(interval);
     }, [isActive, isDecisionOwner, sessionId, generateSummary]);
 
-    // --- Non-owners: listen for summary via Supabase Realtime on session_events ---
+    // --- Non-owners: subscribe to live_summary events via Supabase Realtime ---
     useEffect(() => {
         if (!sessionId || !isActive || isDecisionOwner) return;
 

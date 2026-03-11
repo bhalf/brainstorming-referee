@@ -11,7 +11,15 @@ import {
 } from '@/lib/config/modelRouting';
 import { loadConfigFromFile, saveConfigToFile } from '@/lib/config/modelRoutingPersistence';
 
-// GET – return current model routing config
+/**
+ * GET /api/model-routing — Return the current model routing configuration.
+ *
+ * If the in-memory config is still the default, attempts to load a
+ * previously persisted config from the filesystem. Returns both the
+ * active config and the built-in defaults for comparison in the UI.
+ *
+ * @returns {{ config: ModelRoutingConfig, defaults: ModelRoutingConfig }}
+ */
 export async function GET() {
     let config = getModelRoutingConfig();
 
@@ -27,7 +35,16 @@ export async function GET() {
     return NextResponse.json({ config, defaults: DEFAULT_MODEL_ROUTING });
 }
 
-// PUT – update model routing config (partial or full)
+/**
+ * PUT /api/model-routing — Update model routing configuration (partial merge).
+ *
+ * Accepts a partial config object, merges it with current defaults,
+ * validates the result, and persists it both in runtime memory and to
+ * a filesystem file for cross-restart durability.
+ *
+ * @param request.body.config - Partial record mapping task keys to partial TaskModelConfig objects.
+ * @returns {{ config: ModelRoutingConfig, ok: true }} The merged and validated config.
+ */
 export async function PUT(request: NextRequest) {
     try {
         const body = await request.json();

@@ -4,14 +4,23 @@ import { rateLimit } from '@/lib/api/rateLimit';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 /**
- * POST /api/transcription/token
- * Creates an ephemeral client secret for OpenAI Realtime Transcription.
- * The client uses this short-lived token to open a WebSocket directly to OpenAI.
+ * POST /api/transcription/token — Create an ephemeral OpenAI Realtime Transcription token.
  *
- * See: https://developers.openai.com/api/docs/guides/realtime-transcription/
+ * Requests a short-lived client secret from OpenAI's transcription session
+ * endpoint. The client uses this token to open a WebSocket directly to OpenAI
+ * for real-time speech-to-text. Configures server-side VAD, noise reduction,
+ * and optional language hints.
+ *
+ * Rate-limited to 30 requests per window.
+ *
+ * @param request.body.language - Optional BCP-47 locale (e.g. 'de-CH'). Normalized to
+ *        ISO 639-1 (e.g. 'de') for the OpenAI API. Omit for auto-detection.
+ * @returns {{ token: string, expiresAt: string }} Ephemeral client secret and its expiry.
+ *
+ * @see https://developers.openai.com/api/docs/guides/realtime-transcription/
  */
 export async function POST(request: NextRequest) {
-    const limited = rateLimit(request, { maxRequests: 10 });
+    const limited = rateLimit(request, { maxRequests: 30 });
     if (limited) return limited;
 
     if (!OPENAI_API_KEY) {

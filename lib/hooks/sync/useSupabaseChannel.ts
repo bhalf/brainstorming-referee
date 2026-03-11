@@ -9,7 +9,9 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
  * that was previously duplicated across multiple hooks.
  */
 
+/** Maximum number of exponential-backoff reconnect attempts before giving up. */
 const MAX_RECONNECT_ATTEMPTS = 5;
+/** Base delay for exponential backoff on reconnect (doubles each attempt). */
 const RECONNECT_BASE_DELAY_MS = 1000;
 
 export type RealtimeEventType = 'INSERT' | 'UPDATE' | 'DELETE';
@@ -41,6 +43,14 @@ interface UseSupabaseChannelReturn {
     isSubscribed: boolean;
 }
 
+/**
+ * Generic hook for subscribing to Supabase Realtime Postgres Changes.
+ * Encapsulates channel setup, reconnect with exponential backoff, race condition
+ * prevention (overlapping subscribe guard), and cleanup on unmount or session change.
+ *
+ * @param params - Channel name, table, session ID, event type, payload callback, and options.
+ * @returns Whether the channel is currently in SUBSCRIBED state.
+ */
 export function useSupabaseChannel<TRow>({
     channelName,
     table,
@@ -65,10 +75,9 @@ export function useSupabaseChannel<TRow>({
 
     const subscribeRef = useRef<((sid: string) => void) | null>(null);
 
+    /** Creates a new Realtime channel and subscribes. Guards against overlapping calls. */
     const subscribe = useCallback((sid: string) => {
-        // Prevent overlapping subscribe() calls — if a subscription is already
-        // in-flight (e.g. from a rapid sessionId change or reconnect timer),
-        // bail out to avoid creating duplicate channels.
+        // Prevent overlapping subscribe() calls from rapid sessionId changes or reconnect timers
         if (isSubscribingRef.current) return;
         isSubscribingRef.current = true;
 
@@ -76,6 +85,7 @@ export function useSupabaseChannel<TRow>({
             supabase.removeChannel(channelRef.current);
         }
 
+        // Use custom filter if provided, otherwise default to session_id equality
         const filterString = filterRef.current
             ? filterRef.current(sid)
             : `session_id=eq.${sid}`;
@@ -110,6 +120,7 @@ export function useSupabaseChannel<TRow>({
                     console.error(errorMsg, err);
                     onErrorRef.current?.(errorMsg, channelName);
 
+                    // Exponential backoff reconnect: 1s, 2s, 4s, 8s, 16s
                     if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
                         const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttemptsRef.current);
                         reconnectAttemptsRef.current++;

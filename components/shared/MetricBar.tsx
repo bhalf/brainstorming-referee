@@ -1,9 +1,6 @@
 import InfoPopover from './InfoPopover';
 
-/**
- * Visual metric bar with threshold indicator.
- * Used for displaying conversation health metrics with breach detection.
- */
+/** Props for the MetricBar component. */
 interface MetricBarProps {
   label: string;
   icon: string;
@@ -15,6 +12,20 @@ interface MetricBarProps {
   helpKey?: string;
 }
 
+/**
+ * Visual metric bar with threshold indicator and breach detection.
+ * Renders a progress bar with a yellow threshold line. Bar turns red when
+ * the metric value breaches the threshold in the configured direction.
+ *
+ * @param label - Metric display name.
+ * @param icon - Emoji icon shown before the label.
+ * @param value - Normalized metric value (0-1).
+ * @param displayValue - Formatted string shown to the right of the label.
+ * @param threshold - Threshold position on the bar (0-1).
+ * @param higherIsBetter - If true, values below threshold are breached.
+ * @param statusText - Descriptive status text shown below the bar.
+ * @param helpKey - Optional key for an InfoPopover with metric details.
+ */
 export default function MetricBar({
   label,
   icon,
@@ -25,6 +36,7 @@ export default function MetricBar({
   statusText,
   helpKey,
 }: MetricBarProps) {
+  // Determine breach: for "higher is better" metrics, being below threshold is bad
   const breached = higherIsBetter ? value < threshold : value > threshold;
   const barColor = breached ? 'bg-red-500' : value === 0 ? 'bg-slate-600' : 'bg-green-500';
   const statusColor = breached ? 'text-red-400' : 'text-green-400';

@@ -404,9 +404,9 @@ export function useOpenAIRealtimeStream({
                             console.error(
                                 `[OpenAIStream] ⚠️ SERVER ERROR — code=${errCode} type=${errType} message="${errMsg}"`
                             );
-                            // Surface rate-limit / concurrency errors prominently
+                            // Surface rate-limit errors prominently
                             if (errCode === 'rate_limit_exceeded' || errCode === '429' || errMsg.includes('429') || errMsg.includes('rate') || errMsg.includes('concurren')) {
-                                console.error('[OpenAIStream] 🚨 RATE LIMIT / CONCURRENCY LIMIT DETECTED — this is likely why multi-participant transcription fails!');
+                                console.error(`[OpenAIStream] 🚨 RATE LIMIT detected (${errCode}) — each participant uses 1 connection for own mic only`);
                                 setError(`OpenAI rate limit hit (${errCode}): ${errMsg}`);
                             }
                             break;
@@ -464,9 +464,9 @@ export function useOpenAIRealtimeStream({
                     `[OpenAIStream] 🔌 WebSocket CLOSED — code=${event.code} (${codeDesc}), reason="${reason}", intentional=${isIntentionalCloseRef.current}`
                 );
 
-                // Flag obvious rate-limit / concurrency situations
+                // Flag obvious rate-limit situations
                 if ([1008, 1013, 4003].includes(event.code) || reason.toLowerCase().includes('rate') || reason.toLowerCase().includes('concurren')) {
-                    console.error('[OpenAIStream] 🚨 CLOSE CODE SUGGESTS RATE LIMIT / CONCURRENCY LIMIT — two participants may exceed OpenAI connection limits!');
+                    console.error(`[OpenAIStream] 🚨 CLOSE CODE ${event.code} suggests rate limiting — check OpenAI account limits`);
                 }
 
                 setIsConnected(false);

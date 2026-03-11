@@ -6,6 +6,7 @@ import { apiPost } from '@/lib/services/apiClient';
 import { EXTRACTION_TICK_MS, STAGGER_EXTRACTION_MS } from '@/lib/decision/tickConfig';
 import { TIMEOUTS } from '@/lib/config/timeouts';
 
+/** Parameters for the idea extraction hook. */
 interface UseIdeaExtractionParams {
   isActive: boolean;
   isDecisionOwner: boolean;
@@ -20,34 +21,64 @@ interface UseIdeaExtractionParams {
 }
 
 
+/** Default minimum number of new transcript segments before triggering extraction. */
 const MIN_NEW_SEGMENTS_DEFAULT = 2;
+/** Reduced threshold used when extraction is falling behind (catchup mode). */
 const MIN_NEW_SEGMENTS_CATCHUP = 1;
+/** Time without a successful extraction before switching to catchup mode. */
 const CATCHUP_THRESHOLD_MS = 10_000;
 // LLM extraction calls on Vercel typically take 10-25s.
 // 8s was far too short — every request was being aborted as "stale".
 const STALE_REQUEST_MS = TIMEOUTS.IDEA_EXTRACTION_STALE_MS;
+/** Delay between adding consecutive ideas to create a staggered visual effect. */
 const STAGGER_DELAY_MS = 300;
+/** Number of already-processed segments included as context for the LLM. */
 const CONTEXT_WINDOW_SEGMENTS = 15;
 
+/** Palette of card colors assigned to ideas based on author hash. */
 const IDEA_COLORS = [
   'yellow', 'light-green', 'light-blue', 'light-red',
   'light-violet', 'orange', 'blue', 'green',
 ];
 
+/**
+ * Computes a simple deterministic hash code for a string.
+ * Used to map author names to consistent colors.
+ * @param str - The input string to hash.
+ * @returns A non-negative integer hash.
+ */
 function hashCode(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
+    // Shift-and-subtract hash: equivalent to hash * 31 + char
     hash = ((hash << 5) - hash) + char;
     hash |= 0;
   }
   return Math.abs(hash);
 }
 
+/**
+ * Maps an author name to a deterministic color from the palette.
+ * @param author - The speaker/author name.
+ * @returns A color string from {@link IDEA_COLORS}.
+ */
 function getColorForAuthor(author: string): string {
   return IDEA_COLORS[hashCode(author) % IDEA_COLORS.length];
 }
 
+/**
+ * Calculates canvas position for a new idea card using a grid layout.
+ * Child ideas are placed to the right of their parent; top-level ideas fill
+ * a grid left-to-right, wrapping to the next row. Deterministic jitter is
+ * added based on the idea ID so cards look natural but remain reproducible.
+ *
+ * @param existingIdeas - All ideas currently on the canvas.
+ * @param index - Index of this idea within the current extraction batch.
+ * @param parentIdea - Parent idea if this is a child/sub-idea.
+ * @param ideaId - UUID of the new idea, used as a jitter seed.
+ * @returns The {x, y} canvas coordinates for the new card.
+ */
 function calculatePosition(existingIdeas: Idea[], index: number, parentIdea?: Idea, ideaId?: string): { x: number; y: number } {
   const CELL_W = 380;  // card width 200 + 180 breathing room
   const CELL_H = 300;
@@ -121,6 +152,13 @@ function calculatePosition(existingIdeas: Idea[], index: number, parentIdea?: Id
   return { x: CANVAS_OFFSET_X + j.dx, y: CANVAS_OFFSET_Y + (maxRow + 1) * CELL_H + j.dy };
 }
 
+/**
+ * Periodically extracts structured ideas and connections from new transcript segments
+ * using an LLM API call. Only the decision owner runs extraction to avoid duplicates.
+ * Supports adaptive catchup mode, stale request abortion, and staggered idea output.
+ *
+ * @param params - Configuration including session state, transcript ref, and dispatch callbacks.
+ */
 export function useIdeaExtraction({
   isActive,
   isDecisionOwner,

@@ -25,6 +25,18 @@ interface VoiceControlsProps {
   onCancel: () => void;
 }
 
+/**
+ * TTS voice configuration controls with voice selection, speed/volume sliders,
+ * enable/disable toggle, and test/cancel playback buttons.
+ * Uses OpenAI TTS voices via the Cloud TTS service.
+ *
+ * @param settings - Current voice settings (enabled, voiceName, rate, volume).
+ * @param isSpeaking - Whether TTS is currently playing audio.
+ * @param canSpeak - Whether the TTS system is available and ready.
+ * @param onUpdateSettings - Callback to update voice settings.
+ * @param onTestVoice - Callback to trigger a test utterance.
+ * @param onCancel - Callback to stop current TTS playback.
+ */
 export default function VoiceControls({
   settings,
   isSpeaking,

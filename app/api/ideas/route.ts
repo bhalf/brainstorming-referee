@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { validateSessionExists } from '@/lib/api/validateSession';
 
-// POST — Insert idea (idempotent via ON CONFLICT)
+/**
+ * POST /api/ideas — Insert a new idea (idempotent).
+ *
+ * Uses Supabase upsert with ON CONFLICT on the idea id so duplicate
+ * submissions are silently ignored. Supports all idea fields including
+ * type (idea/category/action_item) and hierarchical parent references.
+ *
+ * @param request.body.sessionId - UUID of the owning session.
+ * @param request.body.idea - Idea object with id, title, author, and optional fields
+ *        (description, source, sourceSegmentIds, positionX/Y, color, ideaType, parentId).
+ * @returns {{ success: true }} on successful insert.
+ */
 export async function POST(request: NextRequest) {
   try {
     const { sessionId, idea } = await request.json();
@@ -49,7 +60,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET — Fetch ideas for session (initial load)
+/**
+ * GET /api/ideas?sessionId={id} — Fetch all active ideas for a session.
+ *
+ * Returns non-deleted ideas ordered by creation time. Used for initial hydration
+ * when a participant joins mid-session.
+ *
+ * @param request.query.sessionId - UUID of the session.
+ * @returns {{ ideas: object[] }} Array of raw idea rows.
+ */
 export async function GET(request: NextRequest) {
   const sessionId = request.nextUrl.searchParams.get('sessionId');
 
@@ -77,7 +96,18 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ ideas: data || [] });
 }
 
-// PATCH — Update idea (position, color, soft delete, title)
+/**
+ * PATCH /api/ideas — Update an existing idea's mutable fields.
+ *
+ * Supports partial updates to position, color, title, description, type,
+ * parent, and soft-delete flag. Only provided fields are written;
+ * updated_at is always refreshed.
+ *
+ * @param request.body.id - UUID of the idea to update.
+ * @param request.body.updates - Partial object with any of: positionX, positionY,
+ *        color, isDeleted, title, description, ideaType, parentId.
+ * @returns {{ success: true }} on successful update.
+ */
 export async function PATCH(request: NextRequest) {
   try {
     const { id, updates } = await request.json();
@@ -88,6 +118,7 @@ export async function PATCH(request: NextRequest) {
 
     const supabase = getServiceClient();
 
+    // Map camelCase client fields to snake_case DB columns; only include provided fields
     const dbUpdates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };

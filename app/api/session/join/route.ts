@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 
-// POST — Join an existing session (participant)
+/**
+ * POST /api/session/join — Join an existing brainstorming session as a participant.
+ *
+ * Looks up the most recent active (non-ended) session for the given room name.
+ * If the desired participant name already exists among the session's transcript
+ * speakers, an incrementing suffix is appended to guarantee uniqueness.
+ *
+ * @param request.body.roomName - LiveKit room to join.
+ * @param request.body.participantName - Desired display name (may be deduplicated).
+ * @returns Session metadata (sessionId, scenario, language, config) plus the
+ *          resolved (possibly suffixed) participant name.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

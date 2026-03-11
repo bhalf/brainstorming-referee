@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { routingLogToInsert } from '@/lib/supabase/converters';
 
-// POST — Persist a model routing log entry
+/**
+ * POST /api/model-routing-log — Persist a model routing log entry.
+ *
+ * Records which LLM model was used for a given task, its latency, token
+ * usage, and whether a fallback was triggered. Called fire-and-forget after
+ * each LLM invocation for observability and post-hoc analysis.
+ *
+ * @param request.body.sessionId - UUID of the owning session.
+ * @param request.body.entry - Routing log entry with task, model, latencyMs, success, etc.
+ * @returns {{ success: true }} on successful insert.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

@@ -1,6 +1,23 @@
-// ============================================
-// Semantic Dynamics Metrics — Idea-Space Analysis
-// ============================================
+/**
+ * Semantic Dynamics Metrics -- Idea-Space Analysis
+ *
+ * Analyzes the semantic structure and evolution of brainstorming contributions
+ * using OpenAI text embeddings (with a Jaccard-based fallback when embeddings
+ * are unavailable).
+ *
+ * Metrics computed:
+ *   - **Novelty rate**: fraction of recent segments introducing new content.
+ *   - **Cluster concentration**: normalized HHI of greedy centroid clusters.
+ *   - **Exploration/elaboration ratio**: new directions vs. deepening existing themes.
+ *   - **Semantic expansion score**: whether the idea space is growing or contracting.
+ *   - **Ideational fluency rate**: substantive turns per minute (Osborn's "quantity first").
+ *   - **Piggybacking score**: cross-speaker cosine similarity (building on each other).
+ *
+ * These metrics feed into the conversation state inference engine to detect
+ * CONVERGENCE_RISK and STALLED_DISCUSSION.
+ *
+ * @module semanticDynamics
+ */
 
 import { TranscriptSegment, SemanticDynamicsMetrics, MetricSnapshot, ExperimentConfig } from '../types';
 import { cosineSimilarity } from './embeddingCache';
@@ -8,17 +25,32 @@ import { DEFAULT_CONFIG } from '../config';
 import { isActivityMarker } from '../utils/transcript';
 import { STOPWORDS } from '../utils/stopwords';
 
+/** Maximum number of recent segments to analyze (sliding window). */
 const MAX_SEGMENTS = 30;
+
+/** Number of most recent segments used for novelty and exploration analysis. */
 const NOVELTY_WINDOW = 20;
+
+/** Jaccard similarity threshold for merging segments into clusters (fallback path). */
 const JACCARD_MERGE_THRESHOLD = 0.40;
 
+/** Filter to finalized, non-marker segments with meaningful text (>3 chars). */
 function getFinalSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return segments.filter(s => s.isFinal && !isActivityMarker(s) && s.text.trim().length > 3);
 }
 
-// --- Novelty Rate ---
-// Fraction of recent segments that introduce semantically new content.
-
+/**
+ * Compute novelty rate: fraction of recent segments introducing semantically new content.
+ *
+ * For each segment, computes the MAX cosine similarity to all preceding segments
+ * in the window. If maxSim < threshold, the segment is considered novel.
+ * Using MAX (not average) ensures that repeating ANY previous phrase is caught.
+ *
+ * @param segments - Transcript segments to analyze.
+ * @param embeddings - Map of segment ID to embedding vector.
+ * @param threshold - Cosine similarity below which a segment is "novel".
+ * @returns Fraction [0, 1] of novel segments; 0.5 if insufficient data.
+ */
 export function computeNoveltyRate(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
@@ -69,22 +101,36 @@ export function computeNoveltyRate(
   return evaluatedCount > 0 ? novelCount / evaluatedCount : 0.5;
 }
 
-// --- Cluster Concentration ---
-// Greedy centroid clustering with HHI-based concentration metric.
-
+/** A semantic cluster with a running-mean centroid and member count. */
 interface Cluster {
   centroid: number[];
   size: number;
 }
 
+/** Element-wise vector addition. */
 function addVectors(a: number[], b: number[]): number[] {
   return a.map((v, i) => v + (b[i] || 0));
 }
 
+/** Scalar multiplication of a vector. */
 function scaleVector(v: number[], s: number): number[] {
   return v.map(x => x * s);
 }
 
+/**
+ * Compute cluster concentration via greedy centroid clustering + normalized HHI.
+ *
+ * Each new segment is assigned to the most similar existing cluster (by cosine
+ * similarity to the centroid). If similarity is below the merge threshold, a
+ * new cluster is created. Concentration is measured by the normalized
+ * Herfindahl-Hirschman Index (nHHI) of cluster sizes:
+ *   nHHI = (HHI - 1/n) / (1 - 1/n), where n = total segments
+ *
+ * @param segments - Transcript segments to cluster.
+ * @param embeddings - Map of segment ID to embedding vector.
+ * @param clusterMergeThreshold - Cosine similarity above which a segment merges into a cluster.
+ * @returns Concentration score in [0, 1]; 0 = uniform, 1 = all in one cluster.
+ */
 export function computeClusterConcentration(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
@@ -146,9 +192,20 @@ export function computeClusterConcentration(
   return Math.max(0, Math.min(1, nHHI));
 }
 
-// --- Exploration / Elaboration Ratio ---
-// Classifies each segment as "exploration" (new direction) or "elaboration" (deepening).
-
+/**
+ * Compute the exploration/elaboration ratio.
+ *
+ * Classifies each segment as:
+ *   - **Exploration**: avgSim to predecessors < explorationThreshold (new direction).
+ *   - **Elaboration**: maxSim to any predecessor > elaborationThreshold (deepening).
+ *   - **Uncounted**: segments that fit neither category.
+ *
+ * @param segments - Transcript segments to analyze.
+ * @param embeddings - Map of segment ID to embedding vector.
+ * @param explorationThreshold - Avg cosine sim below which a segment is "exploration".
+ * @param elaborationThreshold - Max cosine sim above which a segment is "elaboration".
+ * @returns Fraction [0, 1] of classified segments that are exploration; 0.5 if no data.
+ */
 export function computeExplorationElaborationRatio(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
@@ -196,9 +253,19 @@ export function computeExplorationElaborationRatio(
   return explorationCount / total;
 }
 
-// --- Semantic Expansion Score ---
-// Whether the semantic space is expanding or contracting compared to recent history.
-
+/**
+ * Compute the semantic expansion score: is the idea space growing or contracting?
+ *
+ * Compares current concentration and novelty against averages from the last 12
+ * metric snapshots (~60s at 5s intervals). The score blends two deltas:
+ *   - deltaConcentration: positive = less concentrated = expanding
+ *   - deltaNovelty: positive = more novel contributions = expanding
+ *
+ * @param currentConcentration - Current cluster concentration score.
+ * @param currentNoveltyRate - Current novelty rate.
+ * @param previousSnapshots - Historical metric snapshots for trend comparison.
+ * @returns Score in [-1, 1] where positive = expanding, negative = contracting.
+ */
 export function computeSemanticExpansionScore(
   currentConcentration: number,
   currentNoveltyRate: number,
@@ -228,10 +295,16 @@ export function computeSemanticExpansionScore(
   return Math.max(-1, Math.min(1, score));
 }
 
-// --- Ideational Fluency Rate ---
-// Measures substantive turns per minute (Osborn's "quantity first" rule).
-// A drop in fluency is a strong signal for STALLED_DISCUSSION.
-
+/**
+ * Compute ideational fluency rate: substantive turns per minute.
+ *
+ * Based on Osborn's "quantity first" brainstorming rule. A drop in fluency
+ * is a strong signal for STALLED_DISCUSSION. Only counts turns with >2 words
+ * (backchannels are already filtered upstream).
+ *
+ * @param segments - Transcript segments to analyze.
+ * @returns Turns per minute; 0 if insufficient data (< 2 substantive turns or < 30s span).
+ */
 export function computeIdeationalFluencyRate(
   segments: TranscriptSegment[],
 ): number {
@@ -256,11 +329,18 @@ export function computeIdeationalFluencyRate(
   return substantive.length / durationMinutes;
 }
 
-// --- Piggybacking / Build-on Score ---
-// Cosine similarity between consecutive cross-speaker turns.
-// High score = speakers are building on each other's ideas ("Yes, and...").
-// Low score = speakers are ignoring each other (parallel monologues).
-
+/**
+ * Compute piggybacking (build-on) score: average cosine similarity between
+ * consecutive cross-speaker turns.
+ *
+ * High score = speakers are building on each other's ideas ("Yes, and...").
+ * Low score = speakers are ignoring each other (parallel monologues).
+ * Same-speaker consecutive turns are skipped.
+ *
+ * @param segments - Transcript segments to analyze.
+ * @param embeddings - Map of segment ID to embedding vector.
+ * @returns Average cosine similarity [0, 1] across cross-speaker pairs; 0.5 if insufficient data.
+ */
 export function computePiggybackingScore(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
@@ -286,8 +366,10 @@ export function computePiggybackingScore(
   return pairCount > 0 ? totalSim / pairCount : 0.5;
 }
 
-// --- Piggybacking Fallback (Jaccard-based) ---
-
+/**
+ * Jaccard-based fallback for piggybacking score when embeddings are unavailable.
+ * Uses word-set overlap instead of cosine similarity on embeddings.
+ */
 function computePiggybackingScoreFallback(
   segments: TranscriptSegment[],
 ): number {
@@ -308,8 +390,19 @@ function computePiggybackingScoreFallback(
   return pairCount > 0 ? totalSim / pairCount : 0.5;
 }
 
-// --- Main Orchestrator (with embeddings) ---
-
+/**
+ * Compute all semantic dynamics metrics using OpenAI embeddings.
+ *
+ * This is the primary path when embeddings are available. Orchestrates
+ * novelty, clustering, exploration/elaboration, expansion, fluency, and
+ * piggybacking computations.
+ *
+ * @param segments - Transcript segments to analyze.
+ * @param embeddings - Map of segment ID to embedding vector.
+ * @param previousSnapshots - Historical metric snapshots for expansion trend.
+ * @param config - Optional experiment config for threshold overrides.
+ * @returns Complete SemanticDynamicsMetrics object.
+ */
 export function computeSemanticDynamicsMetrics(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
@@ -344,10 +437,13 @@ export function computeSemanticDynamicsMetrics(
   };
 }
 
-// --- Fallback (no embeddings) ---
-// Uses Jaccard word-set similarity instead of cosine on embeddings.
-// Stopwords imported from shared utils (lib/utils/stopwords.ts)
+// --- Jaccard Fallback Helpers ---
+// Used when embeddings are unavailable. Stopwords imported from lib/utils/stopwords.ts.
 
+/**
+ * Extract a de-duplicated set of meaningful words from text.
+ * Removes punctuation, lowercases, filters stopwords and short words (<= 2 chars).
+ */
 function getWordSet(text: string): Set<string> {
   return new Set(
     text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/)
@@ -355,6 +451,13 @@ function getWordSet(text: string): Set<string> {
   );
 }
 
+/**
+ * Compute Jaccard similarity between two word sets: |intersection| / |union|.
+ *
+ * @param a - First word set.
+ * @param b - Second word set.
+ * @returns Similarity in [0, 1]; 0 if either set is empty.
+ */
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   const intersection = new Set([...a].filter(x => b.has(x)));
@@ -362,6 +465,17 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   return union.size > 0 ? intersection.size / union.size : 0;
 }
 
+/**
+ * Compute semantic dynamics metrics using Jaccard word-set similarity (no embeddings).
+ *
+ * This fallback path mirrors the embedding-based computation but uses word overlap
+ * instead of cosine similarity. Used when the embedding API is unavailable or
+ * during the initial seconds before embeddings arrive.
+ *
+ * @param segments - Transcript segments to analyze.
+ * @param previousSnapshots - Historical metric snapshots for expansion trend.
+ * @returns Complete SemanticDynamicsMetrics object (same shape as embedding path).
+ */
 export function computeSemanticDynamicsFallback(
   segments: TranscriptSegment[],
   previousSnapshots: MetricSnapshot[],

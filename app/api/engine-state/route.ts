@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 import { validateSessionExists } from '@/lib/api/validateSession';
 
-// PUT — Upsert engine state for a session
+/**
+ * PUT /api/engine-state — Upsert the decision engine state for a session.
+ *
+ * Persists the current phase (MONITORING, CONFIRMING, POST_CHECK, COOLDOWN),
+ * active intent, confirmation timing, and intervention counters. Uses
+ * ON CONFLICT on session_id so repeated writes are safe.
+ *
+ * @param request.body.sessionId - UUID of the session.
+ * @param request.body.state - Engine state object with phase, postCheckIntent,
+ *        confirmingSince, lastInterventionTime, and interventionCount.
+ * @returns {{ success: true }} on successful upsert.
+ */
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
@@ -41,7 +52,15 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// GET — Retrieve engine state (for rejoin)
+/**
+ * GET /api/engine-state?sessionId={id} — Retrieve the engine state.
+ *
+ * Used when a participant or host rejoins a session to restore the decision
+ * engine to its last persisted phase.
+ *
+ * @param request.query.sessionId - UUID of the session.
+ * @returns {{ state: object }} The raw engine_state row.
+ */
 export async function GET(request: NextRequest) {
   const sessionId = request.nextUrl.searchParams.get('sessionId');
 

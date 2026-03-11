@@ -1,3 +1,15 @@
+/**
+ * Session context and state management.
+ *
+ * Provides a React context with `useReducer` for all session-level state:
+ * transcript segments, metric snapshots, interventions, ideas, decision
+ * engine state, voice settings, and error tracking. Includes convenience
+ * methods that dispatch actions and fire-and-forget persist to the backend.
+ *
+ * Usage: wrap the app in `<SessionProvider>` and consume via `useSession()`.
+ * @module
+ */
+
 'use client';
 
 import React, { createContext, useContext, useReducer, useCallback, ReactNode } from 'react';
@@ -65,6 +77,7 @@ const initialSessionState: SessionState = {
 
 // --- Action Types ---
 
+/** Discriminated union of all actions that can be dispatched to the session reducer. */
 type SessionAction =
   | { type: 'START_SESSION'; payload: { roomName: string; scenario: Scenario; language: string; config: ExperimentConfig; sessionId?: string } }
   | { type: 'END_SESSION' }
@@ -88,6 +101,11 @@ type SessionAction =
 
 // --- Reducer ---
 
+/**
+ * Pure reducer for session state. Handles deduplication (segments, snapshots,
+ * interventions, ideas, connections) and caps array sizes to prevent
+ * unbounded memory growth in long-running sessions.
+ */
 function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case 'START_SESSION':
@@ -135,9 +153,9 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       }
       return {
         ...state,
-        // Cap at 5000 entries (~60 min of active discussion) to prevent unbounded growth
-        transcriptSegments: state.transcriptSegments.length >= 5000
-          ? [...state.transcriptSegments.slice(-4999), action.payload]
+        // Cap at 15000 entries (~30 min with 6 active participants) to prevent unbounded growth
+        transcriptSegments: state.transcriptSegments.length >= 15000
+          ? [...state.transcriptSegments.slice(-14999), action.payload]
           : [...state.transcriptSegments, action.payload],
       };
     }
@@ -275,6 +293,7 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
 
 // --- Context ---
 
+/** Shape of the value provided by SessionContext, including state, dispatch, and convenience methods. */
 interface SessionContextValue {
   state: SessionState;
   dispatch: React.Dispatch<SessionAction>;
@@ -308,6 +327,12 @@ interface SessionProviderProps {
   children: ReactNode;
 }
 
+/**
+ * React context provider for session state.
+ * Initialises the reducer and exposes memoised convenience methods
+ * for dispatching common actions.
+ * @param children - Child components that can consume the context via `useSession()`.
+ */
 export function SessionProvider({ children }: SessionProviderProps) {
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState);
 
@@ -450,6 +475,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
 // --- Hook ---
 
+/**
+ * Consume the session context. Must be called within a `<SessionProvider>`.
+ * @returns The full SessionContextValue including state and dispatch helpers.
+ * @throws If called outside of a SessionProvider.
+ */
 export function useSession(): SessionContextValue {
   const context = useContext(SessionContext);
   if (!context) {
