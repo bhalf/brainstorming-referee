@@ -14,6 +14,7 @@ import { usePeerSync } from '@/lib/hooks/session/usePeerSync';
 import { useSessionLifecycle } from '@/lib/hooks/session/useSessionLifecycle';
 import { useSessionOrchestration } from '@/lib/hooks/session/useSessionOrchestration';
 import { apiFireAndForget } from '@/lib/services/apiClient';
+import { logSessionLifecycle } from '@/lib/services/eventService';
 import type { InterimEntry } from '@/components/TranscriptFeed';
 import LiveKitRoom from '@/components/LiveKitRoom';
 import ReadinessCheck from '@/components/ReadinessCheck';
@@ -50,7 +51,8 @@ export default function CallPage() {
   const {
     state, startSession, endSession, updateConfig, addError, addTranscriptSegment,
     addMetricSnapshot, addIntervention, updateIntervention, updateDecisionState,
-    updateVoiceSettings, addIdea, updateIdea, removeIdea, addIdeaConnection, addModelRoutingLog, exportSessionLog,
+    updateVoiceSettings, addIdea, updateIdea, removeIdea, addIdeaConnection,
+    removeIdeaConnection, updateIdeaConnection, addModelRoutingLog, exportSessionLog,
   } = useSession();
 
   const [mobileView, setMobileView] = useState<'video' | 'ideas' | 'panel'>('video');
@@ -113,6 +115,7 @@ export default function CallPage() {
     rate: state.voiceSettings.rate,
     volume: state.voiceSettings.volume,
     language,
+    sessionId: state.sessionId,
     addError,
   });
 
@@ -156,6 +159,7 @@ export default function CallPage() {
     addTranscriptSegment,
     addIntervention,
     voiceEnabled: state.voiceSettings.enabled,
+    displayMode: state.voiceSettings.displayMode ?? 'both',
     isTTSSupported,
     speak,
     spokenInterventionIdsRef,
@@ -232,6 +236,8 @@ export default function CallPage() {
     addIdea,
     updateIdea,
     addIdeaConnection,
+    removeIdeaConnection,
+    updateIdeaConnection,
     addModelRoutingLog,
     addError,
     updateDecisionState,
@@ -241,6 +247,7 @@ export default function CallPage() {
     voiceSettings: state.voiceSettings,
     interventions: state.interventions,
     ideas: state.ideas,
+    ideaConnections: state.ideaConnections,
     transcriptSegmentsRef,
     speakingTimeRef,
     participantCountRef,
@@ -292,6 +299,7 @@ export default function CallPage() {
     const sid = sessionIdRef.current;
     if (sid) {
       const identity = isParticipant ? participantName : 'Researcher';
+      logSessionLifecycle(sid, 'session_end', identity);
       // Await participant removal before navigating (with 2s safety timeout)
       try {
         await Promise.race([
@@ -429,6 +437,7 @@ export default function CallPage() {
     onResetConfig: handleResetConfig,
     health: healthProps,
     liveSummary,
+    isParticipant,
   }), [
     state.scenario, state.isActive, handleEndSession, language, roomName,
     state.transcriptSegments, interimEntries, transcription.isTranscribing, transcription.isTranscriptionSupported,
@@ -436,7 +445,7 @@ export default function CallPage() {
     transcription.isRealtimeEnabled, isDecisionOwner, currentMetrics, state.metricSnapshots, metricsHistory,
     state.config, state.decisionState, state.voiceSettings, handleUpdateSettings,
     isSpeaking, handleTestVoice, handleCancelVoice, state.interventions, sessionLog, state.modelRoutingLog,
-    handleUpdateConfig, handleResetConfig, healthProps, liveSummary
+    handleUpdateConfig, handleResetConfig, healthProps, liveSummary, isParticipant
   ]);
 
   // --- Readiness Check Gate ---
@@ -525,6 +534,7 @@ export default function CallPage() {
                   onToggleCollapse={() => { }}
                 />
               }
+              sessionId={state.sessionId}
               scenario={overlayPanelProps.scenario}
               isSessionActive={overlayPanelProps.isSessionActive}
               onEndSession={overlayPanelProps.onEndSession}
@@ -539,6 +549,7 @@ export default function CallPage() {
               health={overlayPanelProps.health}
               roomName={roomName}
               liveSummary={liveSummary}
+              isParticipant={isParticipant}
             />
           </div>
         )}

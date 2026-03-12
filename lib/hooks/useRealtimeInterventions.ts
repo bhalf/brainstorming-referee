@@ -2,7 +2,7 @@ import { useCallback, MutableRefObject } from 'react';
 import { useLatestRef } from '@/lib/hooks/useLatestRef';
 import { useSupabaseChannel } from '@/lib/hooks/sync/useSupabaseChannel';
 import { interventionRowToApp } from '@/lib/supabase/converters';
-import { Intervention } from '@/lib/types';
+import { Intervention, InterventionDisplayMode } from '@/lib/types';
 
 interface UseRealtimeInterventionsParams {
   sessionId: string | null;
@@ -12,6 +12,7 @@ interface UseRealtimeInterventionsParams {
   /** Optional: trigger TTS when a new intervention arrives (for participants) */
   speak?: (text: string) => boolean;
   voiceEnabled?: boolean;
+  displayMode?: InterventionDisplayMode;
   isTTSSupported?: boolean;
   /** Shared dedup set to prevent double-TTS from DataChannel + Supabase Realtime */
   spokenInterventionIdsRef?: MutableRefObject<Set<string>>;
@@ -30,12 +31,14 @@ export function useRealtimeInterventions({
   addIntervention,
   speak,
   voiceEnabled,
+  displayMode,
   isTTSSupported,
   spokenInterventionIdsRef,
 }: UseRealtimeInterventionsParams) {
   const isDecisionOwnerRef = useLatestRef(isDecisionOwner);
   const speakRef = useLatestRef(speak);
   const voiceEnabledRef = useLatestRef(voiceEnabled);
+  const displayModeRef = useLatestRef(displayMode ?? 'both');
   const isTTSSupportedRef = useLatestRef(isTTSSupported);
   const spokenIdsRef = useLatestRef(spokenInterventionIdsRef?.current);
 
@@ -46,7 +49,9 @@ export function useRealtimeInterventions({
     // Only speak on non-owner clients — the decision owner already
     // triggers TTS in useDecisionLoop when generating the intervention.
     // Skip if this intervention was already spoken via LiveKit DataChannel (usePeerSync).
-    if (!isDecisionOwnerRef.current && voiceEnabledRef.current && isTTSSupportedRef.current && speakRef.current) {
+    const dm = displayModeRef.current;
+    if (!isDecisionOwnerRef.current && voiceEnabledRef.current && isTTSSupportedRef.current && speakRef.current
+        && (dm === 'voice' || dm === 'both')) {
       const alreadySpoken = spokenIdsRef.current?.has(intervention.id);
       if (!alreadySpoken) {
         spokenInterventionIdsRef?.current.add(intervention.id);

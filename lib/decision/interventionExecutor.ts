@@ -25,6 +25,7 @@ import {
 import { apiPost, apiFireAndForget } from '@/lib/services/apiClient';
 import { generateId } from '@/lib/utils/generateId';
 import { persistIntervention as persistInterventionApi } from '@/lib/services/interventionService';
+import { logInterventionLifecycle } from '@/lib/services/eventService';
 import { RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
 import { TIMEOUTS } from '@/lib/config/timeouts';
 
@@ -140,6 +141,15 @@ export async function executeIntervention(
 ): Promise<{ success: boolean; interventionId: string | null }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), INTERVENTION_TIMEOUT_MS);
+    const detectedAt = Date.now();
+
+    // Log detection phase
+    logInterventionLifecycle(ctx.sessionId, {
+        interventionId: '(pending)',
+        phase: 'detected',
+        intent: params.intent,
+        trigger: params.trigger as string,
+    });
 
     try {
         const data = await apiPost<any>(params.endpoint, params.body, {
@@ -155,6 +165,18 @@ export async function executeIntervention(
         callbacks.updateDecisionState(params.nextEngineState);
 
         const interventionId = generateId('int');
+        const generatedAt = Date.now();
+
+        // Log generation phase with latency
+        logInterventionLifecycle(ctx.sessionId, {
+            interventionId,
+            phase: 'generated',
+            intent: params.intent,
+            trigger: params.trigger as string,
+            model: data.logEntry?.model,
+            generationMs: generatedAt - detectedAt,
+            wasFallback: false,
+        });
         const intervention: Intervention = {
             id: interventionId,
             timestamp: Date.now(),
@@ -171,12 +193,23 @@ export async function executeIntervention(
             latencyMs: data.logEntry?.latencyMs,
         };
 
-        // TTS
-        if (ctx.voiceSettings.enabled && ctx.isTTSSupported) {
+        // TTS (only if displayMode includes voice)
+        const dm = ctx.voiceSettings.displayMode ?? 'both';
+        if (ctx.voiceSettings.enabled && ctx.isTTSSupported && (dm === 'voice' || dm === 'both')) {
             intervention.spoken = callbacks.speak(data.text);
         }
 
         callbacks.addIntervention(intervention);
+
+        // Log delivery phase
+        logInterventionLifecycle(ctx.sessionId, {
+            interventionId,
+            phase: 'delivered',
+            intent: params.intent,
+            trigger: params.trigger as string,
+            deliveryMode: dm,
+            ttsInitiated: intervention.spoken,
+        });
 
         if (callbacks.broadcastIntervention) {
             callbacks.broadcastIntervention(intervention);
@@ -228,9 +261,22 @@ export async function executeIntervention(
         callbacks.updateDecisionState(params.nextEngineState);
 
         const interventionId = generateId('int');
+        const fallbackAt = Date.now();
+
+        // Log fallback generation
+        logInterventionLifecycle(ctx.sessionId, {
+            interventionId,
+            phase: 'generated',
+            intent: params.intent,
+            trigger: params.trigger as string,
+            model: 'fallback',
+            generationMs: fallbackAt - detectedAt,
+            wasFallback: true,
+        });
+
         const intervention: Intervention = {
             id: interventionId,
-            timestamp: Date.now(),
+            timestamp: fallbackAt,
             type: params.role,
             trigger: params.trigger,
             text: fallbackText,
@@ -244,12 +290,24 @@ export async function executeIntervention(
             latencyMs: 0,
         };
 
-        // TTS
-        if (ctx.voiceSettings.enabled && ctx.isTTSSupported) {
+        // TTS (only if displayMode includes voice)
+        const dmFb = ctx.voiceSettings.displayMode ?? 'both';
+        if (ctx.voiceSettings.enabled && ctx.isTTSSupported && (dmFb === 'voice' || dmFb === 'both')) {
             intervention.spoken = callbacks.speak(fallbackText);
         }
 
         callbacks.addIntervention(intervention);
+
+        // Log delivery phase (fallback)
+        logInterventionLifecycle(ctx.sessionId, {
+            interventionId,
+            phase: 'delivered',
+            intent: params.intent,
+            trigger: params.trigger as string,
+            deliveryMode: dmFb,
+            ttsInitiated: intervention.spoken,
+            wasFallback: true,
+        });
 
         if (callbacks.broadcastIntervention) {
             callbacks.broadcastIntervention(intervention);

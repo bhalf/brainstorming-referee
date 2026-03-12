@@ -5,7 +5,7 @@ import { TIMEOUTS } from '@/lib/config/timeouts';
 // --- Constants ---
 
 /** Minimum interval between rule checks (ms) — throttled to avoid API rate limits */
-export const RULE_CHECK_INTERVAL_MS = 15_000;
+export const RULE_CHECK_INTERVAL_MS = 5_000;
 
 // NOTE: Rule violations have NO cooldown — they fire immediately when detected.
 

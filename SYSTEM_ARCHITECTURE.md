@@ -1,6 +1,6 @@
 # UZH Brainstorming Webapp — Systemarchitektur
 
-Vollstaendige technische Dokumentation des Systems nach der LiveKit-Migration (Maerz 2026).
+Vollstaendige technische Dokumentation des Systems (Maerz 2026).
 
 ---
 
@@ -15,29 +15,37 @@ Vollstaendige technische Dokumentation des Systems nach der LiveKit-Migration (M
 7. [Metriken-System](#7-metriken-system)
 8. [Zustandsinferenz (State Inference)](#8-zustandsinferenz)
 9. [Interventions-Engine](#9-interventions-engine)
-10. [API-Routen](#10-api-routen)
-11. [LLM-Prompts](#11-llm-prompts)
-12. [Datensynchronisation](#12-datensynchronisation)
-13. [Session-Kontext (React State)](#13-session-kontext)
-14. [Datenfluss-Diagramm](#14-datenfluss-diagramm)
-15. [Konfiguration](#15-konfiguration)
-16. [Umgebungsvariablen](#16-umgebungsvariablen)
+10. [Ideen-System](#10-ideen-system)
+11. [API-Routen](#11-api-routen)
+12. [LLM-Prompts](#12-llm-prompts)
+13. [Datensynchronisation](#13-datensynchronisation)
+14. [Session-Kontext (React State)](#14-session-kontext)
+15. [Datenfluss-Diagramm](#15-datenfluss-diagramm)
+16. [Konfiguration](#16-konfiguration)
+17. [Umgebungsvariablen](#17-umgebungsvariablen)
 
 ---
 
 ## 1. Ueberblick
 
 Forschungs-Webapp fuer KI-gestuetzte Moderation in Brainstorming-Sitzungen.
-Drei experimentelle Szenarien:
+
+**Drei Szenarien:**
 
 | Szenario | Beschreibung |
 |----------|-------------|
-| **Baseline** | Keine Interventionen — reine Beobachtung |
-| **A** | Nur Moderator-Interventionen (Prozessreflexionen) |
-| **B** | Moderator + Ally-Eskalation (kreative Impulse bei Nicht-Erholung) |
+| `baseline` | Keine KI-Interventionen (Kontrollgruppe) |
+| `A` | KI-Moderator greift bei Risikozustaenden ein |
+| `B` | KI-Moderator + Ally-Eskalation bei ausbleibender Erholung |
 
-Der Host (Forscher) startet eine Session, konfiguriert Szenario/Sprache/Parameter und sieht alle Metriken.
-Teilnehmer treten ueber einen Raumnamen bei und sehen nur das Video-Interface.
+**Kern-Architektur:**
+- Echtzeit-Videokonferenz via LiveKit Cloud (WebRTC)
+- Per-Teilnehmer Audio-Transkription via OpenAI Realtime API
+- Deterministische 5-Zustands-Inferenz auf Gespraechsmetriken
+- Policy-basierte Interventionsentscheidungen (4 Phasen)
+- LLM-generierte Moderations-Interventionen mit TTS-Wiedergabe
+- Supabase als zentrale Datenbank und Echtzeit-Synchronisation
+- LiveKit DataChannel fuer latenzarme P2P-Synchronisation
 
 ---
 
@@ -47,13 +55,14 @@ Teilnehmer treten ueber einen Raumnamen bei und sehen nur das Video-Interface.
 |-----------|-------------|
 | Framework | Next.js 16, App Router, TypeScript, React 19 |
 | Video/Audio | LiveKit Cloud (WebRTC via SFU) |
-| Transkription | OpenAI Whisper API (`whisper-1`) + Web Speech API (Fallback) |
+| Transkription | OpenAI Realtime API (primaer) + Web Speech API (Fallback) |
 | LLM | OpenAI Chat Completions (konfigurierbare Modelle mit Fallback-Kette) |
 | Embeddings | OpenAI Embeddings API (`text-embedding-3-small`) |
-| TTS | Web Speech Synthesis API (Browser-nativ) |
+| TTS | OpenAI Cloud TTS via `/api/tts` |
 | State | React Context + useReducer |
-| Sync | Polling-basiert ueber `/api/sync/room` |
-| Cache | localStorage fuer Embedding-Vektoren |
+| Datenbank | Supabase (PostgreSQL) |
+| Sync | Supabase Realtime (WebSocket) + LiveKit DataChannel (WebRTC) |
+| Cache | localStorage fuer Embedding-Vektoren + Konfiguration |
 
 ### Pakete
 
@@ -62,6 +71,7 @@ livekit-server-sdk          — JWT-Token-Generierung (Server)
 livekit-client              — WebRTC-Client (Browser)
 @livekit/components-react   — React-Komponenten (VideoConference, RoomAudioRenderer)
 @livekit/components-styles  — Standard-CSS-Theme (ueberschrieben)
+@supabase/supabase-js       — Supabase-Client (Browser + Server)
 ```
 
 ---
@@ -70,44 +80,137 @@ livekit-client              — WebRTC-Client (Browser)
 
 ```
 app/
-  page.tsx                              — Landing/Setup-Seite
-  call/[room]/page.tsx                  — Haupt-Session-Seite
-  globals.css                           — Design-Tokens + LiveKit-Theme-Overrides
+  layout.tsx                              — Root-Layout, SessionProvider
+  page.tsx                                — Landing/Setup-Seite
+  call/[room]/page.tsx                    — Haupt-Session-Seite
+  globals.css                             — Design-Tokens + LiveKit-Theme-Overrides
   api/
-    livekit/token/route.ts              — LiveKit JWT-Token-Endpoint
-    transcription/route.ts              — Whisper-Proxy
-    embeddings/route.ts                 — Embedding-Proxy
+    livekit/
+      token/route.ts                      — LiveKit JWT-Token
+      webhook/route.ts                    — LiveKit Webhook (room_finished)
+    transcription/token/route.ts          — OpenAI Realtime Token
+    tts/route.ts                          — Cloud TTS Streaming
+    embeddings/route.ts                   — Embedding-Proxy
     intervention/
-      moderator/route.ts                — Moderator-LLM-Endpoint
-      ally/route.ts                     — Ally-LLM-Endpoint
-    sync/room/route.ts                  — Segment-Synchronisation
-    model-routing/route.ts              — Modell-Routing-Konfiguration
+      moderator/route.ts                  — Moderator-LLM-Endpoint
+      ally/route.ts                       — Ally-LLM-Endpoint
+    rule-check/route.ts                   — LLM-basierte Regelpruefung
+    session/route.ts                      — Session CRUD (POST/GET/PUT/PATCH)
+    session/join/route.ts                 — Session beitreten
+    session/export/route.ts               — Session-Export (alle Daten)
+    session/report/route.ts               — Post-Session-Report
+    session/cleanup/route.ts              — Stale-Session-Bereinigung (Cron)
+    session/participants/route.ts         — Teilnehmer-Lifecycle
+    session/events/route.ts               — Session-Events (Analytics)
+    sessions/route.ts                     — Alle Sessions auflisten
+    segments/route.ts                     — Transkript-Segmente (POST/GET)
+    ideas/route.ts                        — Ideen CRUD
+    ideas/extract/route.ts                — LLM-Ideenextraktion
+    ideas/connections/route.ts            — Ideen-Verbindungen
+    metrics/snapshot/route.ts             — Metrik-Snapshot persistieren
+    engine-state/route.ts                 — Engine-State (PUT/GET)
+    interventions/route.ts                — Interventionen (POST/GET/PATCH)
+    decision-owner/route.ts               — Ownership-Heartbeat
+    model-routing/route.ts                — Modell-Routing-Konfiguration
+    model-routing-log/route.ts            — Routing-Log persistieren
+    annotations/route.ts                  — Forscher-Annotationen
+    errors/route.ts                       — Fehler-Logging
+    summary/live/route.ts                 — Live-Zusammenfassung (LLM)
 
 components/
-  LiveKitRoom.tsx                       — Video-UI + innere LiveKitSession-Komponente
+  LiveKitRoom.tsx                         — Video-UI + P2P-Sync
+  IdeaBoard.tsx                           — Ideen-Graph (React Flow)
+  TranscriptFeed.tsx                      — Transkript-Anzeige
+  ChatFeed.tsx                            — Chat-artige Transkript-Anzeige
+  OverlayPanel.tsx                        — Transkript, Metriken, Interventionen
+  DesktopTabLayout.tsx                    — Tabbed Sidebar (Desktop)
+  DashboardTab.tsx                        — Engine-Phase, Cooldown, Budget
+  SettingsTab.tsx                         — TTS-Einstellungen
+  DebugPanel.tsx                          — System-Health, Fehler, Logs
+  ReadinessCheck.tsx                      — Pre-Session-Gate
+  SessionReplayView.tsx                   — Post-Session Timeline-Replay
+  LiveTuningPanel.tsx                     — Live-Schwellenwert-Anpassung
+  ModelRoutingPanel.tsx                   — Modell-Auswahl + Routing-Log
+  VoiceControls.tsx                       — TTS-Test/Cancel
+  ExportButton.tsx                        — Session-Export
+  LiveSummaryTab.tsx                      — Rolling-Zusammenfassung
+  shared/                                 — Wiederverwendbare UI-Komponenten
+  replay/                                 — Replay-Subkomponenten
+  setup/                                  — Setup-Flow-Subkomponenten
 
 lib/
-  types.ts                              — Alle geteilten TypeScript-Typen
-  context/SessionContext.tsx             — React Context + Reducer
+  types.ts                                — Alle geteilten TypeScript-Typen
+  context/
+    SessionContext.tsx                    — React Context + Reducer
   hooks/
-    useLiveKitTranscription.ts          — Per-Teilnehmer MediaRecorder auf Remote-Audio
-    useTranscriptionManager.ts          — Lokale Mikrofon-Transkription
-    useMetricsComputation.ts            — Metriken-Orchestrierung (Intervall)
-    useDecisionLoop.ts                  — Entscheidungs-Engine (Intervall)
-    useRemoteSync.ts                    — Segment-Sync via Polling
+    useDecisionLoop.ts                    — Entscheidungs-Engine (Intervall)
+    useMetricsComputation.ts              — Metriken-Orchestrierung
+    useTranscriptionManager.ts            — Lokale Mikrofon-Transkription
+    useLiveKitSync.ts                     — P2P-Sync via LiveKit DataChannel
+    useRealtimeSegments.ts                — Supabase Realtime: Segmente
+    useRealtimeIdeas.ts                   — Supabase Realtime: Ideen
+    useRealtimeMetrics.ts                 — Supabase Realtime: Metriken
+    useRealtimeInterventions.ts           — Supabase Realtime: Interventionen
+    useRealtimeEngineState.ts             — Supabase Realtime: Engine-State
+    useRealtimeConnections.ts             — Supabase Realtime: Ideen-Verbindungen
+    useRealtimeVoiceSettings.ts           — Supabase Realtime: TTS-Settings
+    useIdeaExtraction.ts                  — LLM-Ideenextraktion (periodisch)
+    useLiveSummary.ts                     — Rolling-Zusammenfassung (LLM)
+    useDecisionOwnership.ts               — Server-Side Ownership-Lock
+    useMediaQuery.ts                      — CSS Media Query Hook
+    useLatestRef.ts                       — Ref-Utility (Closure-Safety)
+    useLiveKitErrorSuppression.ts         — LiveKit-Fehler unterdruecken
+    session/
+      useSessionLifecycle.ts              — Session-Init + Cleanup
+      useSessionOrchestration.ts          — Master-Hook (komponiert alle Sub-Hooks)
+      usePeerSync.ts                      — Peer-Interim-Transkripte empfangen
+      useSegmentUpload.ts                 — Segment-Upload-Queue
+      useTTSManager.ts                    — TTS-Wiedergabe
+    sync/
+      useSupabaseChannel.ts              — Generischer Supabase Realtime Hook
+  services/
+    apiClient.ts                          — HTTP-Client (Retry, Fire-and-Forget)
+    sessionService.ts                     — Session-API-Wrapper
+    segmentService.ts                     — Segment-Persistenz
+    metricsService.ts                     — Metrik-Persistenz
+    interventionService.ts                — Interventions-Persistenz
+    ideaService.ts                        — Ideen-Persistenz
+    eventService.ts                       — Event-Logging
   decision/
-    interventionPolicy.ts               — Policy-Engine (4 Phasen)
-    postCheck.ts                        — Erholungs-Evaluation
+    interventionPolicy.ts                 — Policy-Engine (4 Phasen)
+    ruleViolationChecker.ts               — LLM-Regelpruefung
+    interventionExecutor.ts               — Interventions-Ausfuehrung
+    transcriptContext.ts                  — Kontext-Aufbau
+    postCheck.ts                          — Erholungs-Evaluation
+    tickConfig.ts                         — Timing-Konstanten
   state/
-    inferConversationState.ts           — 5-Zustands-Inferenz mit Hysterese
+    inferConversationState.ts             — 5-Zustands-Inferenz mit Hysterese
+    generateSessionReport.ts              — Post-Session-Report
   metrics/
-    participation.ts                    — Partizipations-Metriken (v2)
-    semanticDynamics.ts                 — Semantische Dynamik-Metriken (v2)
-    computeMetrics.ts                   — Gefensterte Metrik-Berechnung
-    embeddingCache.ts                   — Embedding-Cache (localStorage + Memory)
-  llm/client.ts                         — LLM-Client mit Fallback-Kette
-  api/routeHelpers.ts                   — API-Key-Pruefung, Routing-Config laden
-  sync/roomPersistence.ts               — In-Memory + Datei-basierte Raum-Persistenz
+    participation.ts                      — Partizipations-Metriken (v2)
+    semanticDynamics.ts                   — Semantische Dynamik-Metriken (v2)
+    computeMetrics.ts                     — Gefensterte Metrik-Berechnung
+    embeddingCache.ts                     — Embedding-Cache (localStorage + Memory)
+  supabase/
+    client.ts                             — Browser Supabase-Client (Anon-Key)
+    server.ts                             — Server Supabase-Client (Service-Role)
+    types.ts                              — Database-Interface (TypeScript)
+    converters.ts                         — DB-Row <-> App-Type Konverter
+  transcription/
+    useOpenAIRealtimeStream.ts            — Primaere Transkriptions-Engine
+    useSpeechRecognition.ts               — Web Speech API Fallback
+  tts/
+    useCloudTTS.ts                        — Cloud TTS (OpenAI)
+  llm/
+    openai.ts                             — OpenAI API Wrapper
+  prompts/                                — Alle LLM-Prompt-Templates
+  config/
+    index.ts                              — DEFAULT_CONFIG mit Schwellenwerten
+    modelRouting.ts                        — Modell-Routing-Strategie
+    promptVersion.ts                      — Prompt-Versionierung
+
+supabase/
+  schema.sql                              — Vollstaendiges DB-Schema
 ```
 
 ---
@@ -125,33 +228,43 @@ lib/
 
 **Host-Ablauf:**
 1. Konfiguration aus URL-Parametern dekodieren
-2. PUT `/api/sync/room` — Konfiguration fuer Teilnehmer publizieren
-3. GET `/api/model-routing` — Whisper-Aktivierung pruefen
-4. `startSession(roomName, scenario, language, config)` aufrufen
-5. Embedding-Cache aus localStorage laden
+2. POST `/api/session` — Session in Supabase erstellen + Engine-State initialisieren
+3. SessionId in React-Context setzen
+4. Supabase Realtime-Subscriptions starten
+5. POST `/api/decision-owner` — Decision-Ownership beanspruchen
+6. Embedding-Cache aus localStorage laden
 
 **Teilnehmer-Ablauf:**
-1. GET `/api/sync/room?room=...&since=0` — Session-Konfiguration abrufen
-2. `startSession(...)` mit empfangener Konfiguration aufrufen
+1. POST `/api/session/join` — Session beitreten (Name-Deduplizierung)
+2. SessionId + Konfiguration empfangen
+3. GET `/api/segments`, `/api/interventions`, `/api/ideas` — Initiale Daten laden
+4. Supabase Realtime-Subscriptions starten
 
 ### 4.3 Aktive Session
 
-Folgende Hooks laufen parallel:
+Hook-Orchestrierung via `useSessionOrchestration`:
 
 | Hook | Intervall | Laeuft bei |
 |------|-----------|------------|
 | `LiveKitSession` (Speaking-Tracking) | 500ms | Alle |
-| `useLiveKitTranscription` (Remote-Audio) | 5000ms Chunks | Host |
-| `useTranscriptionManager` (Lokales Mikro) | 5000ms Chunks | Alle |
-| `useRemoteSync` (Polling) | 2000ms | Alle |
-| `useMetricsComputation` | `ANALYZE_EVERY_MS` (5000ms) | Nur Host |
-| `useDecisionLoop` | 2000ms | Nur Host |
+| `useTranscriptionManager` (OpenAI Realtime) | Kontinuierlich | Alle |
+| `useLiveKitSync` (P2P DataChannel) | Event-basiert | Alle |
+| `useRealtimeSegments` (Supabase) | Event-basiert | Alle |
+| `useRealtimeIdeas` (Supabase) | Event-basiert | Alle |
+| `useRealtimeInterventions` (Supabase) | Event-basiert | Alle |
+| `useRealtimeEngineState` (Supabase) | Event-basiert | Nicht-Owner |
+| `useMetricsComputation` | 5000ms | Decision-Owner |
+| `useDecisionLoop` | 2000ms | Decision-Owner |
+| `useIdeaExtraction` | Periodisch | Decision-Owner |
+| `useLiveSummary` | 60s | Decision-Owner |
+| `useDecisionOwnership` (Heartbeat) | 30s | Host |
 
 ### 4.4 Session-Ende
 
-1. `endSession()` — setzt `isActive = false`
-2. Alle Intervalle stoppen automatisch
-3. `exportSessionLog()` — exportiert komplettes Protokoll als JSON
+1. PATCH `/api/session` — `ended_at` setzen, Teilnehmer als `left_at` markieren
+2. Alle Intervalle und Subscriptions stoppen automatisch
+3. Optionaler Post-Session-Report via `/api/session/report`
+4. Export via `/api/session/export` — aggregiert alle Daten aus Supabase
 
 ---
 
@@ -176,8 +289,8 @@ const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
 at.addGrant({
   room,
   roomJoin: true,
-  canPublish: true,    // Audio + Video senden
-  canSubscribe: true,  // Audio + Video empfangen
+  canPublish: true,
+  canSubscribe: true,
 });
 ```
 
@@ -191,147 +304,76 @@ Zwei verschachtelte Komponenten:
 - Enthaelt die innere `<LiveKitSession>` Komponente
 
 **Innere Komponente (`LiveKitSession`):**
-- Laeuft innerhalb des LiveKit-React-Kontexts (kann LiveKit-Hooks nutzen)
 - `useConnectionState()` — Verbindungsstatus nach oben melden
 - `useRemoteParticipants()` — Teilnehmerliste nach oben melden
 - 500ms-Intervall: `participant.isSpeaking` abfragen, Sprechzeit akkumulieren
-- `useLiveKitTranscription(...)` — Per-Teilnehmer-Audioaufnahme starten
+- `useLiveKitSync(...)` — P2P-Synchronisation via DataChannel
+- `useLiveKitErrorSuppression()` — Bekannte LiveKit-Fehler unterdruecken
 
-**Props-Interface:**
-```typescript
-interface LiveKitRoomProps {
-  roomName: string;
-  displayName: string;
-  onConnectionChange: (connected: boolean) => void;
-  onParticipantsChange: (participants: { id: string; displayName: string }[]) => void;
-  onRemoteSpeakersChange: (speakers: { id: string; displayName: string }[]) => void;
-  speakingTimeRef: MutableRefObject<Map<string, number>>;
-  transcriptionConfig: {
-    language: string;
-    isActive: boolean;
-    onSegment: (segment: TranscriptSegment) => void;
-    uploadSegment: (segment: TranscriptSegment) => void;
-    addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
-  };
-}
-```
+### 5.3 P2P-Synchronisation (`lib/hooks/useLiveKitSync.ts`)
 
-### 5.3 Warum LiveKit statt Jitsi?
+Bidirektionale Echtzeit-Synchronisation via LiveKit DataChannel:
 
-- **Per-Teilnehmer Audio-Tracks**: Jeder Remote-Teilnehmer hat einen eigenen Audio-Track
-- **Exakte Sprecher-Zuordnung**: `participant.identity` statt Raten ueber `dominantSpeakerChanged`
-- **Kein Tab-Audio-Hack**: Frueheres System brauchte Tab-Audio-Capture fuer Remote-Transkription
-- **Integriertes VAD**: `participant.isSpeaking` fuer Sprechzeit-Tracking
-- **Cloud-Service**: Kein eigener TURN/SFU-Server noetig
+| Topic | Daten | Richtung |
+|-------|-------|----------|
+| `transcript_interim` | Interim-Transkripte | Broadcast |
+| `transcript_final` | Finale Segmente | Broadcast |
+| `intervention` | Interventionen | Broadcast |
+
+Latenz: ~50ms (WebRTC Data Channel, schneller als Supabase Realtime)
+
+### 5.4 Webhook (`POST /api/livekit/webhook`)
+
+Empfaengt LiveKit-Events. Bei `room_finished` wird die Session automatisch geschlossen.
 
 ---
 
 ## 6. Transkriptions-Pipeline
 
-Das System hat zwei parallele Transkriptions-Pfade:
+Das System verwendet die OpenAI Realtime API als primaere Transkriptions-Engine.
 
-### 6.1 Remote-Teilnehmer (`lib/hooks/useLiveKitTranscription.ts`)
+### 6.1 Primaer: OpenAI Realtime API (`lib/transcription/useOpenAIRealtimeStream.ts`)
 
-**Ablauf fuer jeden Remote-Teilnehmer:**
-
-```
-LiveKit Remote Participant
-  → Track.Source.Microphone (Audio-Track)
-    → new MediaStream([track.mediaStreamTrack])
-      → MediaRecorder (5s Chunks, audio/webm;codecs=opus)
-        → ondataavailable: Blob
-          → [Nur wenn wasSpeakingDuringChunk = true]
-            → processTranscriptionChunk()
-              → POST /api/transcription (Whisper)
-                → TranscriptSegment[]
-                  → onSegment() (lokaler State)
-                  → uploadSegment() (Sync-API)
-```
-
-**Internes Datenmodell pro Teilnehmer:**
-```typescript
-interface ParticipantRecorder {
-  recorder: MediaRecorder;
-  stream: MediaStream;       // Fuer Cleanup (tracks stoppen)
-  identity: string;          // LiveKit Identity
-  name: string;              // Anzeigename
-  chunkStartTime: number;    // Exakter Timestamp fuer diesen Chunk
-  wasSpeakingDuringChunk: boolean;  // Sprachaktivitaet im aktuellen Chunk
-}
-```
-
-**Optimierungen:**
-- Speaking-Only: 250ms-Intervall setzt `wasSpeakingDuringChunk = true` wenn `participant.isSpeaking`
-- Chunks < 100 Bytes werden uebersprungen (Stille)
-- Processing-Lock per Teilnehmer (`isProcessingRef: Set<string>`)
-- Korrekte Timestamps via gespeichertem `chunkStartTime` (nicht rueckberechnet)
-
-**MIME-Type-Prioritaet:**
-1. `audio/webm;codecs=opus`
-2. `audio/webm`
-3. `audio/ogg;codecs=opus`
-4. `audio/mp4`
-
-### 6.2 Lokales Mikrofon (`lib/hooks/useTranscriptionManager.ts`)
-
-**Zwei Methoden (alternativ):**
-
-| Methode | Bedingung | Speaker-Label |
-|---------|-----------|---------------|
-| Web Speech API | Fallback, wenn Whisper deaktiviert | `'You'` |
-| Whisper (AudioRecorder) | Wenn `isWhisperEnabled = true` | `'You'` |
-
-**Whisper-Pfad:**
+**Ablauf:**
 ```
 Lokales Mikrofon
-  → useAudioRecorder (5s Chunks)
-    → handleAudioChunk(blob)
-      → processTranscriptionChunk({ speaker: 'You', idPrefix: 'whisper' })
-        → POST /api/transcription
-          → TranscriptSegment[]
+  → MediaStream
+    → AudioWorklet (oder ScriptProcessorNode Fallback)
+      → PCM16 Audio-Chunks
+        → WebSocket zu OpenAI Realtime API
+          → Server-seitiges VAD (Voice Activity Detection)
+          → Echtzeit-Transkription
+            → Interim-Updates (conversation.item.input_audio_transcription.delta)
+            → Finale Segmente (conversation.item.input_audio_transcription.completed)
+              → TranscriptSegment
 ```
 
-**Speech API-Pfad:**
+**Token-Endpoint:** `POST /api/transcription/token`
+- Erstellt ephemeren OpenAI Realtime Token mit Server-Side VAD
+- Rate-Limited
+
+**Features:**
+- Automatische Reconnection mit Exponential Backoff
+- AudioWorklet mit ScriptProcessorNode-Fallback
+- Server-seitige VAD (kein Client-seitiges Speaking-Detection noetig)
+
+### 6.2 Fallback: Web Speech API (`lib/transcription/useSpeechRecognition.ts`)
+
+**Ablauf:**
 ```
 Lokales Mikrofon
-  → useSpeechRecognition (continuous, interimResults)
+  → SpeechRecognition (Browser-API, continuous)
     → onResult({ text, isFinal })
       → TranscriptSegment { speaker: 'You', isFinal }
-        → Bei isFinal: uploadSegment()
 ```
 
-### 6.3 Whisper API (`POST /api/transcription`)
+Wird verwendet wenn OpenAI Realtime nicht verfuegbar ist.
 
-**Request:** Multipart Form Data
-```
-file:                     Audio-Blob (max 25MB, als "audio.webm")
-model:                    z.B. "whisper-1"
-language:                 z.B. "de" (aus "de-CH" extrahiert)
-response_format:          "verbose_json"
-timestamp_granularities[]: "segment"
-```
-
-**Weiterleitung an:** `https://api.openai.com/v1/audio/transcriptions`
-
-**Response:**
-```json
-{
-  "text": "Gesamter transkribierter Text",
-  "segments": [
-    { "start": 0.0, "end": 2.5, "text": "Segment 1" },
-    { "start": 2.5, "end": 5.0, "text": "Segment 2" }
-  ],
-  "language": "de",
-  "duration": 5.0,
-  "logEntry": { /* ModelRoutingLogEntry */ }
-}
-```
-
-### 6.4 TranscriptSegment-Format
+### 6.3 TranscriptSegment-Format
 
 ```typescript
 interface TranscriptSegment {
-  id: string;        // z.B. "lk-abc12345-1709812345000-0" oder "whisper-1709812345000-0"
+  id: string;        // z.B. "rt-1709812345000-0" oder "speech-1709812345000"
   speaker: string;   // "You", "Max", "Anna" etc.
   text: string;
   timestamp: number; // Unix-Millisekunden
@@ -340,17 +382,13 @@ interface TranscriptSegment {
 }
 ```
 
-**ID-Format:** `{idPrefix}-{timestamp}-{segmentIndex}`
-- Remote: `lk-{identity.slice(0,8)}-{chunkStartTime}-{i}`
-- Lokal: `whisper-{timestamp}-{i}` oder `speech-{timestamp}`
-
 ---
 
 ## 7. Metriken-System
 
 ### 7.1 Orchestrierung (`lib/hooks/useMetricsComputation.ts`)
 
-Laeuft als Intervall alle `ANALYZE_EVERY_MS` (5000ms), nur beim Host.
+Laeuft als Intervall alle `ANALYZE_EVERY_MS` (5000ms), nur beim Decision-Owner.
 
 ```
 Intervall-Tick
@@ -363,6 +401,7 @@ Intervall-Tick
       → ConversationStateInference
   → metrics.inferredState = inference
   → addMetricSnapshot(metrics)
+  → persistMetricsSnapshot() (alle 30s, gedrosselt)
 ```
 
 ### 7.2 Partizipations-Metriken (`lib/metrics/participation.ts`)
@@ -396,16 +435,7 @@ Intervall-Tick
 
 **Fallback:** Ohne Embeddings wird Jaccard-Aehnlichkeit mit Schwelle 0.40 verwendet.
 
-### 7.4 v1-Metriken (Legacy, `lib/metrics/computeMetrics.ts`)
-
-| Metrik | Beschreibung |
-|--------|-------------|
-| `participationImbalance` | Gini-Koeffizient der Sprechzeit-Verteilung |
-| `semanticRepetitionRate` | Durchschnittliche Jaccard-Aehnlichkeit aufeinanderfolgender Segmente |
-| `stagnationDuration` | Sekunden seit letztem neuen Beitrag |
-| `diversityDevelopment` | Type-Token-Ratio (einzigartige Woerter / Gesamt) |
-
-### 7.5 Embedding-Cache (`lib/metrics/embeddingCache.ts`)
+### 7.4 Embedding-Cache (`lib/metrics/embeddingCache.ts`)
 
 - In-Memory `Map<string, number[]>` + LRU-Timestamps
 - Persistiert in `localStorage` (Key: `uzh-brainstorming-embeddings`)
@@ -413,7 +443,7 @@ Intervall-Tick
 - Deduplizierung: Identische Texte teilen sich einen Embedding-Vektor
 - Eviction: Aelteste 25% bei `QuotaExceededError`
 
-### 7.6 MetricSnapshot-Format
+### 7.5 MetricSnapshot-Format
 
 ```typescript
 interface MetricSnapshot {
@@ -511,7 +541,7 @@ interface ConversationStateInference {
   secondaryConfidence: number;
   enteredAt: number;
   durationMs: number;
-  criteriaSnapshot: Record<string, number>;  // Alle 5 Konfidenzen + Eingabe-Metriken
+  criteriaSnapshot: Record<string, number>;
 }
 ```
 
@@ -531,10 +561,9 @@ MONITORING → CONFIRMING (30s) → POST_CHECK (90s) → COOLDOWN (180s)
 
 **MONITORING:**
 1. Kein Risiko erkannt → bleibt in MONITORING
-2. Risiko erkannt, noch nicht bestaetigt → `phase = 'CONFIRMING'`, Timer starten
-3. Risiko < `CONFIRMATION_SECONDS` (30s) bestaetigt → warten
-4. Persistenz-Check: ≥70% der Snapshots im Bestaetigungs-Fenster muessen gleichen Zustand zeigen
-5. Bestaetigt → `shouldIntervene = true`, Wechsel zu POST_CHECK
+2. Risiko erkannt → `phase = 'CONFIRMING'`, Timer starten
+3. Persistenz-Check: ≥70% der Snapshots im Bestaetigungs-Fenster muessen gleichen Zustand zeigen
+4. Bestaetigt → `shouldIntervene = true`, Wechsel zu POST_CHECK
 
 **POST_CHECK (nach Intervention):**
 1. Wartet `POST_CHECK_SECONDS` (90s)
@@ -549,16 +578,16 @@ MONITORING → CONFIRMING (30s) → POST_CHECK (90s) → COOLDOWN (180s)
 
 ### 9.2 Intent-Mapping
 
-| Zustand | Intent | v1-Trigger |
-|---------|--------|-----------|
-| `DOMINANCE_RISK` | `PARTICIPATION_REBALANCING` | `imbalance` |
-| `CONVERGENCE_RISK` | `PERSPECTIVE_BROADENING` | `repetition` |
-| `STALLED_DISCUSSION` | `REACTIVATION` | `stagnation` |
-| (Eskalation) | `ALLY_IMPULSE` | `escalation` |
+| Zustand | Intent |
+|---------|--------|
+| `DOMINANCE_RISK` | `PARTICIPATION_REBALANCING` |
+| `CONVERGENCE_RISK` | `PERSPECTIVE_BROADENING` |
+| `STALLED_DISCUSSION` | `REACTIVATION` |
+| (Eskalation) | `ALLY_IMPULSE` |
 
 ### 9.3 Rate-Limiting
 
-- Max `MAX_INTERVENTIONS_PER_10MIN` (3) Interventionen pro 10-Minuten-Fenster
+- Max `MAX_INTERVENTIONS_PER_10MIN` (3) Interventionen pro 10-Minuten-Fenster (Sliding Window)
 - Minimale Konfidenz: 0.45 fuer Risiko-Zustaende
 - Cooldown: 180s nach jeder Intervention
 - Szenario `baseline` → keine Interventionen
@@ -598,139 +627,136 @@ score = improvements / 3
 
 ### 9.5 Decision Loop (`lib/hooks/useDecisionLoop.ts`)
 
-Laeuft alle 2000ms beim Host:
+Laeuft alle 2000ms beim Decision-Owner:
 
 ```
-1. Pruefe: isActive, !isParticipant, !baseline, metrics vorhanden
-2. Rate-Limit zuruecksetzen (alle 10min)
+1. Pruefe: isActive, isDecisionOwner, !baseline, metrics vorhanden
+2. Rate-Limit pruefen (Sliding Window, 10min)
 3. evaluatePolicy(inferredState, metrics, history, engineState, config, scenario)
 4. Bei stateUpdateOnly → updateDecisionState()
 5. Bei recoveryResult → updateIntervention() am letzten Eingriff
 6. Bei shouldIntervene:
    a. Kontext aufbauen (letzte 200 Segmente, letzte 3 Interventionen)
    b. POST /api/intervention/moderator ODER /api/intervention/ally
-   c. Intervention erstellen, optional TTS abspielen
+   c. Intervention erstellen, TTS abspielen
    d. DecisionState aktualisieren
+   e. Engine-State in Supabase persistieren
+```
+
+### 9.6 Decision-Ownership (`lib/hooks/useDecisionOwnership.ts`)
+
+Nur ein Client pro Session fuehrt die Decision-Engine aus:
+
+```
+POST /api/decision-owner { sessionId, clientId }
+  → Server prueft: Existierender Owner mit aktivem Heartbeat?
+  → Ja: isOwner = false
+  → Nein (kein Owner oder stale): isOwner = true
+  → Heartbeat alle 30s erneuern
+```
+
+### 9.7 Regelpruefung (`lib/decision/ruleViolationChecker.ts`)
+
+LLM-basierte Pruefung auf Brainstorming-Regelverstoeße:
+
+```
+POST /api/rule-check { segments, language }
+  → gpt-4o-mini klassifiziert Segmente
+  → { violated, rule, severity, evidence }
+  → Bei Verstoß: Moderator-Intervention mit `trigger = 'rule_violation'`
 ```
 
 ---
 
-## 10. API-Routen
+## 10. Ideen-System
 
-### 10.1 `POST /api/livekit/token`
+### 10.1 LLM-Ideenextraktion (`lib/hooks/useIdeaExtraction.ts`)
 
-LiveKit JWT-Token fuer Raum-Beitritt.
-
-```
-Request:  { room: string, identity: string, name?: string }
-Response: { token: string }
-Fehler:   503 (keine Credentials), 400 (fehlende Felder), 500 (Token-Fehler)
-```
-
-### 10.2 `POST /api/transcription`
-
-Whisper-Proxy fuer Audio-Transkription.
+Periodisch extrahiert der Decision-Owner Ideen aus neuen Transkript-Segmenten:
 
 ```
-Request:  FormData { file: Blob, model, language, response_format, timestamp_granularities[] }
-Response: { text, segments: [{start, end, text}], language, duration, logEntry }
-Fehler:   503 (deaktiviert/kein Key), 400 (kein Audio/zu gross), 502 (Whisper-Fehler)
-```
-
-### 10.3 `POST /api/embeddings`
-
-Embedding-Proxy fuer semantische Analyse.
-
-```
-Request:  { texts: string[] }  (max 50)
-Response: { embeddings: number[][], count: number, logEntry }
-Fehler:   503 (deaktiviert/kein Key), 400 (keine/zu viele Texte), 502 (alle Modelle fehlgeschlagen)
-```
-
-### 10.4 `POST /api/intervention/moderator`
-
-LLM-generierte Moderator-Intervention.
-
-```
-Request:  {
-  trigger: 'imbalance'|'repetition'|'stagnation',
-  speakerDistribution: string,
-  language: string,
-  transcriptExcerpt?: string[],
-  totalTurns?: number,
-  scenario?: string,
-  // v2
-  intent?: string,
-  triggeringState?: string,
-  stateConfidence?: number,
-  participationMetrics?: { participationRiskScore, silentParticipantRatio, dominanceStreakScore },
-  semanticDynamics?: { noveltyRate, clusterConcentration, explorationElaborationRatio, semanticExpansionScore }
+POST /api/ideas/extract {
+  segments, contextSegments, existingTitles, existingIdeas, language
 }
-
-Response: {
-  role: 'moderator',
-  text: string,          // LLM-generierter oder Fallback-Text
-  trigger: string,
-  intent?: string,
-  timestamp: number,
-  logEntry: ModelRoutingLogEntry,
-  fallback?: true        // Nur bei LLM-Fehler
-}
-
-Fehler: 400 (baseline/ungueltiger Trigger), 503 (kein API-Key), 500 (Server-Fehler)
+  → LLM extrahiert Ideen + Verbindungen
+  → Deduplizierung gegen existierende Titel
+  → { ideas: [{title, description, author, ideaType, parentId}], connections: [...] }
 ```
 
-### 10.5 `POST /api/intervention/ally`
+**Ideen-Typen:** `brainstorming_ideas`, `ally_intervention`, `action_item`
 
-LLM-generierter kreativer Ally-Impuls.
+### 10.2 Ideen-Board (`components/IdeaBoard.tsx`)
 
-```
-Request:  {
-  language: string,
-  scenario?: string,
-  previousInterventions?: string[],
-  transcriptExcerpt?: string[],
-  totalTurns?: number,
-  // v2
-  intent?: string,
-  triggeringState?: string,
-  stateConfidence?: number,
-  participationMetrics?: { participationRiskScore },
-  semanticDynamics?: { noveltyRate, clusterConcentration }
-}
+Visuelle Darstellung der Ideen als Graph via `@xyflow/react`:
+- Sticky-Note-artige Knoten mit Farb-Kodierung
+- Gerichtete Kanten zwischen verbundenen Ideen
+- Drag-and-Drop-Positionierung (persistiert in Supabase)
 
-Response: {
-  role: 'ally',
-  text: string,
-  intent?: string,
-  timestamp: number,
-  logEntry: ModelRoutingLogEntry,
-  fallback?: true
-}
+### 10.3 Persistenz
 
-Fehler: 400 (nicht Szenario B), 503 (kein API-Key), 500 (Server-Fehler)
-```
-
-### 10.6 Sync-API (`/api/sync/room`)
-
-```
-GET  ?room=...&since=...  → { segments, count, sessionConfig, timestamp }
-PUT  { roomId, sessionConfig }  → { success: true }
-POST { roomId, segment }  → { success: true }
-```
-
-### 10.7 `GET/PUT /api/model-routing`
-
-```
-GET  → { config: ModelRoutingConfig, defaults: DEFAULT_MODEL_ROUTING }
-PUT  { config: Partial<...> }  → { config: merged, ok: true }
-```
+- POST `/api/ideas` — Idee erstellen/aktualisieren
+- PATCH `/api/ideas` — Position, Farbe, Soft-Delete
+- POST `/api/ideas/connections` — Verbindung erstellen
+- Supabase Realtime synchronisiert Ideen und Verbindungen an alle Clients
 
 ---
 
-## 11. LLM-Prompts
+## 11. API-Routen
 
-### 11.1 Moderator — System-Prompt
+### 11.1 Session-Management
+
+| Route | Methoden | Beschreibung |
+|-------|----------|-------------|
+| `/api/session` | POST, GET, PUT, PATCH | Session erstellen, abrufen, aktualisieren, beenden |
+| `/api/session/join` | POST | Session beitreten (Name-Deduplizierung) |
+| `/api/session/participants` | POST, PATCH, DELETE | Teilnehmer-Lifecycle (Register/Heartbeat/Leave) |
+| `/api/session/export` | GET | Vollstaendiger Session-Export aus Supabase |
+| `/api/session/report` | GET | Post-Session-Report (mit optionaler LLM-Zusammenfassung) |
+| `/api/session/cleanup` | POST | Stale Sessions bereinigen (Cron-sicher) |
+| `/api/session/events` | POST, GET | Session-Events fuer Analytics |
+| `/api/sessions` | GET | Alle Sessions auflisten |
+
+### 11.2 Daten-Persistenz
+
+| Route | Methoden | Beschreibung |
+|-------|----------|-------------|
+| `/api/segments` | POST, GET | Transkript-Segmente (idempotenter Upsert) |
+| `/api/ideas` | POST, GET, PATCH | Ideen CRUD (mit Soft-Delete) |
+| `/api/ideas/extract` | POST | LLM-Ideenextraktion aus Transkript |
+| `/api/ideas/connections` | POST, GET | Ideen-Verbindungen |
+| `/api/metrics/snapshot` | POST | Metrik-Snapshot persistieren |
+| `/api/engine-state` | PUT, GET | Engine-State Upsert/Abruf |
+| `/api/interventions` | POST, GET, PATCH | Interventionen CRUD |
+| `/api/decision-owner` | POST, DELETE | Ownership-Lock (Heartbeat) |
+| `/api/annotations` | GET, POST | Forscher-Annotationen |
+| `/api/errors` | POST, GET | Fehler-Logging |
+| `/api/model-routing-log` | POST | Routing-Decision-Log |
+
+### 11.3 LLM/AI-Endpunkte
+
+| Route | Methoden | Beschreibung |
+|-------|----------|-------------|
+| `/api/intervention/moderator` | POST | LLM-Moderator-Intervention (Rate-Limited) |
+| `/api/intervention/ally` | POST | LLM-Ally-Impuls (nur Szenario B, Rate-Limited) |
+| `/api/rule-check` | POST | LLM-Regelverstoss-Erkennung |
+| `/api/summary/live` | POST | Rolling-Zusammenfassung (LLM) |
+| `/api/embeddings` | POST | OpenAI Embeddings (Batch max 50) |
+| `/api/transcription/token` | POST | Ephemerer OpenAI Realtime Token |
+| `/api/tts` | POST | Cloud TTS Streaming |
+
+### 11.4 Infrastruktur
+
+| Route | Methoden | Beschreibung |
+|-------|----------|-------------|
+| `/api/livekit/token` | POST | LiveKit JWT-Token (6h TTL) |
+| `/api/livekit/webhook` | POST | LiveKit Webhook-Events |
+| `/api/model-routing` | GET, PUT | Modell-Routing-Konfiguration |
+
+---
+
+## 12. LLM-Prompts
+
+### 12.1 Moderator — System-Prompt
 
 **Deutsch:**
 ```
@@ -747,81 +773,17 @@ WICHTIGE REGELN:
 7. Adressiere NIEMALS einzelne Personen direkt.
 ```
 
-**English:**
-```
-You are a skilled brainstorming facilitator. Your role is to gently guide group discussions
-by making brief process-oriented observations.
+### 12.2 Moderator — User-Prompts (Intent-basiert)
 
-IMPORTANT RULES:
-1. ONLY make process reflections - NEVER contribute actual ideas.
-2. Keep responses to 1-2 short sentences maximum.
-3. Be neutral, encouraging and constructive.
-4. Phrase observations as questions or gentle process suggestions.
-5. Focus on group dynamics, not content.
-6. Responses must be suitable for text-to-speech.
-7. NEVER address individuals directly by name.
-```
+| Intent | Kontext | Anweisung |
+|--------|---------|-----------|
+| `PARTICIPATION_REBALANCING` | participationRiskScore, silentParticipantRatio, dominanceStreakScore | Sanfte Prozessreflexion fuer ausgewogenere Beteiligung |
+| `PERSPECTIVE_BROADENING` | clusterConcentration, noveltyRate, explorationRatio | Ermutigung, verschiedene Blickwinkel zu erkunden |
+| `REACTIVATION` | stagnationDuration, noveltyRate, expansionScore | Energetisierende Prozessreflexion |
+| `rule_violation` | rule, evidence, severity | Normen-Verstaerkung ohne Beschuldigung |
 
-### 11.2 Moderator — User-Prompts (v2, Intent-basiert)
+### 12.3 Ally — System-Prompt
 
-**PARTICIPATION_REBALANCING (DE):**
-```
-Das Gespraech zeigt ein Ungleichgewicht in der Beteiligung.
-Partizipations-Risiko-Score: {participationRiskScore}
-Anteil stiller Teilnehmer: {silentParticipantRatio}
-Verteilung der Sprecher: {speakerDistribution}
-Dominanz-Streak-Score: {dominanceStreakScore}
-
-Vollstaendiges Gespraechstranskript ({totalTurns} Beitraege insgesamt):
-{transcriptExcerpt}
-
-Formuliere eine kurze, sanfte Prozessreflexion, um eine ausgewogenere Beteiligung zu foerdern.
-Lade leisere Stimmen ein, ohne jemanden einzeln hervorzuheben.
-```
-
-**PERSPECTIVE_BROADENING (DE):**
-```
-Die Diskussion konvergiert um eine enge Auswahl von Ideen.
-Cluster-Konzentration: {clusterConcentration}
-Neuheitsrate: {noveltyRate}
-Explorations-/Elaborations-Verhaeltnis: {explorationRatio}
-
-Vollstaendiges Gespraechstranskript ({totalTurns} Beitraege insgesamt):
-{transcriptExcerpt}
-
-Formuliere eine kurze Prozessreflexion, die dazu ermutigt, verschiedene Blickwinkel
-zu erkunden oder Ideen auf unerwartete Weise zu verbinden.
-```
-
-**REACTIVATION (DE):**
-```
-Das Gespraech ist semantisch statisch geworden mit wenig neuem Inhalt.
-Stagnationsdauer: {stagnationDuration}s
-Neuheitsrate: {noveltyRate}
-Semantische Expansion: {expansionScore}
-
-Vollstaendiges Gespraechstranskript ({totalTurns} Beitraege insgesamt):
-{transcriptExcerpt}
-
-Formuliere eine kurze, energetisierende Prozessreflexion, um den kreativen Fluss
-wieder anzuregen. Verweise auf das, was die Gruppe bisher erkundet hat.
-```
-
-(Englische Varianten analog mit gleicher Struktur, aber englischem Text und Anweisungen.)
-
-### 11.3 Moderator — User-Prompts (v1, Trigger-basiert)
-
-Fallback fuer aeltere Clients oder wenn kein `intent` gesendet wird:
-
-| Trigger | Kerninhalt |
-|---------|-----------|
-| `imbalance` | Sprecher-Verteilung + Aufforderung zu ausgewogenerer Beteiligung |
-| `repetition` | Voller Transkript + Aufforderung, neue Richtungen zu erkunden |
-| `stagnation` | Voller Transkript + energetisierende Prozessreflexion |
-
-### 11.4 Ally — System-Prompt
-
-**Deutsch:**
 ```
 Du bist ein kreativer Verbuendeter in einer Brainstorming-Sitzung. Deine Aufgabe ist es,
 frische Energie und neue Perspektiven einzubringen, wenn die Gruppe feststeckt.
@@ -836,55 +798,9 @@ WICHTIGE REGELN:
 7. Wiederhole KEINE Themen aus vorherigen Interventionen.
 ```
 
-### 11.5 Ally — User-Prompts
+### 12.4 Fallback-Texte (bei LLM-Fehler)
 
-**v2 (DE, mit Zustands-Kontext):**
-```
-Die Brainstorming-Sitzung steckt trotz frueherer Moderation fest.
-Der Moderator versuchte Folgendes anzusprechen: {triggeringState}
-Bisherige Interventionen: {previousInterventions}
-
-Wichtige Kennzahlen:
-- Partizipationsrisiko: {participationRiskScore}
-- Neuheitsrate: {noveltyRate}
-- Cluster-Konzentration: {clusterConcentration}
-
-Vollstaendiges Gespraechstranskript ({totalTurns} Beitraege insgesamt):
-{transcriptExcerpt}
-
-Formuliere einen kurzen, unerwarteten kreativen Impuls. Mache ihn spezifisch fuer das,
-was diese Gruppe besprochen hat. Vermeide die Wiederholung von Themen aus frueheren Interventionen.
-```
-
-**v1 (DE, ohne Metriken):**
-```
-Die Brainstorming-Sitzung steckt trotz frueherer Moderationsversuche fest.
-Die Gruppe braucht einen kreativen Funken.
-
-Bisherige Interventionen: {previousInterventions}
-
-Vollstaendiges Gespraechstranskript ({totalTurns} Beitraege insgesamt):
-{transcriptExcerpt}
-
-Formuliere einen kurzen, unerwarteten kreativen Impuls, um die Diskussion zu beleben.
-```
-
-### 11.6 LLM-Client und Fallback-Kette (`lib/llm/client.ts`)
-
-```
-callLLM(task, routingConfig, messages, apiKey)
-  → Primaeres Modell versuchen (z.B. gpt-4o)
-    → Bei Fehler: Fallback 1 (z.B. gpt-4o-mini)
-      → Bei Fehler: Fallback 2 (z.B. gpt-3.5-turbo)
-        → Alle fehlgeschlagen: throw LLMError (HTTP 200 mit Fallback-Text)
-```
-
-Alle LLM-Aufrufe gehen ueber `POST https://api.openai.com/v1/chat/completions`.
-
-### 11.7 Fallback-Texte (bei LLM-Fehler)
-
-Statische, vorformulierte Antworten pro Intent/Trigger in DE und EN.
-Beispiele:
+Statische, vorformulierte Antworten pro Intent in DE und EN.
 
 | Intent | Deutsch | English |
 |--------|---------|---------|
@@ -892,111 +808,163 @@ Beispiele:
 | PERSPECTIVE_BROADENING | "Welche voellig andere Richtung koennten wir erkunden?" | "What completely different direction could we explore?" |
 | REACTIVATION | "Welche Dimensionen sind noch offen?" | "What dimensions are still open?" |
 
-Ally-Fallbacks: 4 zufaellige kreative Provokationen (z.B. "Was waere, wenn wir das Ganze komplett umdrehen wuerden?").
+### 12.5 LLM-Client und Fallback-Kette
+
+```
+callLLM(task, routingConfig, messages, apiKey)
+  → Primaeres Modell versuchen (z.B. gpt-4o)
+    → Bei Fehler: Fallback 1 (z.B. gpt-4o-mini)
+      → Bei Fehler: Fallback 2 (z.B. gpt-3.5-turbo)
+        → Alle fehlgeschlagen: HTTP 200 mit Fallback-Text
+```
 
 ---
 
-## 12. Datensynchronisation
+## 13. Datensynchronisation
 
-### 12.1 Host → Teilnehmer
+### 13.1 Drei-Schicht-Architektur
 
-```
-Host erstellt Segment (Transkription)
-  → addTranscriptSegment() (lokaler State)
-  → uploadSegment() → POST /api/sync/room { roomId, segment }
+| Schicht | Technologie | Latenz | Verwendung |
+|---------|-----------|---------|----------|
+| **Lokal** | React Context + useReducer | Sofort | Single-Client-Mutationen + Deduplizierung |
+| **P2P Fast Path** | LiveKit DataChannel (WebRTC) | ~50ms | Interim-Transkripte, finale Segmente, Interventionen |
+| **Autoritativ** | Supabase Realtime (WebSocket) | ~200ms | Persistenz, Metriken, Ideen, Engine-State (Source of Truth) |
 
-Teilnehmer pollt (alle 2s):
-  → GET /api/sync/room?room=...&since=lastTimestamp
-  → Neue Segmente → addTranscriptSegment() (dedupliziert via ID)
-```
+### 13.2 Supabase Realtime-Subscriptions
 
-### 12.2 Teilnehmer → Host
+Generischer Hook `useSupabaseChannel` mit:
+- Race-Condition-Schutz bei ueberlappenden `subscribe()` Aufrufen
+- Exponential Backoff: 1s, 2s, 4s, 8s, 16s (max 5 Versuche)
+- In-Memory Deduplizierung (Set, gecappt bei 5000, evicted aelteste 1000)
+- Custom Filter pro Tabelle
 
-Gleicher Mechanismus in umgekehrter Richtung. `speaker: 'You'` wird beim Upload ersetzt durch den tatsaechlichen Teilnehmernamen.
+| Subscription | Tabelle | Event | Empfaenger |
+|-------------|---------|-------|-----------|
+| Segmente | `transcript_segments` | INSERT | Alle |
+| Metriken | `metric_snapshots` | INSERT | Nicht-Owner |
+| Interventionen | `interventions` | INSERT | Alle (+ TTS) |
+| Engine-State | `engine_state` | UPDATE | Nicht-Owner |
+| Ideen | `ideas` | INSERT, UPDATE | Alle |
+| Verbindungen | `idea_connections` | INSERT | Alle |
+| Voice-Settings | `sessions` | UPDATE | Teilnehmer |
 
-### 12.3 Session-Konfiguration
+### 13.3 Deduplizierungs-Strategie
 
-Host publiziert beim Session-Start:
-```
-PUT /api/sync/room { roomId, sessionConfig: { scenario, language, encodedConfig } }
-```
+Drei Ebenen verhindern Doppelverarbeitung:
 
-Teilnehmer holt beim Beitritt:
-```
-GET /api/sync/room?room=...&since=0 → sessionConfig
-```
+1. **Hook-Ebene:** `useRealtimeSegments` trackt `knownIds` (Set<string>, max 5000)
+2. **Reducer-Ebene:** SessionContext dedupliziert via ID bei allen ADD-Actions
+3. **TTS-Ebene:** `spokenInterventionIdsRef` verhindert doppelte Sprachausgabe
 
-### 12.4 Deduplizierung
+### 13.4 Persistenz-Pattern: Fire-and-Forget
 
-Der React-Reducer in `SessionContext.tsx` dedupliziert Segmente anhand der `id`:
+Asynchrone Operationen blockieren nicht die UI:
+
 ```typescript
-case 'ADD_TRANSCRIPT_SEGMENT':
-  if (state.transcriptSegments.some(s => s.id === action.payload.id)) {
-    return state; // Duplikat ignorieren
-  }
+apiFireAndForget('/api/segments', {
+  method: 'POST',
+  body: JSON.stringify({ sessionId, segment }),
+});
 ```
+
+- 3 Retries bei Netzwerkfehlern (fuer Segmente)
+- `keepalive: true` bei Session-Ende (ueberlebt Navigation)
+- Fehler werden geloggt, aber nicht an den User propagiert
+
+### 13.5 Supabase-Schema (Uebersicht)
+
+| Tabelle | Beschreibung | Realtime |
+|---------|-------------|----------|
+| `sessions` | Session-Metadaten, Konfiguration, Report | Ja (UPDATE) |
+| `session_participants` | Teilnehmer mit Heartbeat | Nein |
+| `transcript_segments` | Transkript-Segmente | Ja (INSERT) |
+| `metric_snapshots` | Metriken + Zustandsinferenz | Ja (INSERT) |
+| `interventions` | KI-Interventionen + Recovery | Ja (INSERT) |
+| `engine_state` | Decision-Engine Phase (Singleton pro Session) | Ja (UPDATE) |
+| `ideas` | Extrahierte Ideen | Ja (INSERT, UPDATE) |
+| `idea_connections` | Verbindungen zwischen Ideen | Ja (INSERT) |
+| `model_routing_logs` | LLM-Routing-Telemetrie | Nein |
+| `intervention_annotations` | Forscher-Bewertungen | Nein |
+| `session_errors` | Laufzeit-Fehler | Nein |
+| `session_events` | Lifecycle-Events | Nein |
 
 ---
 
-## 13. Session-Kontext
+## 14. Session-Kontext
 
-### 13.1 State-Struktur (`lib/context/SessionContext.tsx`)
+### 14.1 State-Struktur (`lib/context/SessionContext.tsx`)
 
 ```typescript
 interface SessionState {
+  sessionId: string | null;
   isActive: boolean;
+  startTime: number | null;
   roomName: string;
   scenario: Scenario;
   language: string;
   config: ExperimentConfig;
-  transcriptSegments: TranscriptSegment[];    // Max 2000
-  metricSnapshots: MetricSnapshot[];          // Max 200
+  transcriptSegments: TranscriptSegment[];
+  metricSnapshots: MetricSnapshot[];
   interventions: Intervention[];
+  ideas: Idea[];
+  ideaConnections: IdeaConnection[];
   decisionState: DecisionEngineState;
   voiceSettings: VoiceSettings;
   modelRoutingLog: ModelRoutingLogEntry[];
-  errors: Array<{ timestamp: number; message: string; context?: string }>;
+  errors: SessionError[];
 }
 ```
 
-### 13.2 Decision Engine State
+### 14.2 Memory-Caps
+
+| Array | Max Eintraege | Ausreichend fuer |
+|-------|--------------|-----------------|
+| `transcriptSegments` | 15.000 | ~30 min @ 6 Teilnehmer |
+| `metricSnapshots` | 720 | ~60 min @ 5s Intervall |
+| `ideas` | 500 | Vollstaendige Session |
+| `ideaConnections` | 1.000 | Vollstaendige Session |
+| `modelRoutingLog` | 500 | Vollstaendige Session |
+| `errors` | 100 | Vollstaendige Session |
+
+### 14.3 Decision Engine State
 
 ```typescript
 interface DecisionEngineState {
-  currentState: 'OBSERVATION' | 'STABILIZATION' | 'ESCALATION';  // v1 legacy
+  phase: EnginePhase;               // MONITORING | CONFIRMING | POST_CHECK | COOLDOWN
+  confirmingSince: number | null;
+  confirmingState: ConversationStateName | null;
+  postCheckIntent: InterventionIntent | null;
   lastInterventionTime: number | null;
-  interventionCount: number;
+  interventionCount: number;         // legacy: kept for Supabase backward compat
   persistenceStartTime: number | null;
   postCheckStartTime: number | null;
   cooldownUntil: number | null;
   metricsAtIntervention: MetricSnapshot | null;
   triggerAtIntervention: InterventionTrigger | null;
-  // v2
-  phase: EnginePhase;               // MONITORING | CONFIRMING | POST_CHECK | COOLDOWN
-  confirmingSince: number | null;
-  confirmingState: ConversationStateName | null;
-  postCheckIntent: InterventionIntent | null;
 }
 ```
 
-### 13.3 Actions
+### 14.4 Actions
 
 | Action | Beschreibung |
 |--------|-------------|
 | `START_SESSION` | Session initialisieren |
+| `SET_SESSION_ID` | SessionId setzen (nach POST /api/session) |
 | `END_SESSION` | Session beenden |
-| `ADD_TRANSCRIPT_SEGMENT` | Segment hinzufuegen (mit Dedup, max 2000) |
-| `ADD_METRIC_SNAPSHOT` | Metrik-Snapshot speichern (max 200) |
-| `ADD_INTERVENTION` | Intervention hinzufuegen + interventionCount erhoehen |
-| `UPDATE_INTERVENTION` | Erholungsergebnis an bestehende Intervention anhaengen |
+| `ADD_TRANSCRIPT_SEGMENT` | Segment hinzufuegen (mit Dedup) |
+| `ADD_METRIC_SNAPSHOT` | Metrik-Snapshot speichern (mit Dedup) |
+| `ADD_INTERVENTION` | Intervention hinzufuegen (mit Dedup) |
+| `UPDATE_INTERVENTION` | Erholungsergebnis anhaengen |
 | `UPDATE_DECISION_STATE` | Engine-State partiell aktualisieren |
+| `ADD_IDEA` | Idee hinzufuegen (mit Dedup) |
+| `ADD_IDEA_CONNECTION` | Verbindung hinzufuegen |
 | `UPDATE_VOICE_SETTINGS` | TTS-Einstellungen aendern |
 | `ADD_MODEL_ROUTING_LOG` | API-Aufruf protokollieren |
 | `ADD_ERROR` | Fehler protokollieren |
 
 ---
 
-## 14. Datenfluss-Diagramm
+## 15. Datenfluss-Diagramm
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -1006,22 +974,23 @@ interface DecisionEngineState {
 │                                                                     │
 │  ┌──────────────────┐    ┌──────────────────────────────────────┐   │
 │  │  LiveKitRoom     │    │  useTranscriptionManager             │   │
-│  │  ┌────────────┐  │    │  (Lokales Mikro → Whisper/Speech)    │   │
+│  │  ┌────────────┐  │    │  (OpenAI Realtime → Transkription)   │   │
 │  │  │ LiveKit    │  │    └──────────┬───────────────────────────┘   │
 │  │  │ Session    │  │               │                               │
 │  │  │            │  │               │ TranscriptSegment             │
 │  │  │ isSpeaking │  │               ▼                               │
 │  │  │ 500ms poll │  │    ┌──────────────────────────────────────┐   │
 │  │  │    ↓       │  │    │  SessionContext (useReducer)          │   │
-│  │  │ speaking   │  │    │  - transcriptSegments (max 2000)     │   │
-│  │  │ TimeRef    │  │    │  - metricSnapshots (max 200)         │   │
+│  │  │ speaking   │  │    │  - transcriptSegments (max 15k)      │   │
+│  │  │ TimeRef    │  │    │  - metricSnapshots (max 720)         │   │
 │  │  │            │  │    │  - interventions                     │   │
-│  │  │ useLiveKit │  │    │  - decisionState                    │   │
-│  │  │ Transcrip. │──┼───→│  - Dedup via segment.id             │   │
-│  │  │ (Remote    │  │    └──────────┬───────────────────────────┘   │
-│  │  │  Audio)    │  │               │                               │
-│  │  └────────────┘  │               │ segments + speakingTime       │
-│  └──────────────────┘               ▼                               │
+│  │  │ useLiveKit │  │    │  - ideas + ideaConnections           │   │
+│  │  │ Sync       │──┼───→│  - decisionState                    │   │
+│  │  │ (P2P Data  │  │    │  - Dedup via ID                     │   │
+│  │  │  Channel)  │  │    └──────────┬───────────────────────────┘   │
+│  │  └────────────┘  │               │                               │
+│  └──────────────────┘               │ segments + speakingTime       │
+│                                     ▼                               │
 │                          ┌──────────────────────────────────────┐   │
 │                          │  useMetricsComputation (5s)          │   │
 │                          │  → computeMetricsAsync               │   │
@@ -1029,11 +998,8 @@ interface DecisionEngineState {
 │                          │    → ParticipationMetrics            │   │
 │                          │    → SemanticDynamicsMetrics          │   │
 │                          │  → inferConversationState             │   │
-│                          │    → 5 Konfidenz-Scores              │   │
-│                          │    → Hysterese + Tiebreak             │   │
 │                          └──────────┬───────────────────────────┘   │
 │                                     │ MetricSnapshot                │
-│                                     │ + inferredState               │
 │                                     ▼                               │
 │                          ┌──────────────────────────────────────┐   │
 │                          │  useDecisionLoop (2s)                │   │
@@ -1044,52 +1010,64 @@ interface DecisionEngineState {
 │                          │  → Bei shouldIntervene:              │   │
 │                          │    → POST /api/intervention/         │   │
 │                          │      moderator ODER ally             │   │
-│                          │    → speak() (TTS)                   │   │
+│                          │    → speak() (Cloud TTS)             │   │
 │                          └──────────────────────────────────────┘   │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  useRemoteSync (2s Polling)                                  │   │
-│  │  → GET /api/sync/room (neue Segmente holen)                 │   │
-│  │  → POST /api/sync/room (eigene Segmente hochladen)          │   │
+│  │  Supabase Realtime Subscriptions                             │   │
+│  │  → useRealtimeSegments (INSERT → dedupliziert)               │   │
+│  │  → useRealtimeInterventions (INSERT → optional TTS)          │   │
+│  │  → useRealtimeMetrics (INSERT → Nicht-Owner)                 │   │
+│  │  → useRealtimeEngineState (UPDATE → Nicht-Owner)             │   │
+│  │  → useRealtimeIdeas (INSERT/UPDATE)                          │   │
+│  │  → useRealtimeConnections (INSERT)                           │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────── API-Routen (Server) ────────────────────────────┐
 │                                                                     │
-│  /api/livekit/token     → livekit-server-sdk → JWT                 │
-│  /api/transcription     → OpenAI Whisper API                       │
-│  /api/embeddings        → OpenAI Embeddings API (mit Fallback)     │
+│  /api/livekit/token       → livekit-server-sdk → JWT               │
+│  /api/transcription/token → OpenAI Realtime Token                  │
+│  /api/tts                 → OpenAI TTS API                         │
+│  /api/embeddings          → OpenAI Embeddings API                  │
 │  /api/intervention/                                                 │
-│    moderator            → OpenAI Chat API (Moderator-Prompt)       │
-│    ally                 → OpenAI Chat API (Ally-Prompt)            │
-│  /api/sync/room         → In-Memory Store (roomPersistence)        │
-│  /api/model-routing     → Modell-Konfiguration (CRUD)              │
+│    moderator              → OpenAI Chat API (Moderator-Prompt)     │
+│    ally                   → OpenAI Chat API (Ally-Prompt)          │
+│  /api/rule-check          → OpenAI Chat API (Regel-Klassifikation) │
+│  /api/ideas/extract       → OpenAI Chat API (Ideen-Extraktion)     │
+│  /api/summary/live        → OpenAI Chat API (Zusammenfassung)      │
+│                                                                     │
+│  /api/session             → Supabase: sessions                     │
+│  /api/segments            → Supabase: transcript_segments          │
+│  /api/metrics/snapshot    → Supabase: metric_snapshots             │
+│  /api/engine-state        → Supabase: engine_state                 │
+│  /api/interventions       → Supabase: interventions                │
+│  /api/ideas               → Supabase: ideas                        │
+│  /api/ideas/connections   → Supabase: idea_connections             │
+│  /api/decision-owner      → Supabase: engine_state                 │
+│  /api/model-routing       → Server-Memory (Konfiguration)          │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 15. Konfiguration
+## 16. Konfiguration
 
-### 15.1 ExperimentConfig (Standard-Werte)
+### 16.1 ExperimentConfig (Standard-Werte)
 
 | Parameter | Wert | Beschreibung |
 |-----------|------|-------------|
 | `WINDOW_SECONDS` | 180 | Analyse-Zeitfenster in Sekunden |
 | `ANALYZE_EVERY_MS` | 5000 | Metriken-Berechnung alle X ms |
-| `PERSISTENCE_SECONDS` | 120 | v1: Persistenz-Schwelle |
 | `COOLDOWN_SECONDS` | 180 | Abkuehlzeit nach Intervention |
 | `POST_CHECK_SECONDS` | 90 | Wartezeit fuer Erholungs-Pruefung |
 | `CONFIRMATION_SECONDS` | 30 | Bestaetigungszeit fuer Risiko-Zustand |
-| `MAX_INTERVENTIONS_PER_10MIN` | 3 | Rate-Limit |
+| `MAX_INTERVENTIONS_PER_10MIN` | 3 | Rate-Limit (Sliding Window) |
 | `RECOVERY_IMPROVEMENT_THRESHOLD` | 0.15 | Mindest-Score fuer "erholt" |
 | `THRESHOLD_SILENT_PARTICIPANT` | 0.05 | Volumen-Schwelle fuer "still" |
-| `THRESHOLD_PARTICIPATION_RISK` | 0.55 | v1: Risiko-Schwelle |
-| `THRESHOLD_NOVELTY_RATE` | 0.30 | v1: Neuheits-Schwelle |
-| `THRESHOLD_CLUSTER_CONCENTRATION` | 0.70 | v1: Konzentrations-Schwelle |
 
-### 15.2 Engine-Konstanten (nicht konfigurierbar)
+### 16.2 Engine-Konstanten (nicht konfigurierbar)
 
 | Konstante | Wert | Ort |
 |-----------|------|-----|
@@ -1097,30 +1075,39 @@ interface DecisionEngineState {
 | Tiebreak-Marge | 0.03 | `inferConversationState.ts` |
 | Min-Konfidenz | 0.45 | `interventionPolicy.ts` |
 | Persistenz-Anteil | 70% | `interventionPolicy.ts` |
-| Chunk-Intervall | 5000ms | `useLiveKitTranscription.ts` |
-| Speaking-Poll | 250ms | `useLiveKitTranscription.ts` |
-| Sync-Poll | 2000ms | `useRemoteSync.ts` |
-| Decision-Poll | 2000ms | `useDecisionLoop.ts` |
+| Decision-Loop | 2000ms | `useDecisionLoop.ts` |
+| Metrics-Loop | 5000ms | `useMetricsComputation.ts` |
+| Metrics-Persist | 30s | `useMetricsComputation.ts` |
+| Ownership-Heartbeat | 30s | `useDecisionOwnership.ts` |
 | Embedding-Cache-Max | 500 | `embeddingCache.ts` |
-| Segment-Max | 2000 | `SessionContext.tsx` |
-| Snapshot-Max | 200 | `SessionContext.tsx` |
+| Segment-Max | 15.000 | `SessionContext.tsx` |
+| Snapshot-Max | 720 | `SessionContext.tsx` |
 
 ---
 
-## 16. Umgebungsvariablen
+## 17. Umgebungsvariablen
 
 ### `.env.local`
 
 ```env
-# OpenAI (LLM, Whisper, Embeddings)
+# OpenAI (LLM, Whisper, Embeddings, TTS, Realtime)
 OPENAI_API_KEY=sk-...
 
 # LiveKit Cloud
-LIVEKIT_URL=wss://....livekit.cloud           # Server-SDK (Token-Generierung)
-LIVEKIT_API_KEY=API...                         # Server-SDK
-LIVEKIT_API_SECRET=...                         # Server-SDK
-NEXT_PUBLIC_LIVEKIT_URL=wss://....livekit.cloud  # Client-SDK (Browser-Verbindung)
+LIVEKIT_URL=wss://....livekit.cloud
+LIVEKIT_API_KEY=API...
+LIVEKIT_API_SECRET=...
+NEXT_PUBLIC_LIVEKIT_URL=wss://....livekit.cloud
+
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://....supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+
+# Optional
+CRON_SECRET=...                    # Fuer /api/session/cleanup
+LIVEKIT_WEBHOOK_KEY=...            # Fuer /api/livekit/webhook
 ```
 
-`NEXT_PUBLIC_LIVEKIT_URL` ist die einzige Variable, die im Browser sichtbar ist.
+`NEXT_PUBLIC_*` Variablen sind im Browser sichtbar.
 Alle anderen werden nur serverseitig in API-Routen verwendet.

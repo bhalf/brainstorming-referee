@@ -97,6 +97,8 @@ export interface MetricSnapshot {
   participation?: ParticipationMetrics;
   semanticDynamics?: SemanticDynamicsMetrics;
   inferredState?: ConversationStateInference;
+  /** Whether metrics were computed using embeddings or Jaccard fallback. */
+  metricsMethod?: 'embedding' | 'fallback';
 }
 
 // --- Interventions ---
@@ -181,6 +183,9 @@ export interface ExperimentConfig {
   ELABORATION_COSINE_THRESHOLD: number;       // 0.70 — max cosine similarity above this = elaboration
   PARTICIPATION_RISK_WEIGHTS: [number, number, number, number]; // [hoover, silent, streak, turnHoover] must sum to 1
   CUMULATIVE_WINDOW_SECONDS: number; // Longer window for participation metrics (default: 600)
+
+  // UI Visibility
+  PARTICIPANT_VIEW_RESTRICTED: boolean; // Hide analytics/settings from non-host participants (default: false)
 }
 
 // --- Model Routing Log ---
@@ -210,12 +215,15 @@ export interface SessionMetadata {
   language: string;
 }
 
+export type InterventionDisplayMode = 'visual' | 'voice' | 'both';
+
 export interface VoiceSettings {
   voiceName: string;
   rate: number;
   pitch: number;
   volume: number;
   enabled: boolean;
+  displayMode: InterventionDisplayMode;
 }
 
 // --- Session Summary (v2) ---

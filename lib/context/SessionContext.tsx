@@ -54,6 +54,7 @@ const initialVoiceSettings: VoiceSettings = {
   pitch: 1.0,
   volume: 0.8,
   enabled: true,
+  displayMode: 'both',
 };
 
 const initialSessionState: SessionState = {
@@ -95,6 +96,8 @@ type SessionAction =
   | { type: 'UPDATE_IDEA'; payload: { id: string; updates: Partial<Idea> } }
   | { type: 'REMOVE_IDEA'; payload: string }
   | { type: 'ADD_IDEA_CONNECTION'; payload: IdeaConnection }
+  | { type: 'REMOVE_IDEA_CONNECTION'; payload: string }
+  | { type: 'UPDATE_IDEA_CONNECTION'; payload: { id: string; updates: Partial<IdeaConnection> } }
   | { type: 'ADD_ERROR'; payload: { message: string; context?: string } }
   | { type: 'CLEAR_ERRORS' }
   | { type: 'RESET_SESSION' };
@@ -268,6 +271,20 @@ function sessionReducer(state: SessionState, action: SessionAction): SessionStat
       };
     }
 
+    case 'REMOVE_IDEA_CONNECTION':
+      return {
+        ...state,
+        ideaConnections: state.ideaConnections.filter(c => c.id !== action.payload),
+      };
+
+    case 'UPDATE_IDEA_CONNECTION':
+      return {
+        ...state,
+        ideaConnections: state.ideaConnections.map(c =>
+          c.id === action.payload.id ? { ...c, ...action.payload.updates } : c
+        ),
+      };
+
     case 'ADD_ERROR':
       return {
         ...state,
@@ -314,6 +331,8 @@ interface SessionContextValue {
   updateIdea: (id: string, updates: Partial<Idea>) => void;
   removeIdea: (id: string) => void;
   addIdeaConnection: (connection: IdeaConnection) => void;
+  removeIdeaConnection: (id: string) => void;
+  updateIdeaConnection: (id: string, updates: Partial<IdeaConnection>) => void;
   addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
   addError: (message: string, context?: string) => void;
   exportSessionLog: () => SessionLog;
@@ -407,6 +426,14 @@ export function SessionProvider({ children }: SessionProviderProps) {
     dispatch({ type: 'ADD_IDEA_CONNECTION', payload: connection });
   }, []);
 
+  const removeIdeaConnection = useCallback((id: string) => {
+    dispatch({ type: 'REMOVE_IDEA_CONNECTION', payload: id });
+  }, []);
+
+  const updateIdeaConnection = useCallback((id: string, updates: Partial<IdeaConnection>) => {
+    dispatch({ type: 'UPDATE_IDEA_CONNECTION', payload: { id, updates } });
+  }, []);
+
   const sessionIdRef = useLatestRef(state.sessionId);
 
   const addError = useCallback((message: string, context?: string) => {
@@ -465,6 +492,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
     updateIdea,
     removeIdea,
     addIdeaConnection,
+    removeIdeaConnection,
+    updateIdeaConnection,
     addModelRoutingLog,
     addError,
     exportSessionLog,

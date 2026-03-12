@@ -3,6 +3,7 @@ import { TranscriptSegment, MetricSnapshot, ExperimentConfig, ConversationStateI
 import { computeMetricsAsync } from '@/lib/metrics/computeMetrics';
 import { inferConversationState } from '@/lib/state/inferConversationState';
 import { persistMetricsSnapshot } from '@/lib/services/metricsService';
+import { logStateTransition } from '@/lib/services/eventService';
 import { STAGGER_METRICS_MS } from '@/lib/decision/tickConfig';
 
 /** Throttle for Supabase persistence: snapshots are stored at most once every 30s. */
@@ -139,6 +140,24 @@ export function useMetricsComputation({
 
         // Attach inferred state to the snapshot
         metrics.inferredState = inference;
+
+        // Log state transition when conversation state changes
+        const prevState = previousInferenceRef.current?.state ?? null;
+        if (prevState !== inference.state) {
+          logStateTransition(
+            sessionIdRef.current,
+            prevState ?? 'NONE',
+            inference.state,
+            inference.confidence,
+            {
+              participationRisk: metrics.participation?.participationRiskScore,
+              novelty: metrics.semanticDynamics?.noveltyRate,
+              stagnation: metrics.stagnationDuration,
+              spread: metrics.semanticDynamics ? 1 - metrics.semanticDynamics.clusterConcentration : undefined,
+            },
+          );
+        }
+
         previousInferenceRef.current = inference;
 
         // Single dispatch instead of 5 separate setState calls

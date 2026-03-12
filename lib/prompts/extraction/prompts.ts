@@ -72,23 +72,44 @@ For categories:
 ═══════════════════════════════════════════
 RULE 5 — CONNECTIONS (between ideas)
 ═══════════════════════════════════════════
-Connection types: "builds_on", "contrasts", "supports", "leads_to", "related".
 
-Create connections:
-- Between ideas in the SAME thematic cluster (e.g. all transcription-related ideas should be connected).
-- When a speaker explicitly references or extends another idea.
-- Between ideas from DIFFERENT thematic clusters when there is a clear relationship.
-- Between new ideas and EXISTING ideas (use their provided IDs).
+Connection types with PRECISE criteria:
 
-Use "sourceTitle" and "targetTitle" for matching. Only set sourceId/targetId if you have a real existing ID.
+"builds_on" — Idea B EXTENDS or DEVELOPS idea A further.
+  Criterion: B takes A's concept and adds detail, scope, or a concrete implementation step.
+  Direction: source=A (original), target=B (extension).
+  Example: A="Use surveys" → B="Add Likert scale to surveys" = builds_on
 
-Do NOT create connections only within one narrow topic — look across ALL ideas for meaningful relationships.
+"supports" — Idea B provides EVIDENCE or JUSTIFICATION for idea A.
+  Criterion: B is a reason, data point, or argument that strengthens A.
+  Direction: source=B (evidence), target=A (supported idea).
+  Example: B="Users prefer async" supports A="Offer email notifications"
+
+"contrasts" — Ideas A and B are ALTERNATIVES or CONTRADICTIONS.
+  Criterion: They solve the same problem differently, or one argues against the other.
+  Direction: either direction (symmetric).
+  Example: A="Use React" ↔ B="Use Vue" = contrasts
+
+"leads_to" — Idea A logically LEADS TO idea B as a consequence.
+  Criterion: Implementing A creates the need for B, or A is a prerequisite.
+  Direction: source=A (cause), target=B (consequence).
+  Example: A="Build mobile app" → B="Set up app store account" = leads_to
+
+"related" — Ideas share a THEMATIC CONNECTION but don't fit the above types.
+  Use ONLY as last resort when the relationship is real but not directional.
+
+IMPORTANT:
+- Prefer specific types (builds_on, supports, contrasts, leads_to) over "related".
+- Check the EXISTING connections list before creating new ones — do NOT duplicate.
+- Reference EXISTING ideas by their provided IDs (sourceId/targetId).
+- Do NOT create connections only within one narrow topic — look across ALL ideas.
+- Use "sourceTitle" and "targetTitle" for matching. Only set sourceId/targetId if you have a real existing ID.
 
 ═══════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════
 Respond in English. Respond ONLY with a JSON object:
-{"ideas": [{"title": "Short Title", "description": "What was said", "author": "Speaker Name", "sourceSegmentIds": ["seg-id"], "type": "idea|action_item|category", "parentTitle": null, "parentId": null}], "connections": [{"sourceTitle": "A", "targetTitle": "B", "sourceId": null, "targetId": null, "label": "short description", "type": "related"}]}`;
+{"ideas": [{"title": "Short Title", "description": "What was said", "author": "Speaker Name", "sourceSegmentIds": ["seg-id"], "type": "idea|action_item|category", "parentTitle": null, "parentId": null}], "connections": [{"sourceTitle": "A", "targetTitle": "B", "sourceId": null, "targetId": null, "label": "short description", "type": "builds_on|supports|contrasts|leads_to|related"}]}`;
 
 const SYSTEM_PROMPT_DE = `Du bist ein Assistent, der Brainstorming-Ideen UND Aufgaben aus Meeting-Transkripten extrahiert.
 
@@ -157,23 +178,44 @@ Für Kategorien:
 ═══════════════════════════════════════════
 REGEL 5 — VERBINDUNGEN (zwischen Ideen)
 ═══════════════════════════════════════════
-Verbindungstypen: "builds_on", "contrasts", "supports", "leads_to", "related".
 
-Erstelle Verbindungen:
-- Zwischen Ideen im GLEICHEN thematischen Cluster (z.B. alle transkriptionsbezogenen Ideen sollten verbunden sein).
-- Wenn ein Sprecher explizit auf eine andere Idee Bezug nimmt oder sie erweitert.
-- Zwischen Ideen aus VERSCHIEDENEN thematischen Clustern, wenn es eine klare Beziehung gibt.
-- Zwischen neuen Ideen und BESTEHENDEN Ideen (nutze deren bereitgestellte IDs).
+Verbindungstypen mit PRÄZISEN Kriterien:
 
-Verwende "sourceTitle" und "targetTitle" für die Zuordnung. Setze sourceId/targetId nur wenn du eine echte bestehende ID hast.
+"builds_on" — Idee B ERWEITERT oder ENTWICKELT Idee A weiter.
+  Kriterium: B nimmt A's Konzept und fügt Detail, Umfang oder einen konkreten Umsetzungsschritt hinzu.
+  Richtung: source=A (Original), target=B (Erweiterung).
+  Beispiel: A="Umfragen nutzen" → B="Likert-Skala zu Umfragen hinzufügen" = builds_on
 
-Erstelle Verbindungen NICHT nur innerhalb eines engen Themas — suche über ALLE Ideen nach sinnvollen Beziehungen.
+"supports" — Idee B liefert EVIDENZ oder BEGRÜNDUNG für Idee A.
+  Kriterium: B ist ein Grund, Datenpunkt oder Argument, das A stärkt.
+  Richtung: source=B (Evidenz), target=A (unterstützte Idee).
+  Beispiel: B="Nutzer bevorzugen async" supports A="E-Mail-Benachrichtigungen anbieten"
+
+"contrasts" — Ideen A und B sind ALTERNATIVEN oder WIDERSPRÜCHE.
+  Kriterium: Sie lösen dasselbe Problem unterschiedlich, oder eine argumentiert gegen die andere.
+  Richtung: beliebig (symmetrisch).
+  Beispiel: A="React nutzen" ↔ B="Vue nutzen" = contrasts
+
+"leads_to" — Idee A führt logisch zu Idee B als KONSEQUENZ.
+  Kriterium: Die Umsetzung von A erzeugt den Bedarf für B, oder A ist eine Voraussetzung.
+  Richtung: source=A (Ursache), target=B (Konsequenz).
+  Beispiel: A="Mobile App bauen" → B="App-Store-Konto einrichten" = leads_to
+
+"related" — Ideen teilen eine THEMATISCHE VERBINDUNG, passen aber nicht in die obigen Typen.
+  Verwende NUR als letzten Ausweg, wenn die Beziehung real aber nicht gerichtet ist.
+
+WICHTIG:
+- Bevorzuge spezifische Typen (builds_on, supports, contrasts, leads_to) gegenüber "related".
+- Prüfe die Liste BESTEHENDER Verbindungen bevor du neue erstellst — KEINE Duplikate.
+- Referenziere BESTEHENDE Ideen über ihre bereitgestellten IDs (sourceId/targetId).
+- Erstelle Verbindungen NICHT nur innerhalb eines engen Themas — suche über ALLE Ideen.
+- Verwende "sourceTitle" und "targetTitle" für die Zuordnung. Setze sourceId/targetId nur wenn du eine echte bestehende ID hast.
 
 ═══════════════════════════════════════════
 AUSGABEFORMAT
 ═══════════════════════════════════════════
 Antworte auf Deutsch. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
-{"ideas": [{"title": "Kurzer Titel", "description": "Was gesagt wurde", "author": "Sprechername", "sourceSegmentIds": ["seg-id"], "type": "idea|action_item|category", "parentTitle": null, "parentId": null}], "connections": [{"sourceTitle": "A", "targetTitle": "B", "sourceId": null, "targetId": null, "label": "kurze Beschreibung", "type": "related"}]}`;
+{"ideas": [{"title": "Kurzer Titel", "description": "Was gesagt wurde", "author": "Sprechername", "sourceSegmentIds": ["seg-id"], "type": "idea|action_item|category", "parentTitle": null, "parentId": null}], "connections": [{"sourceTitle": "A", "targetTitle": "B", "sourceId": null, "targetId": null, "label": "kurze Beschreibung", "type": "builds_on|supports|contrasts|leads_to|related"}]}`;
 
 /**
  * Return the idea extraction system prompt for the given language.

@@ -485,11 +485,11 @@ describe('evaluatePolicy with intervention history (fatigue)', () => {
 
   it('fires after extended confirmation time is met', () => {
     const now = Date.now();
-    // Confirmation started 50s ago — enough for 1.5x (45s)
-    const confirmStart = now - 50000;
+    // Confirmation started 70s ago — enough for 1.5x (45 * 1.5 = 67.5s)
+    const confirmStart = now - 70000;
 
     const history: MetricSnapshot[] = [];
-    for (let i = 0; i < 17; i++) {
+    for (let i = 0; i < 24; i++) {
       history.push(makeMetrics({
         id: `hist-${i}`,
         timestamp: confirmStart + i * 3000,
@@ -524,11 +524,11 @@ describe('evaluatePolicy with intervention history (fatigue)', () => {
 
   it('doubles confirmation and cooldown after 2+ consecutive failures', () => {
     const now = Date.now();
-    // Confirmation started 55s ago — enough for 1.5x (45s) but not for 2x (60s)
-    const confirmStart = now - 55000;
+    // Confirmation started 80s ago — enough for 1.5x (67.5s) but not for 2x (90s)
+    const confirmStart = now - 80000;
 
     const history: MetricSnapshot[] = [];
-    for (let i = 0; i < 19; i++) {
+    for (let i = 0; i < 27; i++) {
       history.push(makeMetrics({
         id: `hist-${i}`,
         timestamp: confirmStart + i * 3000,
@@ -558,17 +558,17 @@ describe('evaluatePolicy with intervention history (fatigue)', () => {
       recentInterventions,
     );
 
-    // Should NOT fire yet (55s < 60s effective confirmation with 2x multiplier)
+    // Should NOT fire yet (80s < 90s effective confirmation with 2x multiplier)
     expect(result.shouldIntervene).toBe(false);
     expect(result.reason).toContain('fatigue');
   });
 
   it('applies fatigue cooldown multiplier when firing after failures', () => {
     const now = Date.now();
-    const confirmStart = now - 65000; // 65s — enough for 2x (60s)
+    const confirmStart = now - 95000; // 95s — enough for 2x (90s)
 
     const history: MetricSnapshot[] = [];
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 32; i++) {
       history.push(makeMetrics({
         id: `hist-${i}`,
         timestamp: confirmStart + i * 3000,

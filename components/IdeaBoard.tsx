@@ -20,6 +20,7 @@ import '@xyflow/react/dist/style.css';
 import { Idea, IdeaConnection } from '@/lib/types';
 import { persistIdea, updateIdea as updateIdeaApi } from '@/lib/services/ideaService';
 import { downloadIdeaBoard } from './IdeaBoardExport';
+import { computeAutoLayout } from '@/lib/ideas/autoLayout';
 
 /** Props for the IdeaBoard component. */
 interface IdeaBoardProps {
@@ -405,6 +406,11 @@ export default function IdeaBoard({
   const [showLegend, setShowLegend] = useState(false);
   const draggingNodeRef = useRef<string | null>(null);
   const newIdeaIdsRef = useRef<Set<string>>(new Set());
+  const lastManualDragRef = useRef<number>(0);
+  const autoLayoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevIdeaCountRef = useRef<number>(0);
+  const prevConnCountRef = useRef<number>(0);
+  const reactFlowRef = useRef<{ fitView: (opts?: { padding?: number }) => void } | null>(null);
 
   // Stable refs prevent node data churn when parent re-renders with new callback identities
   const onRemoveIdeaRef = useRef(onRemoveIdea);
@@ -542,11 +548,77 @@ export default function IdeaBoard({
 
   const onNodeDragStop = useCallback((_: unknown, node: Node) => {
     draggingNodeRef.current = null;
+    lastManualDragRef.current = Date.now();
     onUpdateIdea(node.id, { positionX: node.position.x, positionY: node.position.y });
     if (sessionId) {
       updateIdeaApi(node.id, { positionX: node.position.x, positionY: node.position.y });
     }
   }, [onUpdateIdea, sessionId]);
+
+  // Auto-layout handler — recomputes positions for all ideas using dagre
+  const handleAutoLayout = useCallback(() => {
+    const currentIdeas = ideas.filter(i => !i.isDeleted);
+    if (currentIdeas.length === 0) return;
+
+    const positions = computeAutoLayout(currentIdeas, connections);
+
+    setNodes(prev => prev.map(node => {
+      const pos = positions.get(node.id);
+      if (!pos) return node;
+      return { ...node, position: { x: pos.x, y: pos.y } };
+    }));
+
+    // Persist new positions
+    for (const idea of currentIdeas) {
+      const pos = positions.get(idea.id);
+      if (pos) {
+        onUpdateIdea(idea.id, { positionX: pos.x, positionY: pos.y });
+        if (sessionId) {
+          updateIdeaApi(idea.id, { positionX: pos.x, positionY: pos.y });
+        }
+      }
+    }
+
+    // Fit view after layout settles
+    setTimeout(() => reactFlowRef.current?.fitView(), 100);
+  }, [ideas, connections, onUpdateIdea, sessionId]);
+
+  // Debounced auto-layout when ideas or connections change
+  useEffect(() => {
+    const currentIdeaCount = activeIdeas.length;
+    const currentConnCount = connections.length;
+
+    // Only trigger when counts actually change (not on first render)
+    if (prevIdeaCountRef.current === 0 && prevConnCountRef.current === 0) {
+      prevIdeaCountRef.current = currentIdeaCount;
+      prevConnCountRef.current = currentConnCount;
+      return;
+    }
+
+    if (currentIdeaCount === prevIdeaCountRef.current && currentConnCount === prevConnCountRef.current) {
+      return;
+    }
+
+    prevIdeaCountRef.current = currentIdeaCount;
+    prevConnCountRef.current = currentConnCount;
+
+    // Skip if user recently dragged (within 10s)
+    const timeSinceManualDrag = Date.now() - lastManualDragRef.current;
+    if (timeSinceManualDrag < 10_000) return;
+
+    // Debounce: wait 3s after last change
+    if (autoLayoutTimerRef.current) clearTimeout(autoLayoutTimerRef.current);
+    autoLayoutTimerRef.current = setTimeout(() => {
+      // Double-check no drag is happening
+      if (draggingNodeRef.current !== null) return;
+      if (Date.now() - lastManualDragRef.current < 10_000) return;
+      handleAutoLayout();
+    }, 3000);
+
+    return () => {
+      if (autoLayoutTimerRef.current) clearTimeout(autoLayoutTimerRef.current);
+    };
+  }, [activeIdeas.length, connections.length, handleAutoLayout]);
 
   // Add manual idea
   const handleAddIdea = useCallback(() => {
@@ -606,6 +678,16 @@ export default function IdeaBoard({
         <div className="flex items-center gap-2">
           {!isCollapsed && (
             <>
+              <button
+                onClick={handleAutoLayout}
+                className="text-xs text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded border border-slate-700 hover:border-slate-500 hidden md:flex items-center gap-1"
+                title="Ideen automatisch anordnen"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                Layout
+              </button>
               <button
                 onClick={() => downloadIdeaBoard(ideas, connections, roomName)}
                 className="text-xs text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded border border-slate-700 hover:border-slate-500 hidden md:flex items-center gap-1"
@@ -671,6 +753,7 @@ export default function IdeaBoard({
             nodeTypes={nodeTypes}
             onNodeDragStart={onNodeDragStart}
             onNodeDragStop={onNodeDragStop}
+            onInit={(instance) => { reactFlowRef.current = instance; }}
             fitView
             fitViewOptions={{ padding: 0.3 }}
             minZoom={0.1}

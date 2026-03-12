@@ -4,6 +4,18 @@ import { rateLimit } from '@/lib/api/rateLimit';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 /**
+ * Language-specific prompts that constrain the transcription model to output
+ * ONLY in the target language. The `language` parameter alone is just a hint —
+ * the model can still produce other languages (especially with dialect input).
+ * The prompt provides a much stronger constraint.
+ */
+const TRANSCRIPTION_PROMPTS: Record<string, string> = {
+    de: 'Transkribiere ausschließlich auf Deutsch. Schweizerdeutsch, Österreichisch und andere deutsche Dialekte sollen auf Hochdeutsch transkribiert werden. Gib niemals Text in anderen Sprachen aus.',
+    en: 'Transcribe exclusively in English. Do not output text in any other language.',
+    fr: 'Transcris exclusivement en français. Ne produis jamais de texte dans une autre langue.',
+};
+
+/**
  * POST /api/transcription/token — Create an ephemeral OpenAI Realtime Transcription token.
  *
  * Requests a short-lived client secret from OpenAI's transcription session
@@ -53,10 +65,16 @@ export async function POST(request: NextRequest) {
             body: JSON.stringify({
                 input_audio_format: 'pcm16',
                 input_audio_transcription: {
-                    model: 'gpt-4o-mini-transcribe',
+                    model: 'gpt-4o-transcribe',
                     // Omit language entirely when null — OpenAI rejects `null` but accepts
                     // a missing field and auto-detects the language.
                     ...(language ? { language } : {}),
+                    // Prompt constrains the model to output ONLY in the target language.
+                    // Critical for dialects (e.g. Swiss German) which otherwise cause
+                    // the model to hallucinate text in other languages (Spanish, etc.).
+                    ...(language && TRANSCRIPTION_PROMPTS[language]
+                        ? { prompt: TRANSCRIPTION_PROMPTS[language] }
+                        : {}),
                 },
                 turn_detection: {
                     type: 'server_vad',

@@ -17,6 +17,7 @@ export type ModelTaskKey =
     | 'embeddings_similarity'
     | 'transcription_server'
     | 'idea_extraction'
+    | 'connection_review'
     | 'rule_check'
     | 'live_summary';
 
@@ -27,6 +28,7 @@ export const MODEL_TASK_KEYS: ModelTaskKey[] = [
     'embeddings_similarity',
     'transcription_server',
     'idea_extraction',
+    'connection_review',
     'rule_check',
     'live_summary',
 ];
@@ -38,6 +40,7 @@ export const TASK_LABELS: Record<ModelTaskKey, string> = {
     embeddings_similarity: 'Embeddings',
     transcription_server: 'Transcription',
     idea_extraction: 'Idea Extraction',
+    connection_review: 'Connection Review',
     rule_check: 'Rule Check',
     live_summary: 'Live Summary',
 };
@@ -49,6 +52,7 @@ export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
     embeddings_similarity: 'Semantic similarity for repetition/novelty detection',
     transcription_server: 'Server-side ASR (disabled by default, uses Web Speech API)',
     idea_extraction: 'Extract brainstorming ideas from transcript for the idea board',
+    connection_review: 'Review and correct connections between brainstorming ideas',
     rule_check: 'Classify transcript segments for brainstorming rule violations',
     live_summary: 'Generate rolling summary of the brainstorming session',
 };
@@ -89,6 +93,7 @@ export function getModelsForTask(task: ModelTaskKey): ModelOption[] {
         case 'moderator_intervention':
         case 'ally_intervention':
         case 'idea_extraction':
+        case 'connection_review':
         case 'rule_check':
         case 'live_summary':
             return AVAILABLE_MODELS.filter((m) => m.type === 'chat');
@@ -172,6 +177,15 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         maxTokens: 800,
         timeoutMs: 15000,
         fallbacks: [{ provider: 'openai', model: 'gpt-4o-mini' }],
+        enabled: true,
+    },
+    connection_review: {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        maxTokens: 600,
+        timeoutMs: 12000,
+        fallbacks: [],
         enabled: true,
     },
     rule_check: {

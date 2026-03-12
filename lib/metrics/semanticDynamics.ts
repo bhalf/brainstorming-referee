@@ -24,12 +24,13 @@ import { cosineSimilarity } from './embeddingCache';
 import { DEFAULT_CONFIG } from '../config';
 import { isActivityMarker } from '../utils/transcript';
 import { STOPWORDS } from '../utils/stopwords';
+import { isBackchannel } from './participation';
 
 /** Maximum number of recent segments to analyze (sliding window). */
-const MAX_SEGMENTS = 30;
+const MAX_SEGMENTS = 50;
 
 /** Number of most recent segments used for novelty and exploration analysis. */
-const NOVELTY_WINDOW = 20;
+const NOVELTY_WINDOW = 30;
 
 /** Jaccard similarity threshold for merging segments into clusters (fallback path). */
 const JACCARD_MERGE_THRESHOLD = 0.40;
@@ -345,18 +346,23 @@ export function computePiggybackingScore(
   segments: TranscriptSegment[],
   embeddings: Map<string, number[]>,
 ): number {
-  const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
-  if (finalSegs.length < 3) return 0.5; // Neutral — insufficient data
+  // Filter out backchannels ("ja", "genau", "mhm") before pairing —
+  // a backchannel between two substantive turns would break the chain
+  // and hide genuine piggybacking (e.g. A says idea → B says "genau!" → C builds on A).
+  const substantiveSegs = getFinalSegments(segments)
+    .filter(s => !isBackchannel(s))
+    .slice(-MAX_SEGMENTS);
+  if (substantiveSegs.length < 3) return 0.5; // Neutral — insufficient data
 
   let totalSim = 0;
   let pairCount = 0;
 
-  for (let i = 1; i < finalSegs.length; i++) {
+  for (let i = 1; i < substantiveSegs.length; i++) {
     // Only measure cross-speaker transitions
-    if (finalSegs[i].speaker === finalSegs[i - 1].speaker) continue;
+    if (substantiveSegs[i].speaker === substantiveSegs[i - 1].speaker) continue;
 
-    const currentEmb = embeddings.get(finalSegs[i].id);
-    const prevEmb = embeddings.get(finalSegs[i - 1].id);
+    const currentEmb = embeddings.get(substantiveSegs[i].id);
+    const prevEmb = embeddings.get(substantiveSegs[i - 1].id);
     if (!currentEmb || !prevEmb) continue;
 
     totalSim += cosineSimilarity(currentEmb, prevEmb);
@@ -373,7 +379,9 @@ export function computePiggybackingScore(
 function computePiggybackingScoreFallback(
   segments: TranscriptSegment[],
 ): number {
-  const finalSegs = getFinalSegments(segments).slice(-MAX_SEGMENTS);
+  const finalSegs = getFinalSegments(segments)
+    .filter(s => !isBackchannel(s))
+    .slice(-MAX_SEGMENTS);
   if (finalSegs.length < 3) return 0.5;
 
   const wordSets = finalSegs.map(s => getWordSet(s.text));

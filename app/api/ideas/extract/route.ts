@@ -9,6 +9,7 @@ interface ExtractionRequest {
   contextSegments?: { id: string; speaker: string; text: string }[];
   existingTitles: string[];
   existingIdeas: { id: string; title: string; description?: string | null; ideaType?: string }[];
+  existingConnections?: { sourceTitle: string; targetTitle: string; type: string }[];
   language: string;
 }
 
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = (await request.json()) as ExtractionRequest;
-    const { segments, contextSegments = [], existingTitles = [], existingIdeas = [], language = 'en-US' } = body;
+    const { segments, contextSegments = [], existingTitles = [], existingIdeas = [], existingConnections = [], language = 'en-US' } = body;
 
     if (!segments || segments.length === 0) {
       return NextResponse.json({ ideas: [], connections: [], logEntry: null });
@@ -70,7 +71,11 @@ export async function POST(request: NextRequest) {
       ? `Existing ideas (do NOT repeat these, but you CAN create connections TO them using their ID):\n${existingIdeas.map(ei => `- [ID: ${ei.id}] "${ei.title}"${ei.description ? ` — ${ei.description}` : ''}${ei.ideaType === 'category' ? ' (CATEGORY)' : ''}`).join('\n')}`
       : 'No existing ideas yet.';
 
-    const userPrompt = `${existingList}\n\nRecent transcript segments:\n${transcriptText}`;
+    const connSummary = existingConnections.length > 0
+      ? `\nExisting connections (do NOT duplicate these):\n${existingConnections.map(c => `  "${c.sourceTitle}" → "${c.targetTitle}" (${c.type})`).join('\n')}`
+      : '';
+
+    const userPrompt = `${existingList}${connSummary}\n\nRecent transcript segments:\n${transcriptText}`;
 
     try {
       const { text, logEntry } = await callLLM(

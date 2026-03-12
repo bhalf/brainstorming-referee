@@ -22,7 +22,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.participationRisk': {
     title: 'Participation Risk',
     summary: 'Shows how ungleich the speaking contributions are distributed. A high value means one person dominates or others are barely speaking.',
-    calculation: '0.35 × Hoover imbalance (word volume) + 0.25 × silent participant ratio (<5% share) + 0.25 × dominance streak (consecutive turns) + 0.15 × turn Hoover (turn frequency inequality)',
+    calculation: '0.35 × Hoover imbalance (word volume) + 0.25 × silent participant ratio (<10% share) + 0.25 × dominance streak (consecutive turns) + 0.15 × turn Hoover (turn frequency inequality)',
     goodValue: 'Below 55% — all participants contribute meaningfully.',
     badValue: 'Above 55% — one speaker dominates or others are silent. May trigger a rebalancing intervention.',
     relevance: 'Balanced participation leads to more diverse ideas. When one person dominates, quieter participants stop contributing.',
@@ -31,7 +31,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.novelty': {
     title: 'Novelty',
     summary: 'How many of the recent statements bring genuinely new ideas vs. repeating what was already said. Higher = more fresh ideas entering the discussion.',
-    calculation: 'Each of the last 20 segments is compared to all prior segments via cosine similarity on text embeddings. A segment is "novel" if max similarity < 0.65 (calibrated for text-embedding-3-small).',
+    calculation: 'Each of the last 30 segments is compared to all prior segments via cosine similarity on text embeddings. A segment is "novel" if max similarity < 0.45 (calibrated for text-embedding-3-small).',
     goodValue: 'Above 30% — new ideas are flowing into the conversation.',
     badValue: 'Below 30% — ideas are converging or repeating. May trigger a perspective-broadening intervention.',
     relevance: 'The core indicator for creative brainstorming — are new ideas still being generated, or is the group going in circles?',
@@ -41,7 +41,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.concentration': {
     title: 'Concentration',
     summary: 'Are all ideas clustering around one single topic, or is the group exploring multiple different directions? High concentration = narrow focus on one theme.',
-    calculation: 'Greedy centroid clustering on embeddings (merge threshold 0.60). Concentration = normalized HHI: (HHI - 1/n) / (1 - 1/n), where n = segment count.',
+    calculation: 'Greedy centroid clustering on embeddings (merge threshold 0.35). Concentration = normalized HHI: (HHI - 1/n) / (1 - 1/n), where n = segment count.',
     goodValue: 'Below 70% — topics are well distributed across multiple themes.',
     badValue: 'Above 70% — all ideas cluster into one narrow topic. Indicates groupthink risk.',
     relevance: 'Low concentration means diverse perspectives are being explored, which leads to better brainstorming outcomes.',
@@ -60,7 +60,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.repetition': {
     title: 'Repetition',
     summary: 'How similar consecutive statements are to each other. High repetition means participants keep saying the same things instead of adding new perspectives.',
-    calculation: 'Average cosine similarity between each pair of consecutive segment embeddings (last 30 segments).',
+    calculation: 'Average cosine similarity between each pair of consecutive segment embeddings (last 50 segments).',
     goodValue: 'Below 75% — content is varied, new perspectives are being added.',
     badValue: 'Above 75% — the conversation is going in circles with the same ideas.',
     relevance: 'When repetition is high, the group is stuck and likely needs a new stimulus to break out of the loop.',
@@ -70,7 +70,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'metric.stagnation': {
     title: 'Stagnation',
     summary: 'How many seconds have passed since someone last said something genuinely new. A rising number means no fresh ideas are coming in.',
-    calculation: 'Walks backwards through the last 30 segments. Finds the most recent segment where avg cosine similarity to all prior segments < 0.85. Reports time elapsed since that segment.',
+    calculation: 'Walks backwards through the last 50 segments. Finds the most recent segment where max cosine similarity to all prior segments < 0.40. Reports time elapsed since that segment.',
     goodValue: 'Below 180 seconds — fresh content is still being introduced.',
     badValue: 'Above 180 seconds — no new ideas for 3+ minutes. May trigger a reactivation intervention.',
     relevance: 'When stagnation is high, the brainstorming has stalled — a moderator prompt can help re-energize the discussion.',
@@ -128,7 +128,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'state.healthyElaboration': {
     title: 'Healthy Elaboration',
     summary: 'The group is productively deepening existing ideas rather than exploring new ones.',
-    calculation: 'Lower novelty is expected, but cluster concentration must be low (ideas spread across sub-themes). Participation risk must be below 0.50.',
+    calculation: 'Lower novelty is expected, and high cluster concentration is rewarded (focused deepening of a theme). Participation risk must be below 0.50.',
     goodValue: 'This is a healthy state — elaboration is a natural and productive phase.',
     relevance: 'Distinguishes productive deepening from problematic convergence. No intervention needed.',
   },
@@ -137,7 +137,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
     title: 'Dominance Risk',
     summary: 'Participation is becoming imbalanced — one speaker dominates or others are silent.',
     calculation: '35% participation risk + 25% silent participant ratio + 20% dominance streak + 20% Hoover imbalance.',
-    badValue: 'When confirmed for 30 seconds, triggers a PARTICIPATION_REBALANCING intervention.',
+    badValue: 'When confirmed for 45 seconds, triggers a PARTICIPATION_REBALANCING intervention.',
     relevance: 'Imbalanced participation suppresses ideas from quieter participants and reduces brainstorming quality.',
   },
 
@@ -168,7 +168,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'phase.confirming': {
     title: 'Confirming',
     summary: 'A risk state has been detected. The engine verifies that it persists before intervening.',
-    calculation: 'Requires 70%+ of metric snapshots within the confirmation window to show the same risk state. Default: 30 seconds.',
+    calculation: 'Requires 70%+ of metric snapshots within the confirmation window to show the same risk state. Default: 45 seconds.',
     relevance: 'Prevents false positives from transient state changes. Only persistent problems trigger interventions.',
   },
 
@@ -220,7 +220,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
     title: 'Window (seconds)',
     summary: 'Size of the rolling time window used for all metric computations.',
     calculation: 'Only transcript segments within the last N seconds are included in metric calculations.',
-    goodValue: '120–300 seconds for typical brainstorming. Default: 180s (3 minutes).',
+    goodValue: '120–300 seconds for typical brainstorming. Default: 300s (5 minutes).',
     relevance: 'Shorter window = more responsive to recent changes. Longer window = more stable metrics.',
   },
 
@@ -255,7 +255,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'config.confirmationSeconds': {
     title: 'Confirmation (seconds)',
     summary: 'How long a risk state must persist before the engine triggers an intervention.',
-    goodValue: '20–60 seconds. Default: 30s.',
+    goodValue: '20–60 seconds. Default: 45s.',
     relevance: 'Short enough to react promptly, long enough to filter transient state changes.',
   },
 
@@ -379,14 +379,14 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'scenario.a': {
     title: 'Scenario A: Moderator',
     summary: 'Moderator-only interventions. When a risk state is confirmed, the system generates a process-oriented reflection.',
-    calculation: 'Risk detected → 30s confirmation → intervention generated → 90s post-check → result logged.',
+    calculation: 'Risk detected → 45s confirmation → intervention generated → 180s post-check → result logged.',
     relevance: 'Tests whether subtle process guidance improves brainstorming outcomes.',
   },
 
   'scenario.b': {
     title: 'Scenario B: Moderator + Ally',
     summary: 'Adds escalation: if the moderator intervention does not lead to recovery, an "ally" persona injects a creative impulse.',
-    calculation: 'Moderator fires first → 90s post-check → if no recovery → ally intervention → cooldown.',
+    calculation: 'Moderator fires first → 180s post-check → if no recovery → ally intervention → cooldown.',
     relevance: 'Tests whether a two-tier intervention system (guidance + creative stimulus) outperforms moderator-only.',
   },
 
@@ -422,7 +422,7 @@ export const HELP_CONTENT: Record<string, HelpEntry> = {
   'section.conversationHealth': {
     title: 'Conversation Health',
     summary: 'Real-time metrics measuring the quality and dynamics of the brainstorming discussion.',
-    calculation: 'All metrics are computed on a rolling 3-minute window, updated every 5 seconds.',
+    calculation: 'All metrics are computed on a rolling 5-minute window, updated every 5 seconds.',
     relevance: 'These metrics drive the AI decision engine. When thresholds are breached persistently, the system intervenes.',
     technicalNote: 'Yellow line = intervention threshold. When a metric crosses the line, the bar turns red.',
   },

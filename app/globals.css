@@ -148,3 +148,34 @@ body {
 .touch-handle {
   touch-action: none;
 }
+
+/* ============================================
+   Intervention Overlay Animations
+   ============================================ */
+
+@keyframes intervention-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes intervention-slide-in {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes intervention-slide-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-100%); opacity: 0; }
+}
+
+.intervention-border-pulse {
+  animation: intervention-pulse 1.5s ease-in-out infinite;
+}
+
+.intervention-toast-enter {
+  animation: intervention-slide-in 0.3s ease-out forwards;
+}
+
+.intervention-toast-exit {
+  animation: intervention-slide-out 0.3s ease-in forwards;
+}

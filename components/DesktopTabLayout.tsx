@@ -12,6 +12,8 @@ import type { TranscriptControlProps, MetricsDisplayProps, VoiceControlProps } f
 import DashboardTab from './DashboardTab';
 import SettingsTab from './SettingsTab';
 import TranscriptTab from './TranscriptTab';
+import InterventionOverlay from './InterventionOverlay';
+import { logInterventionInteraction } from '@/lib/services/eventService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,7 @@ export interface DesktopTabLayoutProps {
     ideaBoardSlot: ReactNode;
 
     // Data
+    sessionId: string | null;
     scenario: Scenario;
     isSessionActive: boolean;
     onEndSession: () => void;
@@ -44,6 +47,9 @@ export interface DesktopTabLayoutProps {
     health?: SystemHealthProps;
     roomName: string;
     liveSummary: LiveSummaryState;
+
+    // Participant view restriction
+    isParticipant?: boolean;
 }
 
 /**
@@ -58,7 +64,14 @@ export interface DesktopTabLayoutProps {
  * @param props.liveSummary - AI-generated session summary for the dashboard.
  */
 export default function DesktopTabLayout(props: DesktopTabLayoutProps) {
-    const [activeTab, setActiveTab] = useState<RightTab>('dashboard');
+    const isRestricted = props.isParticipant && props.metrics.config.PARTICIPANT_VIEW_RESTRICTED;
+
+    // Filter tabs: restricted participants only see summary+interventions, ideas, transcript
+    const visibleTabs = isRestricted
+        ? RIGHT_TABS.filter(t => t.id !== 'settings')
+        : RIGHT_TABS;
+
+    const [activeTab, setActiveTab] = useState<RightTab>(isRestricted ? 'ideas' : 'dashboard');
 
     // Derive overall system health for the compact header indicator
     const overallHealth = props.health ? computeOverallHealth(props.health) : null;
@@ -68,7 +81,18 @@ export default function DesktopTabLayout(props: DesktopTabLayoutProps) {
             {/* ── Left: Video (60%) ── */}
             <div className="flex flex-col min-w-0 min-h-0 p-2 pr-0" style={{ width: '60%' }}>
                 <div className="flex-1 min-h-0">
-                    {props.liveKitSlot}
+                    <InterventionOverlay
+                        interventions={props.interventions}
+                        displayMode={props.voice.settings.displayMode ?? 'both'}
+                        onInteractionEvent={(event) => {
+                            logInterventionInteraction(props.sessionId, {
+                                ...event,
+                                displayMode: props.voice.settings.displayMode ?? 'both',
+                            });
+                        }}
+                    >
+                        {props.liveKitSlot}
+                    </InterventionOverlay>
                 </div>
             </div>
 
@@ -114,7 +138,7 @@ export default function DesktopTabLayout(props: DesktopTabLayoutProps) {
 
                 {/* Tab bar */}
                 <div className="flex border-b border-slate-700 shrink-0">
-                    {RIGHT_TABS.map(tab => (
+                    {visibleTabs.map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
@@ -134,10 +158,12 @@ export default function DesktopTabLayout(props: DesktopTabLayoutProps) {
                     <div className={`h-full ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}>
                         <DashboardTab
                             currentMetrics={props.metrics.currentMetrics}
+                            metricsHistory={props.metrics.metricsHistory}
                             config={props.metrics.config}
                             decisionState={props.metrics.decisionState}
                             interventions={props.interventions}
                             liveSummary={props.liveSummary}
+                            restrictedView={isRestricted}
                         />
                     </div>
 
@@ -149,22 +175,24 @@ export default function DesktopTabLayout(props: DesktopTabLayoutProps) {
                         <TranscriptTab transcript={props.transcript} />
                     </div>
 
-                    <div className={`h-full ${activeTab === 'settings' ? 'block' : 'hidden'}`}>
-                        <SettingsTab
-                            voice={props.voice}
-                            config={props.metrics.config}
-                            onUpdateConfig={props.onUpdateConfig}
-                            onResetConfig={props.onResetConfig}
-                            health={props.health}
-                            modelRoutingLog={props.modelRoutingLog}
-                            sessionLog={props.sessionLog}
-                            roomName={props.roomName}
-                            onEndSession={props.onEndSession}
-                            currentMetrics={props.metrics.currentMetrics}
-                            metricsHistory={props.metrics.metricsHistory}
-                            decisionState={props.metrics.decisionState}
-                        />
-                    </div>
+                    {!isRestricted && (
+                        <div className={`h-full ${activeTab === 'settings' ? 'block' : 'hidden'}`}>
+                            <SettingsTab
+                                voice={props.voice}
+                                config={props.metrics.config}
+                                onUpdateConfig={props.onUpdateConfig}
+                                onResetConfig={props.onResetConfig}
+                                health={props.health}
+                                modelRoutingLog={props.modelRoutingLog}
+                                sessionLog={props.sessionLog}
+                                roomName={props.roomName}
+                                onEndSession={props.onEndSession}
+                                currentMetrics={props.metrics.currentMetrics}
+                                metricsHistory={props.metrics.metricsHistory}
+                                decisionState={props.metrics.decisionState}
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

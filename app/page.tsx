@@ -171,6 +171,36 @@ export default function SetupPage() {
 
               <ScenarioSelector value={scenario} onChange={setScenario} />
               <LanguageSelector value={language} onChange={setLanguage} />
+
+              {/* Participant View Restriction */}
+              <section className="mb-5">
+                <label className="flex items-center justify-between cursor-pointer group">
+                  <div>
+                    <span className="block text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      Restrict Participant View
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Participants only see Summary, Interventions, Transcript &amp; Ideas
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={config.PARTICIPANT_VIEW_RESTRICTED}
+                    onClick={() => updateConfig('PARTICIPANT_VIEW_RESTRICTED', !config.PARTICIPANT_VIEW_RESTRICTED)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+                      config.PARTICIPANT_VIEW_RESTRICTED ? 'bg-blue-600' : 'bg-slate-600'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${
+                        config.PARTICIPANT_VIEW_RESTRICTED ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </label>
+              </section>
+
               <AdvancedConfig config={config} onUpdateConfig={updateConfig} onReset={handleResetConfig} />
 
               {/* Errors */}

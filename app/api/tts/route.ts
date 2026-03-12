@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
         model: 'tts-1',
         input: text.slice(0, 4096),
         voice: voice || 'nova',
-        response_format: 'opus',
+        response_format: 'mp3',
         speed: speed || 1.0,
       }),
     });
@@ -36,12 +36,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const audioBuffer = await response.arrayBuffer();
+    // Stream through instead of buffering the complete response
+    if (response.body) {
+      return new NextResponse(response.body as ReadableStream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
 
+    // Fallback: no body (shouldn't happen)
+    const audioBuffer = await response.arrayBuffer();
     return new NextResponse(audioBuffer, {
       status: 200,
       headers: {
-        'Content-Type': 'audio/ogg',
+        'Content-Type': 'audio/mpeg',
         'Cache-Control': 'no-store',
       },
     });

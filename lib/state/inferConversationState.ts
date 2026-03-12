@@ -76,11 +76,11 @@ function computeHealthyExplorationConfidence(m: MetricSnapshot): number {
  * HEALTHY_ELABORATION: productive deepening of existing ideas.
  *
  * Formula: 0.20*(1-riskScore) + 0.25*(1-novelty) + 0.25*(1-explorationRatio)
- *          + 0.15*(1-concentration) + 0.15*expansionBonus
+ *          + 0.15*concentration + 0.15*expansionBonus
  * Gated on balanced participation (riskScore <= 0.5).
  *
- * Distinguishes from CONVERGENCE_RISK by requiring low cluster concentration
- * (ideas spread across sub-themes) and non-negative expansion (space not contracting).
+ * Distinguishes from CONVERGENCE_RISK by requiring high cluster concentration
+ * (focused deepening of a theme) and non-negative expansion (space not contracting).
  */
 function computeHealthyElaborationConfidence(m: MetricSnapshot): number {
   const p = m.participation;
@@ -91,8 +91,8 @@ function computeHealthyElaborationConfidence(m: MetricSnapshot): number {
 
   const stagnationPenalty = clamp(m.stagnationDuration / 120, 0, 1);
 
-  // Low concentration = ideas spread across clusters (healthy deepening)
-  const concentrationPenalty = clamp(sd.clusterConcentration, 0, 1);
+  // High concentration = ideas focused in few clusters (healthy deepening of a theme)
+  const concentrationBonus = clamp(sd.clusterConcentration, 0, 1);
   // Positive expansion = idea space is stable or growing (not collapsing)
   const expansionBonus = clamp(sd.semanticExpansionScore + 0.3, 0, 1);
 
@@ -100,7 +100,7 @@ function computeHealthyElaborationConfidence(m: MetricSnapshot): number {
     (0.20 * (1 - p.participationRiskScore) +
       0.25 * (1 - sd.noveltyRate) +
       0.25 * (1 - sd.explorationElaborationRatio) +
-      0.15 * (1 - concentrationPenalty) +
+      0.15 * concentrationBonus +
       0.15 * expansionBonus) *
     (1 - stagnationPenalty)
   );

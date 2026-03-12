@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, ReferenceArea,
+  BarChart, Bar, Cell,
+  PieChart, Pie,
+} from 'recharts';
 import Panel from '@/components/shared/Panel';
 import MetricBar from '@/components/shared/MetricBar';
 import TimelineEventRow from '@/components/replay/TimelineEventRow';
@@ -56,16 +62,537 @@ interface SessionExport {
   }>;
 }
 
-// --- Helpers, types, and sub-components now imported from components/replay/ ---
+// --- Recharts color constants ---
 
-/**
- * Post-session replay view that loads all session data from the export API
- * and presents an interactive timeline with filterable events (segments,
- * interventions, state changes), a metric snapshot scrubber, health summaries,
- * state duration breakdown, and intervention annotations for researcher review.
- *
- * @param sessionId - Supabase session ID to load and replay.
- */
+const STATE_HEX_COLORS: Record<ConversationStateName, string> = {
+  HEALTHY_EXPLORATION: '#22c55e',
+  HEALTHY_ELABORATION: '#10b981',
+  DOMINANCE_RISK: '#ef4444',
+  CONVERGENCE_RISK: '#eab308',
+  STALLED_DISCUSSION: '#f97316',
+};
+
+const METRIC_COLORS = {
+  participation: '#f97316',
+  novelty: '#22c55e',
+  stagnation: '#eab308',
+  spread: '#3b82f6',
+};
+
+// --- Chart data types ---
+
+interface MetricChartPoint {
+  time: number;
+  timeLabel: string;
+  participation: number;
+  novelty: number;
+  stagnation: number;
+  spread: number;
+  state?: string;
+}
+
+interface ImpactEntry {
+  metric: string;
+  before: number;
+  after: number;
+  improved: boolean;
+  beforeCount: number;
+  afterCount: number;
+}
+
+// --- Helpers ---
+
+function computeInterventionImpact(
+  intervention: Intervention,
+  snapshots: Array<MetricSnapshot & { timestamp: number }>,
+): ImpactEntry[] | null {
+  // Before: [t-180s, t-30s] — exclude last 30s (reaction time)
+  const beforeWindow = snapshots.filter(
+    s => s.timestamp >= intervention.timestamp - 180_000 && s.timestamp < intervention.timestamp - 30_000,
+  );
+  // After: [t+30s, t+300s] — exclude first 30s (speech + reaction), measure up to 5min
+  const afterWindow = snapshots.filter(
+    s => s.timestamp > intervention.timestamp + 30_000 && s.timestamp <= intervention.timestamp + 300_000,
+  );
+  if (beforeWindow.length < 2 || afterWindow.length < 2) return null;
+
+  const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+  const metrics: { key: string; label: string; extract: (s: MetricSnapshot) => number; lowerIsBetter: boolean }[] = [
+    { key: 'participation', label: 'Participation Risk', extract: s => s.participation?.participationRiskScore ?? 0, lowerIsBetter: true },
+    { key: 'novelty', label: 'Novelty Rate', extract: s => s.semanticDynamics?.noveltyRate ?? 0, lowerIsBetter: false },
+    { key: 'stagnation', label: 'Stagnation', extract: s => Math.min(1, s.stagnationDuration / 120), lowerIsBetter: true },
+    { key: 'spread', label: 'Topic Spread', extract: s => s.semanticDynamics ? 1 - s.semanticDynamics.clusterConcentration : 0, lowerIsBetter: false },
+  ];
+
+  return metrics.map(m => {
+    const before = avg(beforeWindow.map(m.extract));
+    const after = avg(afterWindow.map(m.extract));
+    const improved = m.lowerIsBetter ? after < before : after > before;
+    return { metric: m.label, before, after, improved, beforeCount: beforeWindow.length, afterCount: afterWindow.length };
+  });
+}
+
+// --- Metrics Timeline Chart Component ---
+
+const SPEAKER_HEX_COLORS = ['#38bdf8', '#a78bfa', '#fbbf24', '#a3e635', '#fb7185', '#2dd4bf', '#f97316', '#e879f9'];
+
+function MetricsTimelineChart({
+  snapshots,
+  interventions,
+  startTime,
+  speakers,
+}: {
+  snapshots: Array<MetricSnapshot & { inferredState?: unknown; timestamp: number }>;
+  interventions: Intervention[];
+  startTime: number;
+  speakers: string[];
+}) {
+  const [showSpeakers, setShowSpeakers] = useState(false);
+
+  const chartData = useMemo(() => {
+    return snapshots.map(snap => {
+      const point: Record<string, number | string | undefined> = {
+        time: snap.timestamp - startTime,
+        participation: snap.participation?.participationRiskScore ?? 0,
+        novelty: snap.semanticDynamics?.noveltyRate ?? 0,
+        stagnation: Math.min(1, snap.stagnationDuration / 120),
+        spread: snap.semanticDynamics ? 1 - snap.semanticDynamics.clusterConcentration : 0,
+        state: (snap.inferredState as { state?: string } | undefined)?.state,
+      };
+      // Add per-speaker volume share
+      if (snap.participation?.volumeShare) {
+        for (const [speaker, share] of Object.entries(snap.participation.volumeShare)) {
+          point[`spk_${speaker}`] = share;
+        }
+      }
+      return point;
+    });
+  }, [snapshots, startTime]);
+
+  // Build state background bands
+  const stateBands = useMemo(() => {
+    const bands: { x1: number; x2: number; state: ConversationStateName }[] = [];
+    let currentState: string | null = null;
+    let bandStart = 0;
+
+    for (const point of chartData) {
+      const t = point.time as number;
+      const s = point.state as string | undefined;
+      if (s && s !== currentState) {
+        if (currentState && bandStart < t) {
+          bands.push({ x1: bandStart, x2: t, state: currentState as ConversationStateName });
+        }
+        currentState = s;
+        bandStart = t;
+      }
+    }
+    // Close the last band
+    if (currentState && chartData.length > 0) {
+      bands.push({ x1: bandStart, x2: chartData[chartData.length - 1].time as number, state: currentState as ConversationStateName });
+    }
+    return bands;
+  }, [chartData]);
+
+  if (chartData.length < 2) return null;
+
+  const formatXTick = (ms: number) => {
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <Panel className="mb-6">
+      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+        Metrics Timeline
+      </h3>
+      <div className="flex flex-wrap gap-3 mb-2 items-center">
+        <span className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="w-2.5 h-0.5 rounded" style={{ background: METRIC_COLORS.participation }} /> Participation Risk
+        </span>
+        <span className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="w-2.5 h-0.5 rounded" style={{ background: METRIC_COLORS.novelty }} /> Novelty Rate
+        </span>
+        <span className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="w-2.5 h-0.5 rounded" style={{ background: METRIC_COLORS.stagnation }} /> Stagnation
+        </span>
+        <span className="flex items-center gap-1 text-xs text-slate-400">
+          <span className="w-2.5 h-0.5 rounded" style={{ background: METRIC_COLORS.spread }} /> Topic Spread
+        </span>
+        {speakers.length > 0 && (
+          <button
+            onClick={() => setShowSpeakers(s => !s)}
+            className={`ml-auto text-[10px] px-2 py-0.5 rounded border ${showSpeakers ? 'border-blue-500 text-blue-400 bg-blue-500/10' : 'border-slate-600 text-slate-500 hover:text-slate-400'}`}
+          >
+            {showSpeakers ? 'Hide Speakers' : 'Show Speakers'}
+          </button>
+        )}
+      </div>
+      {showSpeakers && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {speakers.map((s, i) => (
+            <span key={s} className="flex items-center gap-1 text-[10px] text-slate-500">
+              <span className="w-2 h-0.5 rounded" style={{ background: SPEAKER_HEX_COLORS[i % SPEAKER_HEX_COLORS.length] }} /> {s}
+            </span>
+          ))}
+        </div>
+      )}
+      <ResponsiveContainer width="100%" height={200}>
+        <ComposedChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+          <defs>
+            <linearGradient id="grad-participation" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={METRIC_COLORS.participation} stopOpacity={0.3} />
+              <stop offset="100%" stopColor={METRIC_COLORS.participation} stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="grad-novelty" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={METRIC_COLORS.novelty} stopOpacity={0.3} />
+              <stop offset="100%" stopColor={METRIC_COLORS.novelty} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+
+          {/* State background bands */}
+          {stateBands.map((band, i) => (
+            <ReferenceArea
+              key={`band-${i}`}
+              x1={band.x1}
+              x2={band.x2}
+              fill={STATE_HEX_COLORS[band.state] ?? '#475569'}
+              fillOpacity={0.08}
+            />
+          ))}
+
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <XAxis
+            dataKey="time"
+            tickFormatter={formatXTick}
+            stroke="#64748b"
+            tick={{ fontSize: 10 }}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            domain={[0, 1]}
+            stroke="#64748b"
+            tick={{ fontSize: 10 }}
+            tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+            width={40}
+          />
+          <Tooltip
+            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
+            labelFormatter={(v) => `Time: ${formatXTick(Number(v))}`}
+            formatter={(value, name) => [`${(Number(value) * 100).toFixed(1)}%`, name]}
+          />
+
+          <Area type="monotone" dataKey="participation" name="Participation Risk" stroke={METRIC_COLORS.participation} fill="url(#grad-participation)" strokeWidth={1.5} dot={false} />
+          <Area type="monotone" dataKey="novelty" name="Novelty Rate" stroke={METRIC_COLORS.novelty} fill="url(#grad-novelty)" strokeWidth={1.5} dot={false} />
+          <Line type="monotone" dataKey="stagnation" name="Stagnation" stroke={METRIC_COLORS.stagnation} strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+          <Line type="monotone" dataKey="spread" name="Topic Spread" stroke={METRIC_COLORS.spread} strokeWidth={1.5} dot={false} />
+
+          {/* Per-speaker volume share curves */}
+          {showSpeakers && speakers.map((speaker, i) => (
+            <Line
+              key={`spk-${speaker}`}
+              type="monotone"
+              dataKey={`spk_${speaker}`}
+              name={speaker}
+              stroke={SPEAKER_HEX_COLORS[i % SPEAKER_HEX_COLORS.length]}
+              strokeWidth={1}
+              dot={false}
+              opacity={0.5}
+              strokeDasharray="2 2"
+            />
+          ))}
+
+          {/* Intervention markers */}
+          {interventions.map((int, i) => (
+            <ReferenceLine
+              key={`int-${i}`}
+              x={int.timestamp - startTime}
+              stroke={int.type === 'ally' ? '#a855f7' : '#6366f1'}
+              strokeDasharray="3 3"
+              strokeWidth={1.5}
+              label={{
+                value: int.type === 'ally' ? 'A' : 'M',
+                position: 'top',
+                fill: int.type === 'ally' ? '#a855f7' : '#6366f1',
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            />
+          ))}
+        </ComposedChart>
+      </ResponsiveContainer>
+    </Panel>
+  );
+}
+
+// --- Intervention Impact Chart ---
+
+function InterventionImpactChart({
+  interventions,
+  snapshots,
+}: {
+  interventions: Intervention[];
+  snapshots: Array<MetricSnapshot & { timestamp: number }>;
+}) {
+  const impactData = useMemo(() => {
+    const results: { intervention: Intervention; impacts: ImpactEntry[] }[] = [];
+    for (const int of interventions) {
+      const impact = computeInterventionImpact(int, snapshots);
+      if (impact) results.push({ intervention: int, impacts: impact });
+    }
+    return results;
+  }, [interventions, snapshots]);
+
+  if (impactData.length === 0) return null;
+
+  return (
+    <Panel>
+      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+        Intervention Impact
+      </h3>
+      <p className="text-xs text-slate-500 mb-3">
+        Avg. metrics 3min before vs 5min after each intervention (30s gap)
+      </p>
+      <div className="space-y-4 max-h-96 overflow-y-auto">
+        {impactData.map(({ intervention, impacts }) => {
+          const intentLabels: Record<string, string> = {
+            PARTICIPATION_REBALANCING: 'Rebalancing',
+            PERSPECTIVE_BROADENING: 'Broadening',
+            REACTIVATION: 'Reactivation',
+            ALLY_IMPULSE: 'Ally Impulse',
+            NORM_REINFORCEMENT: 'Rule Reminder',
+          };
+          const label = intervention.intent
+            ? intentLabels[intervention.intent] || intervention.intent
+            : intervention.trigger;
+          const sampleInfo = impacts[0] ? `n=${impacts[0].beforeCount} / n=${impacts[0].afterCount}` : '';
+
+          return (
+            <div key={intervention.id}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <span className={`text-xs font-medium ${intervention.type === 'ally' ? 'text-purple-400' : 'text-blue-400'}`}>
+                  {intervention.type === 'ally' ? 'Ally' : 'Moderator'}
+                </span>
+                <span className="text-xs text-slate-500">{label}</span>
+                <span className="text-[10px] text-slate-600 ml-auto font-mono">{sampleInfo}</span>
+              </div>
+              <ResponsiveContainer width="100%" height={100}>
+                <BarChart
+                  data={impacts}
+                  layout="vertical"
+                  margin={{ top: 0, right: 10, bottom: 0, left: 60 }}
+                  barGap={2}
+                >
+                  <XAxis type="number" domain={[0, 1]} tick={{ fontSize: 9 }} stroke="#64748b" tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} />
+                  <YAxis type="category" dataKey="metric" tick={{ fontSize: 9 }} stroke="#64748b" width={55} />
+                  <Tooltip
+                    contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
+                    formatter={(value) => [`${(Number(value) * 100).toFixed(1)}%`]}
+                  />
+                  <Bar dataKey="before" name="Before" fill="#475569" radius={[2, 2, 2, 2]} barSize={8} />
+                  <Bar dataKey="after" name="After" radius={[2, 2, 2, 2]} barSize={8}>
+                    {impacts.map((entry, i) => (
+                      <Cell key={i} fill={entry.improved ? '#22c55e' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+// --- Health Summary Recharts Bar ---
+
+function HealthSummaryChart({
+  metricHealthSummary,
+}: {
+  metricHealthSummary: {
+    sessionDurationMs: number;
+    metrics: { label: string; badMs: number; threshold: string }[];
+  };
+}) {
+  const barData = metricHealthSummary.metrics.map(m => ({
+    label: m.label,
+    pct: (m.badMs / metricHealthSummary.sessionDurationMs) * 100,
+    badMs: m.badMs,
+    threshold: m.threshold,
+  }));
+
+  return (
+    <Panel>
+      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+        Metric Health Summary
+      </h3>
+      <p className="text-xs text-slate-500 mb-3">
+        Time in unhealthy range over {formatDuration(metricHealthSummary.sessionDurationMs)}
+      </p>
+      <ResponsiveContainer width="100%" height={barData.length * 28 + 20}>
+        <BarChart
+          data={barData}
+          layout="vertical"
+          margin={{ top: 0, right: 10, bottom: 0, left: 0 }}
+        >
+          <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 9 }} stroke="#64748b" tickFormatter={(v: number) => `${v}%`} />
+          <YAxis type="category" dataKey="label" tick={{ fontSize: 9 }} stroke="#64748b" width={90} />
+          <Tooltip
+            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
+            formatter={(value, _name, props) => {
+              const p = (props as { payload?: { badMs?: number; threshold?: string } }).payload;
+              return [`${Number(value).toFixed(1)}% (${formatDuration(p?.badMs ?? 0)}) — threshold: ${p?.threshold ?? ''}`];
+            }}
+          />
+          <Bar dataKey="pct" name="Unhealthy %" radius={[0, 4, 4, 0]} barSize={14}>
+            {barData.map((entry, i) => (
+              <Cell
+                key={i}
+                fill={entry.pct > 50 ? '#ef4444' : entry.pct > 20 ? '#eab308' : '#22c55e'}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </Panel>
+  );
+}
+
+// --- Intervention Success Rate Card ---
+
+const INTENT_LABELS_MAP: Record<string, string> = {
+  PARTICIPATION_REBALANCING: 'Rebalancing',
+  PERSPECTIVE_BROADENING: 'Broadening',
+  REACTIVATION: 'Reactivation',
+  ALLY_IMPULSE: 'Ally Impulse',
+  NORM_REINFORCEMENT: 'Rule Reminder',
+};
+
+function InterventionSuccessCard({ interventions }: { interventions: Intervention[] }) {
+  const stats = useMemo(() => {
+    const byIntent: Record<string, { total: number; recovered: number }> = {};
+    let totalAll = 0;
+    let recoveredAll = 0;
+
+    for (const int of interventions) {
+      const intent = int.intent ?? 'unknown';
+      if (!byIntent[intent]) byIntent[intent] = { total: 0, recovered: 0 };
+      byIntent[intent].total++;
+      totalAll++;
+      if (int.recoveryResult === 'recovered') {
+        byIntent[intent].recovered++;
+        recoveredAll++;
+      }
+    }
+
+    return { byIntent, totalAll, recoveredAll };
+  }, [interventions]);
+
+  if (stats.totalAll === 0) return null;
+
+  const overallRate = stats.totalAll > 0 ? (stats.recoveredAll / stats.totalAll) * 100 : 0;
+  const rateColor = overallRate >= 60 ? 'text-green-400' : overallRate >= 30 ? 'text-yellow-400' : 'text-red-400';
+
+  return (
+    <Panel>
+      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+        Intervention Success Rate
+      </h3>
+      <div className={`text-2xl font-bold ${rateColor} mb-3`}>
+        {overallRate.toFixed(0)}% <span className="text-sm font-normal text-slate-500">({stats.recoveredAll}/{stats.totalAll} recovered)</span>
+      </div>
+      <div className="space-y-1.5">
+        {Object.entries(stats.byIntent).map(([intent, { total, recovered }]) => {
+          const rate = total > 0 ? (recovered / total) * 100 : 0;
+          const color = rate >= 60 ? 'text-green-400' : rate >= 30 ? 'text-yellow-400' : 'text-red-400';
+          return (
+            <div key={intent} className="flex justify-between text-xs">
+              <span className="text-slate-400">{INTENT_LABELS_MAP[intent] ?? intent}</span>
+              <span className={`font-mono ${color}`}>
+                {recovered}/{total} ({rate.toFixed(0)}%)
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+// --- State Duration Donut Chart ---
+
+function StateDurationChart({
+  stateDurations,
+}: {
+  stateDurations: {
+    totalMs: number;
+    entries: { state: ConversationStateName; durationMs: number; pct: number }[];
+  };
+}) {
+  const pieData = stateDurations.entries.map(e => ({
+    name: e.state.replace(/_/g, ' '),
+    value: e.pct,
+    durationMs: e.durationMs,
+    fill: STATE_HEX_COLORS[e.state] ?? '#475569',
+  }));
+
+  return (
+    <Panel>
+      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+        State Duration Breakdown
+      </h3>
+      <ResponsiveContainer width="100%" height={160}>
+        <PieChart>
+          <Pie
+            data={pieData}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius={40}
+            outerRadius={65}
+            strokeWidth={2}
+            stroke="#1e293b"
+          >
+            {pieData.map((entry, i) => (
+              <Cell key={i} fill={entry.fill} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 11 }}
+            formatter={(value, name, props) => {
+              const p = (props as { payload?: { durationMs?: number } }).payload;
+              return [`${Number(value).toFixed(1)}% (${formatDuration(p?.durationMs ?? 0)})`, name];
+            }}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+      {/* Legend */}
+      <div className="space-y-1.5 mt-2">
+        {stateDurations.entries.map(e => (
+          <div key={e.state} className="flex justify-between items-center text-xs">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="inline-block w-2 h-2 rounded-sm"
+                style={{ background: STATE_HEX_COLORS[e.state] ?? '#475569' }}
+              />
+              <span className="text-slate-300">{e.state.replace(/_/g, ' ')}</span>
+            </div>
+            <span className="text-slate-400 font-mono">
+              {formatDuration(e.durationMs)} ({e.pct.toFixed(1)}%)
+            </span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+// --- Main Component ---
+
 export default function SessionReplayView({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const [data, setData] = useState<SessionExport | null>(null);
@@ -163,19 +690,16 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
     if (!data) return [];
     const events: TimelineEvent[] = [];
 
-    // Transcript segments (only final)
     for (const seg of data.transcriptSegments) {
       if (seg.isFinal) {
         events.push({ type: 'segment', timestamp: seg.timestamp, segment: seg });
       }
     }
 
-    // Interventions
     for (const int of data.interventions) {
       events.push({ type: 'intervention', timestamp: int.timestamp, intervention: int });
     }
 
-    // State changes (from metric snapshots — deduplicate consecutive same-state)
     let lastState: string | null = null;
     for (const snap of data.metricSnapshots) {
       const inferred = snap.inferredState as { state?: ConversationStateName; confidence?: number } | undefined;
@@ -223,13 +747,10 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
     const sessionDurationMs = (snaps[snaps.length - 1].timestamp - snaps[0].timestamp);
     if (sessionDurationMs <= 0) return null;
 
-    // Track time in bad range for each metric
-    let partBadMs = 0;
+    let partRiskBadMs = 0;
     let repBadMs = 0;
     let stagBadMs = 0;
     let divBadMs = 0;
-    // v2 metrics
-    let partRiskBadMs = 0;
     let noveltyBadMs = 0;
     let clusterBadMs = 0;
 
@@ -237,16 +758,12 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
       const prev = snaps[i - 1];
       const dt = snaps[i].timestamp - prev.timestamp;
 
-      // Legacy metrics
-      if (prev.participationImbalance > 0.5) partBadMs += dt;
+      if (prev.participation && prev.participation.participationRiskScore > 0.55) partRiskBadMs += dt;
       if (prev.semanticRepetitionRate > 0.5) repBadMs += dt;
       if (prev.stagnationDuration > 60) stagBadMs += dt;
       if (prev.diversityDevelopment < 0.3) divBadMs += dt;
 
-      // v2 metrics (from config thresholds)
-      const p = prev.participation;
       const sd = prev.semanticDynamics;
-      if (p && p.participationRiskScore > 0.55) partRiskBadMs += dt;
       if (sd && sd.noveltyRate < 0.3) noveltyBadMs += dt;
       if (sd && sd.clusterConcentration > 0.7) clusterBadMs += dt;
     }
@@ -254,18 +771,16 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
     return {
       sessionDurationMs,
       metrics: [
-        { label: 'Participation Imbalance', badMs: partBadMs, threshold: '> 50%', higherIsBetter: false },
-        { label: 'Repetition', badMs: repBadMs, threshold: '> 50%', higherIsBetter: false },
-        { label: 'Stagnation', badMs: stagBadMs, threshold: '> 60s', higherIsBetter: false },
-        { label: 'Low Diversity', badMs: divBadMs, threshold: '< 30%', higherIsBetter: true },
-        { label: 'Participation Risk', badMs: partRiskBadMs, threshold: '> 0.55', higherIsBetter: false },
-        { label: 'Low Novelty', badMs: noveltyBadMs, threshold: '< 0.30', higherIsBetter: false },
-        { label: 'High Cluster Conc.', badMs: clusterBadMs, threshold: '> 0.70', higherIsBetter: false },
+        { label: 'Part. Risk', badMs: partRiskBadMs, threshold: '> 0.55' },
+        { label: 'Repetition', badMs: repBadMs, threshold: '> 50%' },
+        { label: 'Stagnation', badMs: stagBadMs, threshold: '> 60s' },
+        { label: 'Low Diversity', badMs: divBadMs, threshold: '< 30%' },
+        { label: 'Low Novelty', badMs: noveltyBadMs, threshold: '< 0.30' },
+        { label: 'High Cluster', badMs: clusterBadMs, threshold: '> 0.70' },
       ],
     };
   }, [data]);
 
-  // Calculate how long the session spent in each conversation state for the breakdown chart
   const stateDurations = useMemo(() => {
     if (!data || data.metricSnapshots.length < 2) return null;
     const snaps = data.metricSnapshots;
@@ -281,7 +796,6 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
       durations[state] = (durations[state] ?? 0) + dt;
     }
 
-    // Sort: risk states first, then healthy
     const DISPLAY_ORDER: ConversationStateName[] = [
       'DOMINANCE_RISK', 'CONVERGENCE_RISK', 'STALLED_DISCUSSION',
       'HEALTHY_EXPLORATION', 'HEALTHY_ELABORATION',
@@ -331,7 +845,6 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
   const segmentCount = data.transcriptSegments.filter(s => s.isFinal).length;
   const recoveredCount = data.interventions.filter(i => i.recoveryResult === 'recovered').length;
 
-  // Closest metric snapshot for detail panel
   const activeSnapshot = selectedSnapshot !== null
     ? data.metricSnapshots[selectedSnapshot]
     : data.metricSnapshots[data.metricSnapshots.length - 1] ?? null;
@@ -371,6 +884,16 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
           <StatCard label="Recovery" value={interventionCount > 0 ? `${((recoveredCount / interventionCount) * 100).toFixed(0)}%` : 'N/A'} />
           <StatCard label="Ideas" value={data.ideas.length.toString()} />
         </div>
+
+        {/* Metrics Timeline Chart (full width) */}
+        {data.metricSnapshots.length >= 2 && (
+          <MetricsTimelineChart
+            snapshots={data.metricSnapshots}
+            interventions={data.interventions}
+            startTime={metadata.startTime}
+            speakers={speakers}
+          />
+        )}
 
         {/* Main Layout: Timeline + Sidebar */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -423,14 +946,13 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
 
           {/* Sidebar (1/3) */}
           <div className="space-y-4">
-            {/* Metric Snapshots Timeline */}
+            {/* Metric Snapshots Scrubber */}
             <Panel>
               <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
                 Metric Snapshots ({data.metricSnapshots.length})
               </h3>
               {data.metricSnapshots.length > 0 && activeSnapshot ? (
                 <>
-                  {/* Mini timeline scrubber */}
                   <div className="mb-4">
                     <input
                       type="range"
@@ -462,13 +984,13 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
                   {/* Metric Bars */}
                   <div className="space-y-3">
                     <MetricBar
-                      label="Participation"
+                      label="Part. Risk"
                       icon="P"
-                      value={activeSnapshot.participationImbalance}
-                      displayValue={formatPercent(activeSnapshot.participationImbalance)}
-                      threshold={0.5}
+                      value={activeSnapshot.participation?.participationRiskScore ?? 0}
+                      displayValue={formatPercent(activeSnapshot.participation?.participationRiskScore ?? 0)}
+                      threshold={0.55}
                       higherIsBetter={false}
-                      statusText={activeSnapshot.participationImbalance > 0.5 ? 'Imbalanced' : 'Balanced'}
+                      statusText={(activeSnapshot.participation?.participationRiskScore ?? 0) > 0.55 ? 'At Risk' : 'Balanced'}
                     />
                     <MetricBar
                       label="Repetition"
@@ -504,73 +1026,27 @@ export default function SessionReplayView({ sessionId }: { sessionId: string }) 
               )}
             </Panel>
 
-            {/* Metric Health Summary */}
+            {/* Metric Health Summary (Recharts) */}
             {metricHealthSummary && (
-              <Panel>
-                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
-                  Metric Health Summary
-                </h3>
-                <p className="text-xs text-slate-500 mb-3">
-                  Time each metric spent in the unhealthy range over {formatDuration(metricHealthSummary.sessionDurationMs)}
-                </p>
-                <div className="space-y-2">
-                  {metricHealthSummary.metrics.map(m => {
-                    const pct = (m.badMs / metricHealthSummary.sessionDurationMs) * 100;
-                    const isWarning = pct > 20;
-                    const isDanger = pct > 50;
-                    return (
-                      <div key={m.label}>
-                        <div className="flex justify-between text-xs mb-0.5">
-                          <span className="text-slate-300">{m.label}</span>
-                          <span className={isDanger ? 'text-red-400 font-medium' : isWarning ? 'text-yellow-400' : 'text-green-400'}>
-                            {pct.toFixed(1)}% ({formatDuration(m.badMs)})
-                          </span>
-                        </div>
-                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${isDanger ? 'bg-red-500' : isWarning ? 'bg-yellow-500' : 'bg-green-500'}`}
-                            style={{ width: `${Math.min(100, pct)}%` }}
-                          />
-                        </div>
-                        <div className="text-[10px] text-slate-600 mt-0.5">threshold: {m.threshold}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Panel>
+              <HealthSummaryChart metricHealthSummary={metricHealthSummary} />
             )}
 
-            {/* State Duration Breakdown */}
+            {/* Intervention Impact (Recharts) */}
+            {data.interventions.length > 0 && data.metricSnapshots.length >= 2 && (
+              <InterventionImpactChart
+                interventions={data.interventions}
+                snapshots={data.metricSnapshots}
+              />
+            )}
+
+            {/* Intervention Success Rate */}
+            {data.interventions.length > 0 && (
+              <InterventionSuccessCard interventions={data.interventions} />
+            )}
+
+            {/* State Duration Breakdown (Recharts Donut) */}
             {stateDurations && (
-              <Panel>
-                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
-                  State Duration Breakdown
-                </h3>
-                {/* Stacked bar */}
-                <div className="flex h-4 rounded-md overflow-hidden mb-3">
-                  {stateDurations.entries.map(e => (
-                    <div
-                      key={e.state}
-                      className={`${STATE_BAR_COLORS[e.state] ?? 'bg-slate-600'}`}
-                      style={{ width: `${e.pct}%` }}
-                      title={`${e.state.replace(/_/g, ' ')}: ${e.pct.toFixed(1)}%`}
-                    />
-                  ))}
-                </div>
-                <div className="space-y-1.5">
-                  {stateDurations.entries.map(e => (
-                    <div key={e.state} className="flex justify-between items-center text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`inline-block w-2 h-2 rounded-sm ${STATE_BAR_COLORS[e.state] ?? 'bg-slate-600'}`} />
-                        <span className="text-slate-300">{e.state.replace(/_/g, ' ')}</span>
-                      </div>
-                      <span className="text-slate-400 font-mono">
-                        {formatDuration(e.durationMs)} ({e.pct.toFixed(1)}%)
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
+              <StateDurationChart stateDurations={stateDurations} />
             )}
 
             {/* Ideas (collapsible) */}
@@ -675,7 +1151,6 @@ const FILTER_ACTIVE_STYLES: Record<string, string> = {
   emerald: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300',
 };
 
-/** Toggle button for filtering timeline events by type (segment, intervention, state change). */
 function FilterButton({ label, active, onClick, color }: {
   label: string;
   active: boolean;
@@ -694,6 +1169,3 @@ function FilterButton({ label, active, onClick, color }: {
     </button>
   );
 }
-
-
-

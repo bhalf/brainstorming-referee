@@ -1,43 +1,146 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { MetricSnapshot, ExperimentConfig, DecisionEngineState, Intervention } from '@/lib/types';
 import { CONVERSATION_STATE_CONFIG, ENGINE_PHASE_CONFIG } from '@/lib/decision/stateConfig';
 import { generateSessionSummaryText } from '@/lib/state/generateSessionSummaryText';
-import { formatTime } from '@/lib/utils/format';
+
 import type { LiveSummaryState } from '@/lib/hooks/useLiveSummary';
-import MetricBar from './shared/MetricBar';
+import InfoPopover from './shared/InfoPopover';
 import Panel from './shared/Panel';
 
 interface DashboardTabProps {
   currentMetrics: MetricSnapshot | null;
+  metricsHistory: MetricSnapshot[];
   config: ExperimentConfig;
   decisionState: DecisionEngineState;
   interventions: Intervention[];
   liveSummary: LiveSummaryState;
+  restrictedView?: boolean;
 }
 
-/**
- * Dashboard metrics tab displaying real-time conversation health.
- * Shows session state, engine phase, participation balance, idea quality metrics,
- * activity indicators, and recent interventions with their intent labels.
- *
- * @param currentMetrics - Latest metric snapshot from the analysis engine.
- * @param config - Active experiment configuration with threshold values.
- * @param decisionState - Current decision engine phase and intervention count.
- * @param interventions - All interventions for showing recent activity.
- * @param liveSummary - AI-generated or fallback session summary text.
- */
+// ─── Mini Sparkline ──────────────────────────────────────────────────────────
+
+function MiniSparkline({ data, color }: { data: number[]; color: string }) {
+  if (data.length < 2) return null;
+  const chartData = data.map((v, i) => ({ v, i }));
+  return (
+    <div className="w-12 h-5 flex-shrink-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id={`spark-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.4} />
+              <stop offset="100%" stopColor={color} stopOpacity={0.05} />
+            </linearGradient>
+          </defs>
+          <Area
+            type="monotone"
+            dataKey="v"
+            stroke={color}
+            strokeWidth={1.5}
+            fill={`url(#spark-${color.replace('#', '')})`}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── Dashboard Metric Bar ────────────────────────────────────────────────────
+
+interface DashboardMetricBarProps {
+  label: string;
+  icon: string;
+  value: number;
+  displayValue: string;
+  threshold: number;
+  higherIsBetter: boolean;
+  statusText: string;
+  sparkData?: number[];
+  sparkColor?: string;
+  helpKey?: string;
+}
+
+function DashboardMetricBar({
+  label,
+  icon,
+  value,
+  displayValue,
+  threshold,
+  higherIsBetter,
+  statusText,
+  sparkData,
+  sparkColor,
+  helpKey,
+}: DashboardMetricBarProps) {
+  const breached = higherIsBetter ? value < threshold : value > threshold;
+  const barColor = breached ? 'bg-red-500' : value === 0 ? 'bg-slate-600' : 'bg-emerald-500';
+  const statusColor = breached ? 'text-red-400' : 'text-emerald-400';
+  const valueColor = breached ? 'text-red-400' : 'text-slate-100';
+  const barWidth = Math.min(100, Math.max(0, value * 100));
+  const thresholdPos = Math.min(100, Math.max(0, threshold * 100));
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-slate-300 font-medium flex items-center gap-1">
+          <span>{icon}</span>
+          <span>{label}</span>
+          {helpKey && <span className="inline-flex align-middle"><InfoPopover helpKey={helpKey} size="xs" /></span>}
+        </span>
+        <div className="flex items-center gap-2">
+          {sparkData && sparkColor && <MiniSparkline data={sparkData} color={sparkColor} />}
+          <span className={`font-mono font-semibold ${valueColor}`}>{displayValue}</span>
+        </div>
+      </div>
+
+      <div className="relative h-2 bg-slate-700/60 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ease-out ${barColor}`}
+          style={{ width: `${barWidth}%` }}
+        />
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-yellow-400/70"
+          style={{ left: `${thresholdPos}%` }}
+          title={`Threshold: ${(threshold * 100).toFixed(0)}%`}
+        />
+      </div>
+
+      <div className={`text-[10px] mt-0.5 ${statusColor}`}>{statusText}</div>
+    </div>
+  );
+}
+
+// ─── Dashboard Tab ───────────────────────────────────────────────────────────
+
 export default function DashboardTab({
   currentMetrics,
+  metricsHistory,
   config,
   decisionState,
   interventions,
   liveSummary,
+  restrictedView,
 }: DashboardTabProps) {
 
   const [showMoreParticipation, setShowMoreParticipation] = useState(false);
   const [showMoreIdeas, setShowMoreIdeas] = useState(false);
+
+  // Extract sparkline data (last 30 snapshots) for each metric
+  const sparklines = useMemo(() => {
+    const recent = metricsHistory.slice(-30);
+    return {
+      participationRisk: recent.map(m => m.participation?.participationRiskScore ?? m.participationImbalance),
+      balance: recent.map(m => 1 - m.participationImbalance),
+      novelty: recent.map(m => m.semanticDynamics?.noveltyRate ?? 0),
+      spread: recent.map(m => m.semanticDynamics ? 1 - m.semanticDynamics.clusterConcentration : 0),
+      ideaRate: recent.map(m => m.semanticDynamics ? Math.min(1, m.semanticDynamics.ideationalFluencyRate / 10) : 0),
+      stagnation: recent.map(m => Math.min(1, m.stagnationDuration / 120)),
+    };
+  }, [metricsHistory]);
 
   if (!currentMetrics) {
     return (
@@ -60,15 +163,13 @@ export default function DashboardTab({
   const phase = decisionState.phase;
   const phaseConfig = ENGINE_PHASE_CONFIG[phase];
 
-  // Normalize metric values to 0-1 range for MetricBar display
+  // Normalize metric values to 0-1 range
   const diversity = Math.min(1, currentMetrics.diversityDevelopment);
-  const stagnationScale = 120;
-  const stagnationNorm = Math.min(1, currentMetrics.stagnationDuration / stagnationScale);
+  const stagnationNorm = Math.min(1, currentMetrics.stagnationDuration / 120);
   const isInCooldown = decisionState.cooldownUntil !== null && decisionState.cooldownUntil > Date.now();
   const cooldownSecsLeft = isInCooldown ? Math.ceil((decisionState.cooldownUntil! - Date.now()) / 1000) : 0;
   const maxInterventions = config.MAX_INTERVENTIONS_PER_10MIN;
 
-  // Invert cluster concentration so higher values mean better topic distribution
   const topicSpread = currentMetrics.semanticDynamics
     ? 1 - currentMetrics.semanticDynamics.clusterConcentration
     : 0;
@@ -82,42 +183,42 @@ export default function DashboardTab({
   return (
     <div className="h-full overflow-y-auto space-y-3 p-3">
 
-      {/* Session State + Engine Phase */}
-      <Panel className="!p-3">
-        <div className="flex items-center gap-2 mb-2">
-          {/* Conversation State Badge */}
-          {inferredState && convStateConfig && (
-            <div className={`flex items-center gap-2 flex-1 px-2.5 py-1.5 rounded-lg border ${convStateConfig.severity === 'healthy' ? 'border-green-700/50 bg-green-900/20' :
-              convStateConfig.severity === 'warning' ? 'border-yellow-700/50 bg-yellow-900/20' :
-                'border-red-700/50 bg-red-900/20'
-              }`}>
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${convStateConfig.color}`} />
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-semibold text-white">{convStateConfig.label}</span>
-                <span className="text-xs text-slate-400 ml-1.5">({(inferredState.confidence * 100).toFixed(0)}%)</span>
+      {/* Session State + Engine Phase (host only) */}
+      {!restrictedView && (
+        <Panel className="!p-3">
+          <div className="flex items-center gap-2 mb-2">
+            {inferredState && convStateConfig && (
+              <div className={`flex items-center gap-2 flex-1 px-2.5 py-1.5 rounded-lg border ${convStateConfig.severity === 'healthy' ? 'border-green-700/50 bg-green-900/20' :
+                convStateConfig.severity === 'warning' ? 'border-yellow-700/50 bg-yellow-900/20' :
+                  'border-red-700/50 bg-red-900/20'
+                }`}>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${convStateConfig.color}`} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-semibold text-white">{convStateConfig.label}</span>
+                  <span className="text-xs text-slate-400 ml-1.5">({(inferredState.confidence * 100).toFixed(0)}%)</span>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Engine Phase + Intervention Counter */}
-        <div className="flex items-center gap-2 text-xs">
-          {phaseConfig && (
-            <span className={`px-2 py-0.5 rounded font-medium text-white ${phaseConfig.badgeColor}`}>
-              {phaseConfig.label}
+          <div className="flex items-center gap-2 text-xs">
+            {phaseConfig && (
+              <span className={`px-2 py-0.5 rounded font-medium text-white ${phaseConfig.badgeColor}`}>
+                {phaseConfig.label}
+              </span>
+            )}
+            <span className="text-slate-400">
+              <span className={decisionState.interventionCount >= maxInterventions ? 'text-red-400 font-semibold' : 'text-slate-200'}>
+                {decisionState.interventionCount}/{maxInterventions}
+              </span>
+              {' '}interventions
             </span>
-          )}
-          <span className="text-slate-400">
-            <span className={decisionState.interventionCount >= maxInterventions ? 'text-red-400 font-semibold' : 'text-slate-200'}>
-              {decisionState.interventionCount}/{maxInterventions}
-            </span>
-            {' '}interventions
-          </span>
-          {isInCooldown && (
-            <span className="text-yellow-400 font-mono">{cooldownSecsLeft}s cooldown</span>
-          )}
-        </div>
-      </Panel>
+            {isInCooldown && (
+              <span className="text-yellow-400 font-mono">{cooldownSecsLeft}s cooldown</span>
+            )}
+          </div>
+        </Panel>
+      )}
 
       {/* Live Summary */}
       <Panel className="!p-3">
@@ -130,7 +231,8 @@ export default function DashboardTab({
         <p className="text-xs text-slate-400 leading-relaxed">{summaryText}</p>
       </Panel>
 
-      {/* Participation */}
+      {/* Analytics sections (host only) */}
+      {!restrictedView && (<>
       <Panel className="!p-3">
         <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">Participation</h4>
 
@@ -164,26 +266,28 @@ export default function DashboardTab({
         </div>
 
         {/* Primary Participation Metrics */}
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {currentMetrics.participation && (
-            <MetricBar
-              label="Participation Risk"
+            <DashboardMetricBar
+              label="Risk"
               icon="⚠️"
               helpKey="metric.participationRisk"
               value={currentMetrics.participation.participationRiskScore}
               displayValue={`${(currentMetrics.participation.participationRiskScore * 100).toFixed(0)}%`}
               threshold={config.THRESHOLD_PARTICIPATION_RISK}
               higherIsBetter={false}
+              sparkData={sparklines.participationRisk}
+              sparkColor="#f97316"
               statusText={
                 speakerCount <= 1
                   ? 'Only 1 speaker'
                   : currentMetrics.participation.participationRiskScore >= config.THRESHOLD_PARTICIPATION_RISK
-                    ? 'High imbalance risk'
+                    ? 'High imbalance'
                     : 'Balanced'
               }
             />
           )}
-          <MetricBar
+          <DashboardMetricBar
             label="Balance"
             icon="⚖️"
             helpKey="metric.balance"
@@ -191,6 +295,8 @@ export default function DashboardTab({
             displayValue={`${((1 - currentMetrics.participationImbalance) * 100).toFixed(0)}%`}
             threshold={0.5}
             higherIsBetter={true}
+            sparkData={sparklines.balance}
+            sparkColor="#3b82f6"
             statusText={
               speakerCount <= 1
                 ? 'Only 1 speaker'
@@ -213,8 +319,8 @@ export default function DashboardTab({
             </button>
             {showMoreParticipation && (
               <div className="mt-2">
-                <MetricBar
-                  label="Long-Term Balance"
+                <DashboardMetricBar
+                  label="Long-Term"
                   icon="📊"
                   helpKey="metric.cumulativeBalance"
                   value={1 - currentMetrics.participation.cumulativeParticipationImbalance}
@@ -223,7 +329,7 @@ export default function DashboardTab({
                   higherIsBetter={true}
                   statusText={
                     currentMetrics.participation.cumulativeParticipationImbalance > 0.5
-                      ? 'Long-term imbalance detected'
+                      ? 'Long-term imbalance'
                       : 'Stable over time'
                   }
                 />
@@ -237,10 +343,10 @@ export default function DashboardTab({
       <Panel className="!p-3">
         <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">Idea Quality</h4>
 
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {currentMetrics.semanticDynamics && (
             <>
-              <MetricBar
+              <DashboardMetricBar
                 label="Novelty"
                 icon="✨"
                 helpKey="metric.novelty"
@@ -248,24 +354,28 @@ export default function DashboardTab({
                 displayValue={`${(currentMetrics.semanticDynamics.noveltyRate * 100).toFixed(0)}%`}
                 threshold={config.THRESHOLD_NOVELTY_RATE}
                 higherIsBetter={true}
+                sparkData={sparklines.novelty}
+                sparkColor="#22c55e"
                 statusText={
                   currentMetrics.semanticDynamics.noveltyRate < config.THRESHOLD_NOVELTY_RATE
-                    ? 'Ideas are converging'
-                    : 'Fresh ideas flowing'
+                    ? 'Converging'
+                    : 'Fresh ideas'
                 }
               />
-              <MetricBar
-                label="Topic Spread"
+              <DashboardMetricBar
+                label="Spread"
                 icon="🎯"
                 helpKey="metric.concentration"
                 value={topicSpread}
                 displayValue={`${(topicSpread * 100).toFixed(0)}%`}
                 threshold={1 - config.THRESHOLD_CLUSTER_CONCENTRATION}
                 higherIsBetter={true}
+                sparkData={sparklines.spread}
+                sparkColor="#3b82f6"
                 statusText={
                   currentMetrics.semanticDynamics.clusterConcentration >= config.THRESHOLD_CLUSTER_CONCENTRATION
-                    ? 'Narrow topic range'
-                    : 'Topics well distributed'
+                    ? 'Narrow range'
+                    : 'Well distributed'
                 }
               />
             </>
@@ -281,10 +391,10 @@ export default function DashboardTab({
           {showMoreIdeas ? 'Show less' : 'Show more'}
         </button>
         {showMoreIdeas && (
-          <div className="mt-2 space-y-2.5">
+          <div className="mt-2 space-y-3">
             {currentMetrics.semanticDynamics && (
-              <MetricBar
-                label="Idea Building"
+              <DashboardMetricBar
+                label="Building"
                 icon="🔗"
                 helpKey="metric.piggybacking"
                 value={currentMetrics.semanticDynamics.piggybackingScore}
@@ -293,22 +403,22 @@ export default function DashboardTab({
                 higherIsBetter={true}
                 statusText={
                   currentMetrics.semanticDynamics.piggybackingScore >= 0.5
-                    ? 'Good idea building'
+                    ? 'Good building'
                     : currentMetrics.semanticDynamics.piggybackingScore >= 0.3
                       ? 'Some connections'
-                      : 'Parallel monologues'
+                      : 'Parallel talks'
                 }
               />
             )}
-            <MetricBar
-              label="Vocabulary Breadth"
+            <DashboardMetricBar
+              label="Vocabulary"
               icon="🌐"
               helpKey="metric.diversity"
               value={diversity}
               displayValue={`${(diversity * 100).toFixed(0)}%`}
               threshold={0.3}
               higherIsBetter={true}
-              statusText={diversity < 0.3 ? 'Low vocabulary diversity' : 'Good breadth'}
+              statusText={diversity < 0.3 ? 'Low diversity' : 'Good breadth'}
             />
           </div>
         )}
@@ -317,26 +427,28 @@ export default function DashboardTab({
       {/* Activity */}
       <Panel className="!p-3">
         <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">Activity</h4>
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {currentMetrics.semanticDynamics && (
-            <MetricBar
+            <DashboardMetricBar
               label="Idea Rate"
               icon="💬"
               helpKey="metric.fluency"
               value={Math.min(1, currentMetrics.semanticDynamics.ideationalFluencyRate / 10)}
-              displayValue={`${currentMetrics.semanticDynamics.ideationalFluencyRate.toFixed(1)}/min`}
+              displayValue={`${currentMetrics.semanticDynamics.ideationalFluencyRate.toFixed(1)}/m`}
               threshold={0.2}
               higherIsBetter={true}
+              sparkData={sparklines.ideaRate}
+              sparkColor="#06b6d4"
               statusText={
                 currentMetrics.semanticDynamics.ideationalFluencyRate >= 4
-                  ? 'Healthy idea flow'
+                  ? 'Healthy flow'
                   : currentMetrics.semanticDynamics.ideationalFluencyRate >= 2
-                    ? 'Moderate pace'
-                    : 'Very low activity'
+                    ? 'Moderate'
+                    : 'Very low'
               }
             />
           )}
-          <MetricBar
+          <DashboardMetricBar
             label="Stagnation"
             icon="⏸️"
             helpKey="metric.stagnation"
@@ -348,14 +460,17 @@ export default function DashboardTab({
             }
             threshold={0.5}
             higherIsBetter={false}
+            sparkData={sparklines.stagnation}
+            sparkColor="#eab308"
             statusText={
               currentMetrics.stagnationDuration >= 60
-                ? `No new ideas for ${currentMetrics.stagnationDuration.toFixed(0)}s`
-                : 'New content being introduced'
+                ? `Stalled ${currentMetrics.stagnationDuration.toFixed(0)}s`
+                : 'New content'
             }
           />
         </div>
       </Panel>
+      </>)}
 
       {/* Recent Interventions */}
       {recentInterventions.length > 0 && (

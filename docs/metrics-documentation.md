@@ -25,19 +25,33 @@ Diese Dokumentation beschreibt **alle angezeigten Metriken**, wie sie berechnet 
 
 ## Uebersicht
 
-| # | Metrik | Icon | Wert-Bereich | Besser wenn | Schwellenwert | KI | Datei |
-|---|--------|------|-------------|-------------|---------------|-----|-------|
-| 1 | Participation Risk | ⚠️ | 0–100% | Niedrig | 55% | Nein | `participation.ts` |
-| 2 | Novelty | 💡 | 0–100% | Hoch | 30% | Ja | `semanticDynamics.ts` |
-| 3 | Concentration | 🎯 | 0–100% | Niedrig | 70% | Ja | `semanticDynamics.ts` |
-| 4 | Balance | ⚖️ | 0–100% | Hoch | 35% | Nein | `computeMetrics.ts` |
-| 5 | Repetition | 🔁 | 0–100% | Niedrig | 75% | Hybrid | `embeddingCache.ts` |
-| 6 | Stagnation | ⏱️ | 0s–∞ | Niedrig | 180s | Hybrid | `computeMetrics.ts` |
-| 7 | Diversity | 🌐 | 0–100% | Hoch | 30% | Hybrid | `embeddingCache.ts` |
+### Im Dashboard angezeigte Metriken
 
+| # | Metrik | Icon | Wert-Bereich | Besser wenn | Schwellenwert | Quelle | KI | Datei |
+|---|--------|------|-------------|-------------|---------------|--------|-----|-------|
+| 1 | Participation Risk | ⚠️ | 0–100% | Niedrig | 55% | Config | Nein | `participation.ts` |
+| 2 | Balance | ⚖️ | 0–100% | Hoch | 50% | Hardcoded | Nein | `computeMetrics.ts` |
+| 3 | Long-Term Balance | 📊 | 0–100% | Hoch | 50% | Hardcoded | Nein | `participation.ts` |
+| 4 | Novelty | ✨ | 0–100% | Hoch | 30% | Config | Ja | `semanticDynamics.ts` |
+| 5 | Topic Spread | 🎯 | 0–100% | Hoch | 30% | Config | Ja | `semanticDynamics.ts` |
+| 6 | Piggybacking | 🔗 | 0–100% | Hoch | 40% | Hardcoded | Ja | `semanticDynamics.ts` |
+| 7 | Vocabulary | 🌐 | 0–100% | Hoch | 30% | Hardcoded | Hybrid | `embeddingCache.ts` |
+| 8 | Idea Rate | 💬 | 0–∞/min | Hoch | 2/min | Hardcoded | Nein | `semanticDynamics.ts` |
+| 9 | Stagnation | ⏸️ | 0s–∞ | Niedrig | 50% normalisiert | Hardcoded | Hybrid | `computeMetrics.ts` |
+
+### Intern berechnete Metriken (nicht im Dashboard)
+
+| Metrik | Wert-Bereich | KI | Status | Datei |
+|--------|-------------|-----|--------|-------|
+| Repetition (semanticRepetitionRate) | 0–100% | Hybrid | Legacy — ersetzt durch Novelty Rate | `embeddingCache.ts` |
+| Exploration/Elaboration Ratio | 0–100% | Ja | Fliesst in State Inference ein | `semanticDynamics.ts` |
+| Semantic Expansion Score | -1 bis +1 | Ja | Fliesst in State Inference ein | `semanticDynamics.ts` |
+
+**Config** = Schwellenwert aus `ExperimentConfig`, live anpassbar in den Settings.
+**Hardcoded** = Schwellenwert ist fest im Code definiert (nicht live anpassbar).
 **Hybrid** = Primaer mit OpenAI Embeddings, Fallback auf rein algorithmische Berechnung wenn Embeddings nicht verfuegbar.
 
-**Gelbe Linie im UI** = Schwellenwert. Wenn ueberschritten (bzw. unterschritten bei "hoeher ist besser"), wird der Balken **rot**.
+**Gelbe Markierung im UI** = Schwellenwert. Wenn ueberschritten (bzw. unterschritten bei "hoeher ist besser"), wird die Anzeige **rot**.
 
 ---
 
@@ -111,7 +125,7 @@ Wenn LiveKit meldet, dass 4 Teilnehmer im Raum sind, aber nur 2 im Transkript au
 
 | Parameter | Default | Bereich | Beschreibung |
 |-----------|---------|---------|--------------|
-| `THRESHOLD_SILENT_PARTICIPANT` | 0.05 | 0.01–0.30 | Ab welchem Redeanteil jemand als "still" gilt |
+| `THRESHOLD_SILENT_PARTICIPANT` | 0.10 | 0.01–0.30 | Ab welchem Redeanteil jemand als "still" gilt |
 
 #### 1c) Dominance Streak Score (25% Gewicht)
 
@@ -119,7 +133,7 @@ Misst, ob ein Sprecher **mehrere aufeinanderfolgende Wortbeitraege** monopolisie
 
 ```
 maxRun = laengste Serie aufeinanderfolgender Segmente desselben Sprechers
-         (in den letzten 30 Segmenten)
+         (in den letzten 50 Segmenten)
 
 rawStreak = maxRun / anzahlSegmente
 expectedStreak = 1 / anzahlSprecher
@@ -146,15 +160,15 @@ Welcher Anteil der letzten Aeusserungen **inhaltlich neue Ideen** einbringt (sta
 
 ### Berechnung (mit Embeddings)
 
-1. Die letzten 20 Segmente (aus max. 30 im Fenster) werden als **Embedding-Vektoren** dargestellt
+1. Die letzten 50 Segmente (aus max. 50 im Fenster) werden als **Embedding-Vektoren** dargestellt
 2. Fuer jedes Segment: **maximale Kosinus-Aehnlichkeit** zu allen vorhergehenden berechnen
-3. Wenn maxSimilarity < `NOVELTY_COSINE_THRESHOLD` (0.65) → Segment ist **novel**
+3. Wenn maxSimilarity < `NOVELTY_COSINE_THRESHOLD` (0.45) → Segment ist **novel**
 
 ```
 Fuer jedes Segment i (i = 1 bis 20):
     maxSim = Maximum von cosineSimilarity(embedding[i], embedding[j]) fuer alle j < i
 
-    Wenn maxSim < 0.65 → novel!
+    Wenn maxSim < 0.45 → novel!
 
 noveltyRate = anzahlNovelerSegmente / anzahlAusgewerteterSegmente
 ```
@@ -165,7 +179,7 @@ noveltyRate = anzahlNovelerSegmente / anzahlAusgewerteterSegmente
 
 | Parameter | Default | Bereich | Beschreibung |
 |-----------|---------|---------|--------------|
-| `NOVELTY_COSINE_THRESHOLD` | 0.65 | 0.30–0.90 | Unter dieser Aehnlichkeit gilt ein Segment als "novel" (kalibriert fuer text-embedding-3-small) |
+| `NOVELTY_COSINE_THRESHOLD` | 0.45 | 0.30–0.90 | Unter dieser Aehnlichkeit gilt ein Segment als "novel" (kalibriert fuer text-embedding-3-small UND text-embedding-3-large) |
 | `THRESHOLD_NOVELTY_RATE` | 0.30 | 0.05–0.80 | Schwellenwert im UI (gelbe Linie) |
 
 ### Fallback (ohne Embeddings)
@@ -174,7 +188,7 @@ Statt Kosinus-Aehnlichkeit auf Embedding-Vektoren wird **Jaccard-Aehnlichkeit** 
 
 **Fachbegriff: Jaccard-Aehnlichkeit** — vergleicht zwei Mengen: |Schnittmenge| / |Vereinigungsmenge|. 1.0 = identische Mengen, 0.0 = keine Ueberlappung.
 
-Schwellenwert im Fallback: 0.40 (statt 0.80 fuer Cosine, da Jaccard tendenziell niedrigere Werte liefert).
+Schwellenwert im Fallback: 0.40 (statt 0.45 fuer Cosine, da Jaccard tendenziell niedrigere Werte liefert).
 
 **Datei:** `lib/metrics/semanticDynamics.ts:computeNoveltyRate()`
 
@@ -196,7 +210,7 @@ Aehnliche Segmente werden zu Clustern gruppiert:
 1. Erstes Segment = erster Cluster (mit dem Embedding als Zentroid)
 2. Fuer jedes weitere Segment:
    - Kosinus-Aehnlichkeit zu **jedem bestehenden Cluster-Zentroid** berechnen
-   - Wenn max. Aehnlichkeit ≥ `CLUSTER_MERGE_THRESHOLD` (0.60) → in den aehnlichsten Cluster einordnen und Zentroid als laufenden Durchschnitt aktualisieren
+   - Wenn max. Aehnlichkeit ≥ `CLUSTER_MERGE_THRESHOLD` (0.35) → in den aehnlichsten Cluster einordnen und Zentroid als laufenden Durchschnitt aktualisieren
    - Sonst → neuen Cluster erstellen
 
 **Fachbegriff: Zentroid (Centroid)** — der "Mittelpunkt" eines Clusters, berechnet als Durchschnitt aller enthaltenen Vektoren.
@@ -214,7 +228,7 @@ concentration = (HHI - minHHI) / (1 - minHHI)    (normalisiert auf 0–1)
 
 | Parameter | Default | Bereich | Beschreibung |
 |-----------|---------|---------|--------------|
-| `CLUSTER_MERGE_THRESHOLD` | 0.60 | 0.30–0.90 | Ab welcher Aehnlichkeit ein Segment in einen bestehenden Cluster eingeordnet wird (kalibriert fuer text-embedding-3-small) |
+| `CLUSTER_MERGE_THRESHOLD` | 0.35 | 0.30–0.90 | Ab welcher Aehnlichkeit ein Segment in einen bestehenden Cluster eingeordnet wird (kalibriert fuer text-embedding-3-small UND text-embedding-3-large) |
 | `THRESHOLD_CLUSTER_CONCENTRATION` | 0.70 | 0.30–1.00 | Schwellenwert im UI (gelbe Linie) |
 
 **Beispiel:** 20 Segmente in 10 Clustern gleicher Groesse → HHI = 10 × (0.1)² = 0.1, minHHI = 1/20 = 0.05 → nHHI = (0.1 - 0.05) / (1 - 0.05) ≈ 0.053 (gesund, breit verteilt)
@@ -252,17 +266,19 @@ imbalance = Σ|share - perfectShare| / (2 × (1 - perfectShare))
 
 Wenn Audio-basierte Sprechzeiten von LiveKit vorhanden sind, werden diese statt Textlaenge verwendet.
 
-| Parameter | Default | Bereich | Beschreibung |
-|-----------|---------|---------|--------------|
-| `THRESHOLD_IMBALANCE` | 0.65 | 0.10–1.00 | Balance-Schwelle = 1 - 0.65 = 0.35 (35%) |
+**Schwellenwert im UI:** 50% (hardcoded — nicht in ExperimentConfig enthalten).
 
 **Datei:** `lib/metrics/computeMetrics.ts:computeParticipationImbalance()`
 
 ---
 
-## 5. Repetition
+## 5. Repetition (Legacy)
 
-**Icon:** 🔁 | **Bereich:** 0–100% | **Besser wenn:** Niedrig | **Schwellenwert:** 75%
+**Icon:** 🔁 | **Bereich:** 0–100% | **Besser wenn:** Niedrig
+
+> **Hinweis:** Diese Metrik wird weiterhin berechnet, aber **nicht mehr im Dashboard angezeigt**.
+> Sie wurde durch die **Novelty Rate** (Metrik 2) ersetzt, die ein besseres Signal liefert.
+> Die Werte werden im criteriaSnapshot fuer die Forschungsanalyse geloggt.
 
 ### Was wird gemessen?
 Wie stark sich **aufeinanderfolgende** Aeusserungen inhaltlich wiederholen.
@@ -272,7 +288,7 @@ Wie stark sich **aufeinanderfolgende** Aeusserungen inhaltlich wiederholen.
 Durchschnittliche Kosinus-Aehnlichkeit zwischen **aufeinanderfolgenden** Segment-Embeddings:
 
 ```
-Fuer i = 1 bis N (letzte 30 Segmente):
+Fuer i = 1 bis N (letzte 50 Segmente):
     similarity[i] = cosineSimilarity(embedding[i-1], embedding[i])
 
 repetitionRate = Durchschnitt aller similarity-Werte
@@ -295,10 +311,6 @@ repetitionRate = Durchschnitt aller Jaccard-Werte
 
 **Stoppwoerter** (Funktionswoerter wie "der", "die", "das", "the", "and" etc.) werden entfernt, damit nur inhaltstragende Woerter verglichen werden.
 
-| Parameter | Default | Bereich | Beschreibung |
-|-----------|---------|---------|--------------|
-| `THRESHOLD_REPETITION` | 0.75 | 0.10–1.00 | Schwellenwert im UI (gelbe Linie) |
-
 **Dateien:** `lib/metrics/embeddingCache.ts:computeEmbeddingRepetition()` + `lib/metrics/computeMetrics.ts:computeSemanticRepetitionRate()`
 
 ---
@@ -312,13 +324,13 @@ Wie viele Sekunden es her ist, seit jemand etwas **semantisch Neues** gesagt hat
 
 ### Berechnung (mit Embeddings)
 
-Geht **rueckwaerts** durch die letzten 30 Segmente und sucht das letzte, das inhaltlich neu war:
+Geht **rueckwaerts** durch die letzten 50 Segmente und sucht das letzte, das inhaltlich neu war:
 
 ```
 Fuer i = N rueckwaerts bis 1:
     maxSim = Maximum von cosineSimilarity(embedding[i], embedding[j]) fuer alle j < i
 
-    Wenn maxSim < STAGNATION_NOVELTY_THRESHOLD (0.70):
+    Wenn maxSim < STAGNATION_NOVELTY_THRESHOLD (0.40):
         → Dieses Segment hat neuen Inhalt eingefuehrt
         → stagnationDuration = (aktuelleZeit - timestamp[i]) / 1000
         → STOP
@@ -327,7 +339,7 @@ Wenn kein noveles Segment gefunden:
     → stagnationDuration = Zeit seit dem aeltesten Segment im Fenster
 ```
 
-**Unterschied zu Novelty:** Stagnation misst die *Zeit seit dem letzten neuen Beitrag* (in Sekunden), Novelty misst den *Anteil neuer Beitraege* (in Prozent). Ausserdem ist der Stagnation-Schwellenwert etwas strenger (0.70 vs. 0.65), weil Stagnation erst dann greifen soll, wenn selbst leicht abgewandelte Inhalte als "nicht neu" gelten.
+**Unterschied zu Novelty:** Stagnation misst die *Zeit seit dem letzten neuen Beitrag* (in Sekunden), Novelty misst den *Anteil neuer Beitraege* (in Prozent). Der Stagnation-Schwellenwert ist strenger (0.40 vs. 0.45), weil Stagnation erst dann zurueckgesetzt werden soll, wenn ein Beitrag wirklich deutlich vom Bisherigen abweicht.
 
 **Wichtig:** Sowohl Novelty als auch Stagnation verwenden die **maximale** Aehnlichkeit (nicht den Durchschnitt). Ein Segment ist nur dann "neu", wenn es sich von ALLEN vorherigen unterscheidet.
 
@@ -347,7 +359,7 @@ Einfach die Zeit seit dem letzten Segment (ohne semantische Analyse).
 | Parameter | Default | Bereich | Beschreibung |
 |-----------|---------|---------|--------------|
 | `THRESHOLD_STAGNATION_SECONDS` | 180 | 15–600 | Ab wann Stagnation als Problem gilt (gelbe Linie) |
-| `STAGNATION_NOVELTY_THRESHOLD` | 0.70 | 0.30–0.90 | Wie aehnlich ein Segment sein darf, um noch als "neu" zu gelten (kalibriert fuer text-embedding-3-small) |
+| `STAGNATION_NOVELTY_THRESHOLD` | 0.40 | 0.30–0.90 | Wie aehnlich ein Segment sein darf, um noch als "neu" zu gelten (kalibriert fuer text-embedding-3-small UND text-embedding-3-large) |
 
 **Datei:** `lib/metrics/computeMetrics.ts:computeStagnationDurationSemantic()`
 
@@ -365,7 +377,7 @@ Wie vielfaeltig das verwendete Vokabular ist. Misst die Breite des Wortschatzes 
 Durchschnittliche **paarweise** Kosinus-Aehnlichkeit aller Segmente:
 
 ```
-Fuer alle Segment-Paare (i, j) in den letzten 30 Segmenten:
+Fuer alle Segment-Paare (i, j) in den letzten 50 Segmenten:
     similarity = cosineSimilarity(embedding[i], embedding[j])
 
 avgSimilarity = Durchschnitt aller Paar-Aehnlichkeiten
@@ -397,9 +409,96 @@ Bei kurzen Texten (≤50 Woerter): einfacher TTR.
 
 ---
 
+## 8. Long-Term Balance (Cumulative Participation)
+
+**Icon:** 📊 | **Bereich:** 0–100% | **Besser wenn:** Hoch | **Schwellenwert:** 50% (hardcoded)
+
+### Was wird gemessen?
+Gleichmaessigkeit der Teilnahme ueber ein **laengeres Zeitfenster** (600 Sekunden statt 180). Verhindert "Dominanz-Amnesie": Eine Person, die 5 Minuten lang dominiert hat und dann 2 Minuten still ist, wird trotzdem als problematisch erkannt.
+
+### Berechnung
+
+Identisch zu Balance (Hoover-Index), aber auf Segmenten der letzten `CUMULATIVE_WINDOW_SECONDS` (default: 600s):
+
+```
+Long-Term Balance = 1 - cumulativeParticipationImbalance
+cumulativeParticipationImbalance = HooverIndex(volumeShare ueber 600s-Fenster)
+```
+
+| Parameter | Default | Bereich | Beschreibung |
+|-----------|---------|---------|--------------|
+| `CUMULATIVE_WINDOW_SECONDS` | 600 | 180–1200 | Laenge des kumulativen Analyse-Fensters in Sekunden |
+
+**Datei:** `lib/metrics/participation.ts:computeParticipationMetrics()`
+
+---
+
+## 9. Piggybacking (Idea Building)
+
+**Icon:** 🔗 | **Bereich:** 0–100% | **Besser wenn:** Hoch | **Schwellenwert:** 40% (hardcoded)
+
+### Was wird gemessen?
+Wie stark die Sprecher **aufeinander aufbauen** (Osborns "Aufbauen auf Ideen anderer"). Hoher Wert = Sprecher greifen Ideen des Vorgaengers auf. Niedriger Wert = parallele Monologe.
+
+### Berechnung (mit Embeddings)
+
+Durchschnittliche Kosinus-Aehnlichkeit zwischen **aufeinanderfolgenden Segmenten unterschiedlicher Sprecher**:
+
+```
+Fuer jedes aufeinanderfolgende Segment-Paar (i-1, i) in den letzten 50 Segmenten:
+    Wenn speaker[i] != speaker[i-1]:
+        similarity = cosineSimilarity(embedding[i-1], embedding[i])
+
+piggybackingScore = Durchschnitt aller Cross-Speaker-Similarities
+```
+
+**Wichtig:** Segmente desselben Sprechers werden uebersprungen — es werden nur Sprecherwechsel gemessen.
+
+### Fallback (ohne Embeddings)
+
+Jaccard-Wortmengen-Aehnlichkeit statt Kosinus-Aehnlichkeit, ebenfalls nur bei Sprecherwechseln.
+
+> **Hinweis:** Der Piggybacking-Score fliesst derzeit in **keine Entscheidung** ein. Er wird
+> im Dashboard angezeigt und im criteriaSnapshot geloggt, hat aber keinen Einfluss auf
+> State Inference oder Interventions-Entscheidungen. Er dient der Forschungsanalyse.
+
+**Datei:** `lib/metrics/semanticDynamics.ts:computePiggybackingScore()`
+
+---
+
+## 10. Ideational Fluency (Idea Rate)
+
+**Icon:** 💬 | **Bereich:** 0–∞ Turns/Minute | **Besser wenn:** Hoch | **Schwellenwert:** 2/min (hardcoded, normalisiert auf 0.2 = Rate/10)
+
+### Was wird gemessen?
+Wie viele **substantive Wortbeitraege** pro Minute generiert werden. Basiert auf Alex Osborns Brainstorming-Prinzip "Quantitaet vor Qualitaet". Ein Abfall der Fluency ist ein starkes Signal fuer STALLED_DISCUSSION.
+
+### Berechnung
+
+```
+substantiveSegments = Segmente mit > 2 Woertern (Backchannels bereits upstream gefiltert)
+
+durationMinutes = (letzterTimestamp - ersterTimestamp) / 60000
+
+ideationalFluencyRate = substantiveSegments.length / durationMinutes
+```
+
+Minimum 30 Sekunden Daten und 2 Segmente benoetigt, sonst Rate = 0.
+
+### Anzeige im UI
+
+Die Rate wird auf eine 0-1-Skala normalisiert mit Maximum 10 Turns/Minute:
+```
+displayValue = rate / 10     (0.2 = 2 Turns/min, 1.0 = 10+ Turns/min)
+```
+
+**Datei:** `lib/metrics/semanticDynamics.ts:computeIdeationalFluencyRate()`
+
+---
+
 ## Gespraechszustaende
 
-Aus den 7 Metriken leitet das System automatisch einen von **5 Gespraechszustaenden** ab. Dieser wird im "Conversation State"-Panel angezeigt.
+Aus den Metriken leitet das System automatisch einen von **5 Gespraechszustaenden** ab. Dieser wird im "Conversation State"-Panel angezeigt.
 
 ### Die 5 Zustaende
 
@@ -417,10 +516,15 @@ Fuer jeden der 5 Zustaende wird eine **Konfidenz** (0–1) berechnet. Der Zustan
 
 #### HEALTHY_EXPLORATION Konfidenz:
 ```
-0.25 × (1 - participationRiskScore)       ← Geringe Dominanz ist gesund
-0.30 × noveltyRate                         ← Viel Neuheit ist gesund
-0.20 × clamp(expansionScore + 0.5, 0, 1)  ← Sich ausweitender Ideenraum
-0.25 × explorationElaborationRatio         ← Viel Exploration
+Vorbedingung: participationRiskScore muss ≤ 0.5 sein! (sonst Confidence = 0)
+
+stagnationPenalty = clamp(stagnationDuration / 120, 0, 1)
+
+(0.25 × (1 - participationRiskScore) +      ← Geringe Dominanz ist gesund
+ 0.30 × noveltyRate +                        ← Viel Neuheit ist gesund (staerkstes Signal)
+ 0.20 × clamp(expansionScore + 0.5, 0, 1) + ← Sich ausweitender Ideenraum
+ 0.25 × explorationElaborationRatio)         ← Viel Exploration
+× (1 - stagnationPenalty)                    ← Abzug bei Stagnation
 ```
 
 #### HEALTHY_ELABORATION Konfidenz:
@@ -439,10 +543,10 @@ stagnationPenalty = clamp(stagnationDuration / 120, 0, 1)
 
 #### DOMINANCE_RISK Konfidenz:
 ```
-0.35 × participationRiskScore       ← Staerkstes Signal
-0.25 × silentParticipantRatio       ← Stille Teilnehmer
-0.20 × dominanceStreakScore          ← Monolog-Serien
-0.20 × participationImbalance       ← Gini-Ungleichheit
+0.30 × participationRiskScore                ← Composite-Risiko
+0.25 × silentParticipantRatio                ← Stille Teilnehmer
+0.20 × dominanceStreakScore                  ← Monolog-Serien
+0.25 × cumulativeParticipationImbalance      ← Langzeit-Ungleichheit (600s-Fenster)
 ```
 
 #### CONVERGENCE_RISK Konfidenz:
@@ -455,10 +559,14 @@ stagnationPenalty = clamp(stagnationDuration / 120, 0, 1)
 
 #### STALLED_DISCUSSION Konfidenz:
 ```
-0.25 × (1 - noveltyRate)                       ← Keine neuen Ideen
-0.30 × clamp(stagnationDuration / 180, 0, 1)   ← Langanhaltende Stille
-0.25 × clamp(-semanticExpansionScore, 0, 1)     ← Ideenraum schrumpft
-0.20 × (1 - diversityDevelopment)               ← Wenig Vokabular-Vielfalt
+0.20 × (1 - noveltyRate)                       ← Keine neuen Ideen
+0.25 × clamp(stagnationDuration / 180, 0, 1)   ← Langanhaltende Stille (staerkstes Signal)
+0.20 × clamp(-semanticExpansionScore, 0, 1)     ← Ideenraum schrumpft
+0.15 × (1 - diversityDevelopment)               ← Wenig Vokabular-Vielfalt
+0.20 × fluencyPenalty                           ← Wenige Turns pro Minute
+
+fluencyPenalty = clamp(1 - ideationalFluencyRate / 6, 0, 1)
+  → 0 Turns/Min = Penalty 1.0, ≥6 Turns/Min = Penalty 0.0
 ```
 
 ### Zusatzregeln
@@ -469,19 +577,32 @@ stagnationPenalty = clamp(stagnationDuration / 120, 0, 1)
 
 3. **Sekundaerzustand:** Wenn der zweithoechste Zustand >30% Konfidenz hat, wird er als sekundaerer Zustand angezeigt.
 
-### Interne Hilfsmetriken (nicht direkt angezeigt)
+### Interne Hilfsmetriken (nicht im Dashboard, aber entscheidungsrelevant)
 
 Diese Metriken werden intern berechnet und fliessen in die Zustandsinferenz ein:
 
-**Exploration/Elaboration Ratio:**
-Klassifiziert jedes Segment als "Exploration" (neue Richtung) oder "Elaboration" (Vertiefung):
-- `avgSim < EXPLORATION_COSINE_THRESHOLD (0.55)` zu allen vorherigen → Exploration
-- `maxSim > ELABORATION_COSINE_THRESHOLD (0.70)` zu einem vorherigen → Elaboration
-- Ratio = Exploration / (Exploration + Elaboration)
+**Exploration/Elaboration Ratio** (`explorationElaborationRatio`):
+Klassifiziert jedes Segment (letzte 20 aus max. 30) als "Exploration" (neue Richtung) oder "Elaboration" (Vertiefung):
+
+```
+Fuer jedes Segment i (i > 0):
+    avgSim = Durchschnitt von cosineSimilarity(i, j) fuer alle j < i
+    maxSim = Maximum von cosineSimilarity(i, j) fuer alle j < i
+
+    Wenn avgSim < EXPLORATION_COSINE_THRESHOLD (0.30) → Exploration
+    Sonst wenn maxSim > ELABORATION_COSINE_THRESHOLD (0.50) → Elaboration
+    Sonst → nicht klassifiziert (zaehlt nicht)
+
+Ratio = Exploration / (Exploration + Elaboration)
+```
+
+- Ratio 1.0 = alles Exploration (viele neue Richtungen)
+- Ratio 0.0 = alles Elaboration (nur Vertiefung)
+- Ratio 0.5 = neutral (Standardwert bei unzureichenden Daten)
 - Beide Schwellenwerte sind live anpassbar
 
-**Semantic Expansion Score:**
-Vergleicht aktuelle Metriken mit den letzten 5 Snapshots. Positiv = Ideenraum waechst, negativ = schrumpft:
+**Semantic Expansion Score** (`semanticExpansionScore`):
+Vergleicht aktuelle Metriken mit den letzten 12 Snapshots (~60s bei 5s-Intervall). Positiv = Ideenraum waechst, negativ = schrumpft:
 ```
 deltaConcentration = vorher_avgConcentration - jetzt_concentration  (positiv = besser)
 deltaNovelty = jetzt_noveltyRate - vorher_avgNovelty                (positiv = besser)
@@ -490,11 +611,19 @@ expansionScore = 0.5 × deltaConcentration + 0.5 × deltaNovelty
 Bereich: -1 bis +1
 ```
 
-**Datei:** `lib/state/inferConversationState.ts`
+Warum 12 Snapshots (nicht 5)? Bei 5-Sekunden-Intervallen und einem 300s-Metriken-Fenster
+ueberlappen sich aufeinanderfolgende Snapshots stark. 12 Snapshots (~60s) reduzieren
+diese Ueberlappung und machen Trends sichtbarer.
+
+**Datei:** `lib/state/inferConversationState.ts` + `lib/metrics/semanticDynamics.ts`
 
 ---
 
 ## Interventions-Engine
+
+> **Ausfuehrliche Dokumentation:** Fuer eine vollstaendige Erklaerung der Interventionslogik
+> (Szenarien A/B, Rule-Checker, Fatigue-System, Recovery-Pruefung, Zeitablaeufe) siehe
+> `docs/interventions-documentation.md`.
 
 Die Interventions-Engine nutzt den erkannten Gespraechszustand, um zu entscheiden ob und wie der KI-Moderator eingreifen soll.
 
@@ -504,7 +633,7 @@ Die Interventions-Engine nutzt den erkannten Gespraechszustand, um zu entscheide
 |-------|-------------|-------|
 | MONITORING | Beobachtet das Gespraech | Unbegrenzt |
 | CONFIRMING | Problematischer Zustand erkannt, wartet auf Bestaetigung | `CONFIRMATION_SECONDS` (30s) |
-| POST_CHECK | Intervention wurde gesendet, wartet auf Wirkung | `POST_CHECK_SECONDS` (90s) |
+| POST_CHECK | Intervention wurde gesendet, wartet auf Wirkung | `POST_CHECK_SECONDS` (180s) |
 | COOLDOWN | Pause nach Eskalation | `COOLDOWN_SECONDS` (180s) |
 
 ### Zustand → Intervention
@@ -524,7 +653,7 @@ Die Interventions-Engine nutzt den erkannten Gespraechszustand, um zu entscheide
 | `TTS_RATE_LIMIT_SECONDS` | 30 | 10–120 | Mindestabstand zwischen Sprachausgaben |
 | `CONFIRMATION_SECONDS` | 30 | 5–120 | Wie lange ein Problem bestehen muss |
 | `COOLDOWN_SECONDS` | 180 | 10–600 | Zwangspause nach Eskalation |
-| `POST_CHECK_SECONDS` | 90 | 5–300 | Wartezeit bevor Wirkung geprueft wird |
+| `POST_CHECK_SECONDS` | 180 | 5–300 | Wartezeit bevor Wirkung geprueft wird |
 | `RECOVERY_IMPROVEMENT_THRESHOLD` | 0.15 | 0.01–0.50 | Wie viel Verbesserung als "erholt" gilt |
 | `MIN_CONFIDENCE` | 0.45 | — | Mindestkonfidenz fuer Aktion (hardcoded) |
 
@@ -591,27 +720,38 @@ Wenn Embeddings nicht verfuegbar (API-Fehler, kein Key, Timeout):
 
 Alle Parameter koennen **live waehrend einer Session** im "Tuning"-Tab angepasst werden. Aenderungen wirken sofort ab dem naechsten Berechnungszyklus.
 
-### Schwellenwerte (wann wird interveniert?)
+### Schwellenwerte in ExperimentConfig (live anpassbar)
 
 | Parameter | Default | Bereich | Beschreibung |
 |-----------|---------|---------|--------------|
 | `THRESHOLD_PARTICIPATION_RISK` | 0.55 | 0.10–1.00 | Ab wann Participation Risk als Problem gilt |
 | `THRESHOLD_NOVELTY_RATE` | 0.30 | 0.05–0.80 | Unter diesem Novelty-Wert wird gewarnt |
 | `THRESHOLD_CLUSTER_CONCENTRATION` | 0.70 | 0.30–1.00 | Ab wann Concentration als Problem gilt |
-| `THRESHOLD_IMBALANCE` | 0.65 | 0.10–1.00 | Balance-Schwelle (im UI: 1 - Wert) |
-| `THRESHOLD_REPETITION` | 0.75 | 0.10–1.00 | Ab wann Repetition als Problem gilt |
 | `THRESHOLD_STAGNATION_SECONDS` | 180 | 15–600 | Stagnation in Sekunden |
-| `THRESHOLD_SILENT_PARTICIPANT` | 0.05 | 0.01–0.30 | Ab wann jemand als "still" gilt |
+| `THRESHOLD_SILENT_PARTICIPANT` | 0.10 | 0.01–0.30 | Ab wann jemand als "still" gilt |
+
+### Hardcoded UI-Schwellenwerte (nicht live anpassbar)
+
+Diese Schwellenwerte sind direkt in `DashboardTab.tsx` festgelegt:
+
+| Metrik im Dashboard | Schwellenwert | Beschreibung |
+|---------------------|--------------|--------------|
+| Balance | 0.50 (50%) | Ab wann Balance als Problem gilt |
+| Long-Term Balance | 0.50 (50%) | Ab wann kumulative Balance als Problem gilt |
+| Piggybacking (Building) | 0.40 (40%) | Ab wann "wenig Aufbauen" gewarnt wird |
+| Vocabulary (Diversity) | 0.30 (30%) | Ab wann geringe Diversitaet gewarnt wird |
+| Idea Rate (Fluency) | 0.20 (=2/min) | Normalisiert: Rate/10, Schwelle 0.2 = 2 Turns/min |
+| Stagnation | 0.50 (normalisiert) | 50% von `stagnationMax` (= 1.5 × THRESHOLD_STAGNATION_SECONDS) |
 
 ### Berechnungsparameter (wie werden Metriken berechnet?)
 
 | Parameter | Default | Bereich | Beschreibung |
 |-----------|---------|---------|--------------|
-| `NOVELTY_COSINE_THRESHOLD` | 0.65 | 0.30–0.90 | Aehnlichkeits-Schwelle fuer Novelty-Berechnung |
-| `CLUSTER_MERGE_THRESHOLD` | 0.60 | 0.30–0.90 | Aehnlichkeits-Schwelle fuer Cluster-Zuordnung |
-| `STAGNATION_NOVELTY_THRESHOLD` | 0.70 | 0.30–0.90 | Aehnlichkeits-Schwelle fuer Stagnation |
-| `EXPLORATION_COSINE_THRESHOLD` | 0.55 | 0.20–0.85 | Avg-Aehnlichkeit unter diesem Wert = Exploration |
-| `ELABORATION_COSINE_THRESHOLD` | 0.70 | 0.40–0.95 | Max-Aehnlichkeit ueber diesem Wert = Elaboration |
+| `NOVELTY_COSINE_THRESHOLD` | 0.45 | 0.30–0.90 | Aehnlichkeits-Schwelle fuer Novelty-Berechnung |
+| `CLUSTER_MERGE_THRESHOLD` | 0.35 | 0.30–0.90 | Aehnlichkeits-Schwelle fuer Cluster-Zuordnung |
+| `STAGNATION_NOVELTY_THRESHOLD` | 0.40 | 0.30–0.90 | Aehnlichkeits-Schwelle fuer Stagnation |
+| `EXPLORATION_COSINE_THRESHOLD` | 0.30 | 0.20–0.85 | Avg-Aehnlichkeit unter diesem Wert = Exploration |
+| `ELABORATION_COSINE_THRESHOLD` | 0.50 | 0.40–0.95 | Max-Aehnlichkeit ueber diesem Wert = Elaboration |
 | `PARTICIPATION_RISK_WEIGHTS` | [0.35, 0.25, 0.25, 0.15] | je 0.0–1.0 | Gewichte: [Hoover, Silent, Streak, TurnHoover] |
 
 ### Timing-Parameter
@@ -622,8 +762,8 @@ Alle Parameter koennen **live waehrend einer Session** im "Tuning"-Tab angepasst
 | `ANALYZE_EVERY_MS` | 5000 | 1000–30000 | Berechnungsintervall |
 | `CONFIRMATION_SECONDS` | 30 | 5–120 | Bestaetigung bevor Intervention |
 | `COOLDOWN_SECONDS` | 180 | 10–600 | Zwangspause nach Eskalation |
-| `POST_CHECK_SECONDS` | 90 | 5–300 | Wartezeit fuer Wirkungspruefung |
-| `PERSISTENCE_SECONDS` | 120 | 5–300 | Wie lange Problem bestehen muss (v1) |
+| `POST_CHECK_SECONDS` | 180 | 5–300 | Wartezeit fuer Wirkungspruefung |
+| `CUMULATIVE_WINDOW_SECONDS` | 600 | 180–1200 | Langzeit-Fenster fuer kumulative Participation |
 
 ### Sicherheitslimits
 
@@ -632,6 +772,7 @@ Alle Parameter koennen **live waehrend einer Session** im "Tuning"-Tab angepasst
 | `MAX_INTERVENTIONS_PER_10MIN` | 3 | 1–20 | Max. Interventionen pro 10 Minuten |
 | `TTS_RATE_LIMIT_SECONDS` | 30 | 10–120 | Mindestabstand zwischen Sprachausgaben |
 | `RECOVERY_IMPROVEMENT_THRESHOLD` | 0.15 | 0.01–0.50 | Verbesserung fuer "erholt"-Status |
+| `RULE_VIOLATION_COOLDOWN_MS` | 15000 | 10000–120000 | Mindestabstand zwischen Rule-Violation-Interventionen (ms) |
 
 ---
 

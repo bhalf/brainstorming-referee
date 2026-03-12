@@ -46,3 +46,26 @@ export function persistConnection(sessionId: string, connection: IdeaConnection)
         body: JSON.stringify({ sessionId, connection }),
     }, 1);
 }
+
+/**
+ * Delete a connection from the backend (fire-and-forget).
+ * @param connectionId - The UUID of the connection to delete.
+ */
+export function deleteConnection(connectionId: string): void {
+    apiFireAndForget('/api/ideas/connections', {
+        method: 'DELETE',
+        body: JSON.stringify({ connectionId }),
+    }, 1);
+}
+
+/**
+ * Update a connection's type and/or label (fire-and-forget).
+ * @param connectionId - The UUID of the connection to update.
+ * @param updates - Fields to update (connectionType, label).
+ */
+export function updateConnectionApi(connectionId: string, updates: { connectionType?: string; label?: string | null }): void {
+    apiFireAndForget('/api/ideas/connections', {
+        method: 'PATCH',
+        body: JSON.stringify({ connectionId, updates }),
+    }, 1);
+}

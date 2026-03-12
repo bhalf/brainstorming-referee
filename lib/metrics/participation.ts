@@ -19,7 +19,7 @@ import { TranscriptSegment, ParticipationMetrics, ExperimentConfig } from '../ty
 import { isActivityMarker } from '../utils/transcript';
 
 /** Maximum number of recent segments to analyze (sliding window). */
-const MAX_SEGMENTS = 30;
+const MAX_SEGMENTS = 50;
 
 /**
  * Backchannel words -- short confirmatory/reactive utterances (e.g. "ja", "mhm")

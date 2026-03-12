@@ -16,6 +16,7 @@ import { evaluatePolicy, intentToTrigger, countRecentInterventions, pruneInterve
 import { checkRuleViolations, RULE_CHECK_INTERVAL_MS, RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
 import { buildTranscriptContext } from '@/lib/decision/transcriptContext';
 import { executeIntervention, persistEngineState, persistRecoveryResult } from '@/lib/decision/interventionExecutor';
+import { logEnginePhaseChange, logRecoveryEvaluation, logRuleViolationEvent, logInterventionSuppressed } from '@/lib/services/eventService';
 import { DECISION_TICK_MS } from '@/lib/decision/tickConfig';
 
 /** Parameters for the decision engine loop hook. */
@@ -103,9 +104,20 @@ export function useDecisionLoop({
   // This prevents the race window where React's async re-render hasn't propagated
   // the new value into the ref yet, causing the next tick to read stale data.
   const applyStateUpdate = (updates: Partial<DecisionEngineState>) => {
+    const oldPhase = decisionStateRef.current.phase;
     updateDecisionState(updates);
     decisionStateRef.current = { ...decisionStateRef.current, ...updates };
     saveEngineState(decisionStateRef.current);
+
+    // Log engine phase transitions for scientific analysis
+    if (updates.phase && updates.phase !== oldPhase) {
+      logEnginePhaseChange(
+        sessionIdRef.current,
+        oldPhase,
+        updates.phase,
+        decisionStateRef.current.postCheckIntent ?? undefined,
+      );
+    }
   };
 
   // Decision engine interval
@@ -130,19 +142,19 @@ export function useDecisionLoop({
       }
 
       // --- 2. Rule Violation Check (periodic LLM-based detection) ---
-      // Suppressed when only 1 speaker is active in the last 60s (avoids false positives post-session)
+      // Require at least 1 speaker with recent segments (avoids checks on empty sessions)
       const recentSegments60s = transcriptSegmentsRef.current.filter(
         s => s.isFinal && s.timestamp > now - 60_000
       );
-      const uniqueSpeakers = new Set(recentSegments60s.map(s => s.speaker));
-      const multipleActiveSpeakers = uniqueSpeakers.size >= 2;
+      const hasRecentActivity = recentSegments60s.length >= 1;
 
-      if (!multipleActiveSpeakers && pendingRuleViolationRef.current) {
-        console.log('[DecisionLoop] Rule check skipped — single speaker active, clearing pending violation');
+      if (!hasRecentActivity && pendingRuleViolationRef.current) {
+        console.log('[DecisionLoop] Rule check skipped — no recent activity, clearing pending violation');
+        logRuleViolationEvent(sessionIdRef.current, { event: 'suppressed', suppressionReason: 'no_activity' });
         pendingRuleViolationRef.current = null;
       }
 
-      if (cfg.RULE_CHECK_ENABLED && !isRuleCheckingRef.current && multipleActiveSpeakers) {
+      if (cfg.RULE_CHECK_ENABLED && !isRuleCheckingRef.current && hasRecentActivity) {
         const timeSinceLastRuleCheck = now - lastRuleCheckTimeRef.current;
         if (timeSinceLastRuleCheck >= RULE_CHECK_INTERVAL_MS) {
           const prevRuleCheckTime = lastRuleCheckTimeRef.current;
@@ -154,6 +166,12 @@ export function useDecisionLoop({
               if (violation) {
                 pendingRuleViolationRef.current = violation;
                 console.log(`[DecisionLoop] Rule violation detected: ${violation.rule} (${violation.severity})`);
+                logRuleViolationEvent(sessionIdRef.current, {
+                  event: 'detected',
+                  rule: violation.rule,
+                  severity: violation.severity,
+                  evidence: violation.evidence,
+                });
               }
             })
             .catch(() => {
@@ -205,11 +223,23 @@ export function useDecisionLoop({
             now,
           );
 
+          // Log recovery evaluation for scientific analysis
+          logRecoveryEvaluation(sessionIdRef.current, {
+            interventionId: lastInterventionIdRef.current,
+            result: decision.recoveryResult,
+            phaseDurationMs: now - (decisionStateRef.current.lastInterventionTime ?? now),
+          });
+
           if (!decision.shouldIntervene && decision.recoveryResult !== undefined) {
             // Transition to next engine state atomically
+            const oldPhase = decisionStateRef.current.phase;
             decisionStateRef.current = decision.nextEngineState;
             updateDecisionState(decision.nextEngineState);
             saveEngineState(decision.nextEngineState);
+            // Log engine phase transition that bypasses applyStateUpdate
+            if (decision.nextEngineState.phase !== oldPhase) {
+              logEnginePhaseChange(sessionIdRef.current, oldPhase, decision.nextEngineState.phase);
+            }
             lastInterventionIdRef.current = null;
           }
         }
@@ -221,7 +251,11 @@ export function useDecisionLoop({
         // Log violation detections without acting
         if (pendingRuleViolationRef.current) {
           console.log(`[DecisionLoop] Baseline: rule violation logged (${pendingRuleViolationRef.current.rule}), not intervening`);
+          logInterventionSuppressed(sessionIdRef.current, { reason: 'baseline', intent: 'NORM_REINFORCEMENT' });
           pendingRuleViolationRef.current = null;
+        }
+        if (decision?.shouldIntervene && decision?.intent) {
+          logInterventionSuppressed(sessionIdRef.current, { reason: 'baseline', intent: decision.intent });
         }
         return;
       }
@@ -236,6 +270,11 @@ export function useDecisionLoop({
 
       if (!budgetAvailable) {
         console.log('[DecisionLoop] Intervention budget exhausted — dropping pending violation');
+        logInterventionSuppressed(sessionIdRef.current, {
+          reason: 'budget_exhausted',
+          recentCount: recentInterventionCount,
+          maxAllowed: cfg.MAX_INTERVENTIONS_PER_10MIN,
+        });
         pendingRuleViolationRef.current = null;
         return;
       }
@@ -255,6 +294,7 @@ export function useDecisionLoop({
         duplicateEvidence = recentEvidenceRef.current.some(e => e.evidence === normalized);
         if (duplicateEvidence) {
           console.log(`[DecisionLoop] Rule violation suppressed (duplicate evidence: "${pendingViolation.evidence}")`);
+          logRuleViolationEvent(sessionIdRef.current, { event: 'suppressed', rule: pendingViolation.rule, suppressionReason: 'duplicate_evidence' });
           pendingRuleViolationRef.current = null;
         }
       }
@@ -262,7 +302,9 @@ export function useDecisionLoop({
       const shouldFireViolation = !!pendingViolation && !ruleViolationCooldownActive && !duplicateEvidence;
 
       if (pendingViolation && ruleViolationCooldownActive && !duplicateEvidence) {
-        console.log(`[DecisionLoop] Rule violation suppressed (cooldown: ${Math.ceil((cfg.RULE_VIOLATION_COOLDOWN_MS - (now - lastRuleViolationTime)) / 1000)}s remaining)`);
+        const cooldownRemainingSec = Math.ceil((cfg.RULE_VIOLATION_COOLDOWN_MS - (now - lastRuleViolationTime)) / 1000);
+        console.log(`[DecisionLoop] Rule violation suppressed (cooldown: ${cooldownRemainingSec}s remaining)`);
+        logRuleViolationEvent(sessionIdRef.current, { event: 'suppressed', rule: pendingViolation.rule, suppressionReason: 'cooldown' });
         pendingRuleViolationRef.current = null; // Drop silently
       }
       // Metric interventions respect the global cooldown

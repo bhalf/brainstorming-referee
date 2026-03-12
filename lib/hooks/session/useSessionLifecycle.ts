@@ -9,6 +9,7 @@ import { buildExperimentMeta } from '@/lib/config/promptVersion';
 import { loadModelRoutingFromStorage } from '@/lib/config/modelRouting';
 import { apiGet, apiFireAndForget, apiPost } from '@/lib/services/apiClient';
 import { createSession, getSession, joinSession } from '@/lib/services/sessionService';
+import { logSessionLifecycle } from '@/lib/services/eventService';
 
 // ---- Types ----
 
@@ -180,18 +181,25 @@ export function useSessionLifecycle({
                 loadInitialData(sessionId);
             }
 
-            // Register as participant
+            // Register as participant + log lifecycle events
             if (sessionId) {
                 const identity = isParticipant ? participantName : 'Researcher';
+                const role = isParticipant ? 'participant' : 'host';
                 apiFireAndForget('/api/session/participants', {
                     method: 'POST',
                     body: JSON.stringify({
                         sessionId,
                         identity,
                         displayName: identity,
-                        role: isParticipant ? 'participant' : 'host',
+                        role,
                     }),
                 });
+
+                // Log session lifecycle events for scientific analysis
+                if (!isParticipant) {
+                    logSessionLifecycle(sessionId, 'session_start', identity, { scenario: sc, language: lang });
+                }
+                logSessionLifecycle(sessionId, 'participant_join', identity, { role });
             }
 
             // Pre-warm the transcription token endpoint — validates the API key is configured.
@@ -207,6 +215,7 @@ export function useSessionLifecycle({
         const handleBeforeUnload = () => {
             if (sessionIdRef.current) {
                 const identity = isParticipant ? participantName : 'Researcher';
+                logSessionLifecycle(sessionIdRef.current, 'participant_leave', identity, { reason: 'beforeunload' });
                 navigator.sendBeacon(
                     '/api/session/participants',
                     new Blob(

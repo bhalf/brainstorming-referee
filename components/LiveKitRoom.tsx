@@ -178,7 +178,11 @@ function LiveKitSession({
 
   // Track connection state
   useEffect(() => {
-    onConnectionChange(connectionState === ConnectionState.Connected);
+    // Treat Reconnecting as still connected — it's a transient WebRTC state
+    // where the connection is being re-established. Audio/data keeps flowing.
+    const isEffectivelyConnected = connectionState === ConnectionState.Connected
+        || connectionState === ConnectionState.Reconnecting;
+    onConnectionChange(isEffectivelyConnected);
 
     // Track disconnect: only fire callback when transitioning FROM connected
     if (connectionState === ConnectionState.Connected) {
@@ -296,59 +300,150 @@ export default function LiveKitRoomComponent({
 }: LiveKitRoomProps) {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tokenFailed, setTokenFailed] = useState(false);
+  const [isConnectionStuck, setIsConnectionStuck] = useState(false);
   const errorCountRef = useRef(0);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the retry key — incrementing forces a fresh token fetch
+  const [retryKey, setRetryKey] = useState(0);
 
-  // Fetch token on mount
+  const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+
+  // Fetch token with retry (up to 3 attempts with exponential backoff)
   useEffect(() => {
-    const fetchToken = async () => {
-      try {
-        const res = await fetch('/api/livekit/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            room: roomName,
-            identity: displayName,
-            name: displayName,
-          }),
-        });
+    let cancelled = false;
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || `Token request failed: ${res.status}`);
+    const fetchTokenWithRetry = async () => {
+      const MAX_RETRIES = 3;
+      let lastError: Error | null = null;
+
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (cancelled) return;
+
+        try {
+          const res = await fetch('/api/livekit/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              room: roomName,
+              identity: `${displayName}-${crypto.randomUUID().slice(0, 4)}`,
+              name: displayName,
+            }),
+          });
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || `Token request failed: ${res.status}`);
+          }
+
+          const { token: jwt } = await res.json();
+          if (!cancelled) {
+            setToken(jwt);
+            setError(null);
+            setTokenFailed(false);
+          }
+          return;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error('Failed to get token');
+          console.warn(`[LiveKit] Token fetch attempt ${attempt + 1}/${MAX_RETRIES} failed:`, lastError.message);
+
+          if (attempt < MAX_RETRIES - 1 && !cancelled) {
+            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+          }
         }
+      }
 
-        const { token: jwt } = await res.json();
-        setToken(jwt);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to get token');
+      if (!cancelled && lastError) {
+        setError(lastError.message);
+        setTokenFailed(true);
       }
     };
 
-    fetchToken();
-  }, [roomName, displayName]);
+    fetchTokenWithRetry();
+    return () => { cancelled = true; };
+  }, [roomName, displayName, retryKey]);
 
-  // Cleanup error timers on unmount to prevent setState on unmounted component
+  // Connection timeout: if not connected within 20s after token, show error with retry
+  useEffect(() => {
+    if (!token) return;
+
+    connectionTimeoutRef.current = setTimeout(() => {
+      setIsConnectionStuck(true);
+    }, 20_000);
+
+    return () => {
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+    };
+  }, [token]);
+
+  // Wrap onConnectionChange to clear timeout on successful connection
+  const onConnectionChangeRef = useRef(onConnectionChange);
+  useEffect(() => { onConnectionChangeRef.current = onConnectionChange; }, [onConnectionChange]);
+
+  const wrappedOnConnectionChange = useRef((connected: boolean) => {
+    if (connected) {
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
+      setIsConnectionStuck(false);
+      setError(null);
+      errorCountRef.current = 0;
+    }
+    onConnectionChangeRef.current(connected);
+  }).current;
+
+  // Cleanup all timers on unmount
   useEffect(() => {
     return () => {
       if (errorTimerRef.current) {
         clearTimeout(errorTimerRef.current);
         errorTimerRef.current = null;
       }
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = null;
+      }
     };
   }, []);
 
-  const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+  // Unified retry handler — resets all error states and re-fetches token
+  const handleRetry = () => {
+    setError(null);
+    setToken(null);
+    setTokenFailed(false);
+    setIsConnectionStuck(false);
+    errorCountRef.current = 0;
+    setRetryKey(k => k + 1);
+  };
 
-  if (error && errorCountRef.current >= 3) {
+  // --- Guard: server URL not configured ---
+  if (!serverUrl) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-slate-900 rounded-lg">
+        <div className="text-center p-8">
+          <div className="text-red-400 text-xl mb-4">!</div>
+          <h3 className="text-lg font-medium text-white mb-2">Configuration Error</h3>
+          <p className="text-slate-400 text-sm">LiveKit server URL is not configured.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Error: token fetch failed after all retries OR 3+ room errors ---
+  if (tokenFailed || (error && errorCountRef.current >= 3)) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-slate-900 rounded-lg">
         <div className="text-center p-8">
           <div className="text-red-400 text-xl mb-4">!</div>
           <h3 className="text-lg font-medium text-white mb-2">Connection Error</h3>
-          <p className="text-slate-400 text-sm mb-4">{error}</p>
+          <p className="text-slate-400 text-sm mb-4">{error || 'Failed to connect to room'}</p>
           <button
-            onClick={() => { setError(null); errorCountRef.current = 0; }}
+            onClick={handleRetry}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
           >
             Retry
@@ -358,6 +453,28 @@ export default function LiveKitRoomComponent({
     );
   }
 
+  // --- Error: connection stuck (token acquired but no connection after 20s) ---
+  if (isConnectionStuck) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-slate-900 rounded-lg">
+        <div className="text-center p-8">
+          <div className="text-yellow-400 text-xl mb-4">!</div>
+          <h3 className="text-lg font-medium text-white mb-2">Connection Timeout</h3>
+          <p className="text-slate-400 text-sm mb-4">
+            Could not connect to room within 20 seconds.
+          </p>
+          <button
+            onClick={handleRetry}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Loading: waiting for token ---
   if (!token) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-slate-900 rounded-lg">
@@ -371,7 +488,7 @@ export default function LiveKitRoomComponent({
   }
 
   return (
-    <LiveKitErrorBoundary onReset={() => { setError(null); errorCountRef.current = 0; }}>
+    <LiveKitErrorBoundary onReset={handleRetry}>
       <div className="w-full h-full rounded-lg overflow-hidden lk-theme-default flex flex-col" style={{ minHeight: '300px' }}>
         <LKRoom
           serverUrl={serverUrl}
@@ -382,7 +499,6 @@ export default function LiveKitRoomComponent({
           onError={(err) => {
             const msg = err.message || '';
             console.warn('[LiveKit] Room error:', msg);
-            // Show persistent error only after 3+ consecutive failures; otherwise auto-clear after 3s
             errorCountRef.current++;
             if (errorCountRef.current >= 3) {
               setError(msg);
@@ -391,8 +507,6 @@ export default function LiveKitRoomComponent({
               if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
               errorTimerRef.current = setTimeout(() => {
                 setError(null);
-                // Reset count after stable period
-                setTimeout(() => { errorCountRef.current = 0; }, 10000);
               }, 3000);
             }
           }}
@@ -401,7 +515,7 @@ export default function LiveKitRoomComponent({
           <RoomAudioRenderer />
           <LiveKitSession
             displayName={displayName}
-            onConnectionChange={onConnectionChange}
+            onConnectionChange={wrappedOnConnectionChange}
             onParticipantsChange={onParticipantsChange}
             onRemoteSpeakersChange={onRemoteSpeakersChange}
             onLocalSpeakingUpdate={onLocalSpeakingUpdate}

@@ -6,7 +6,8 @@ import { getServiceClient } from '@/lib/supabase/server';
  *
  * Looks up the most recent active (non-ended) session for the given room name.
  * If the desired participant name already exists among the session's transcript
- * speakers, an incrementing suffix is appended to guarantee uniqueness.
+ * speakers or active participants, an incrementing suffix is appended to
+ * guarantee uniqueness.
  *
  * @param request.body.roomName - LiveKit room to join.
  * @param request.body.participantName - Desired display name (may be deduplicated).
@@ -37,25 +38,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No active session found for this room' }, { status: 404 });
     }
 
-    // Deduplicate participant name: check for existing speakers in this session
+    // Deduplicate participant name: check existing speakers AND active participants
     let resolvedName = participantName || 'Participant';
     if (participantName) {
-      const { data: existingSegments } = await supabase
-        .from('transcript_segments')
-        .select('speaker')
-        .eq('session_id', data.id)
-        .limit(500);
+      const [{ data: existingSegments }, { data: existingParticipants }] = await Promise.all([
+        supabase
+          .from('transcript_segments')
+          .select('speaker')
+          .eq('session_id', data.id)
+          .limit(500),
+        supabase
+          .from('session_participants')
+          .select('display_name')
+          .eq('session_id', data.id),
+      ]);
 
-      if (existingSegments && existingSegments.length > 0) {
-        const existingSpeakers = new Set(existingSegments.map(s => s.speaker));
-        if (existingSpeakers.has(participantName)) {
-          // Append incrementing suffix until unique
-          let suffix = 2;
-          while (existingSpeakers.has(`${participantName} (${suffix})`)) {
-            suffix++;
-          }
-          resolvedName = `${participantName} (${suffix})`;
+      const existingSpeakers = new Set([
+        ...(existingSegments || []).map(s => s.speaker),
+        ...(existingParticipants || []).map(p => p.display_name),
+      ]);
+
+      if (existingSpeakers.has(participantName)) {
+        // Append incrementing suffix until unique
+        let suffix = 2;
+        while (existingSpeakers.has(`${participantName} (${suffix})`)) {
+          suffix++;
         }
+        resolvedName = `${participantName} (${suffix})`;
       }
     }
 

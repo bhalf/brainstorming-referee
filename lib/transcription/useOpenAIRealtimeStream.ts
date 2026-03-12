@@ -221,17 +221,27 @@ export function useOpenAIRealtimeStream({
         tokenRefreshTimerRef.current = setTimeout(async () => {
             if (!isMountedRef.current || !isActiveRef.current) return;
             console.log('[OpenAIStream] Token expiring soon — reconnecting WebSocket with fresh token...');
-            reconnectAttemptsRef.current = 0; // Reset reconnect counter for token refresh
-            try {
-                // IMPORTANT: We only reconnect the WebSocket. 
-                // We do NOT restart the audio pipeline because creating a new AudioContext 
-                // without a direct user interaction (like a click) will cause the browser 
-                // to start it in a "suspended" state, muting the microphone secretly.
-                await connectWebSocket();
-            } catch (e) {
-                console.error('[OpenAIStream] Token refresh reconnect failed:', e);
-                setError('Transcription token refresh failed');
+
+            // Retry up to 3 times with exponential backoff.
+            // IMPORTANT: We only reconnect the WebSocket, NOT the audio pipeline,
+            // because creating a new AudioContext without a user gesture causes
+            // the browser to start it in a "suspended" state, muting the mic.
+            for (let attempt = 0; attempt < 3; attempt++) {
+                if (!isMountedRef.current || !isActiveRef.current) return;
+                try {
+                    reconnectAttemptsRef.current = 0;
+                    await connectWebSocket();
+                    console.log(`[OpenAIStream] Token refresh succeeded${attempt > 0 ? ` (attempt ${attempt + 1})` : ''}`);
+                    return; // Success — exit retry loop
+                } catch (e) {
+                    console.warn(`[OpenAIStream] Token refresh attempt ${attempt + 1}/3 failed:`, e);
+                    if (attempt < 2) {
+                        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+                    }
+                }
             }
+            console.error('[OpenAIStream] Token refresh failed after 3 attempts');
+            setError('Transcription token refresh failed after 3 attempts');
         }, refreshInMs);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

@@ -34,6 +34,9 @@ export function SessionsDisplay() {
     const [active, setActive] = useState<SessionListItem[]>([]);
     const [past, setPast] = useState<SessionListItem[]>([]);
     const [loaded, setLoaded] = useState(false);
+    // Track which session's join form is open and the name being entered
+    const [joiningSessionId, setJoiningSessionId] = useState<string | null>(null);
+    const [joinName, setJoinName] = useState('');
 
     const load = useCallback(async () => {
         try {
@@ -85,12 +88,44 @@ export function SessionsDisplay() {
                                         <span>👥</span>
                                         <span className="font-medium">{s.participantCount}</span>
                                     </div>
-                                    <button
-                                        onClick={() => router.push(`/call/${encodeURIComponent(s.roomName)}?role=participant&name=Observer`)}
-                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-medium text-white transition-colors"
-                                    >
-                                        Join
-                                    </button>
+                                    {joiningSessionId === s.id ? (
+                                        <div className="flex items-center gap-1.5">
+                                            <input
+                                                type="text"
+                                                value={joinName}
+                                                onChange={e => setJoinName(e.target.value)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter' && joinName.trim().length >= 2) {
+                                                        router.push(`/call/${encodeURIComponent(s.roomName)}?role=participant&name=${encodeURIComponent(joinName.trim())}`);
+                                                    } else if (e.key === 'Escape') {
+                                                        setJoiningSessionId(null);
+                                                        setJoinName('');
+                                                    }
+                                                }}
+                                                placeholder="Your name"
+                                                autoFocus
+                                                className="w-24 px-2 py-1.5 text-xs bg-slate-900/60 border border-slate-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 text-white placeholder:text-slate-600"
+                                            />
+                                            <button
+                                                onClick={() => {
+                                                    if (joinName.trim().length >= 2) {
+                                                        router.push(`/call/${encodeURIComponent(s.roomName)}?role=participant&name=${encodeURIComponent(joinName.trim())}`);
+                                                    }
+                                                }}
+                                                disabled={joinName.trim().length < 2}
+                                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-xs font-medium text-white transition-colors"
+                                            >
+                                                Go
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => { setJoiningSessionId(s.id); setJoinName(''); }}
+                                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-medium text-white transition-colors"
+                                        >
+                                            Join
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))}

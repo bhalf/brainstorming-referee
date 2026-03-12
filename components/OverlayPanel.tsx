@@ -56,6 +56,7 @@ interface OverlayPanelProps {
   health?: SystemHealthProps;
   liveSummary: LiveSummaryState;
   children?: ReactNode;
+  isParticipant?: boolean;
 }
 
 type TabId = 'dashboard' | 'transcript' | 'settings';
@@ -97,7 +98,10 @@ export default function OverlayPanel({
   health,
   liveSummary,
   children,
+  isParticipant,
 }: OverlayPanelProps) {
+  const isRestricted = isParticipant && metrics.config.PARTICIPANT_VIEW_RESTRICTED;
+  const visibleTabs = isRestricted ? TABS.filter(t => t.id !== 'settings') : TABS;
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
 
   // Derive overall health status for the compact indicator in the header
@@ -146,7 +150,7 @@ export default function OverlayPanel({
 
       {/* Tabs */}
       <div className="flex border-b border-slate-700 overflow-x-auto scrollbar-hide">
-        {TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -166,10 +170,12 @@ export default function OverlayPanel({
         {activeTab === 'dashboard' && (
           <DashboardTab
             currentMetrics={metrics.currentMetrics}
+            metricsHistory={metrics.metricsHistory}
             config={metrics.config}
             decisionState={metrics.decisionState}
             interventions={interventions}
             liveSummary={liveSummary}
+            restrictedView={isRestricted}
           />
         )}
 
@@ -177,7 +183,7 @@ export default function OverlayPanel({
           <TranscriptTab transcript={transcript} />
         )}
 
-        {activeTab === 'settings' && (
+        {activeTab === 'settings' && !isRestricted && (
           <SettingsTab
             voice={voice}
             config={metrics.config}

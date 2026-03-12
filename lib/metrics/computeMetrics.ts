@@ -20,7 +20,7 @@ import { generateId } from '../utils/generateId';
 // Number of recent segments used for repetition / diversity computation.
 // Must match MAX_PAIRWISE_SEGMENTS in embeddingCache.ts so the Jaccard fallback
 // and the embedding path look at the same slice of the transcript.
-const REPETITION_WINDOW_SEGMENTS = 30;
+const REPETITION_WINDOW_SEGMENTS = 50;
 
 // --- Speaking Time Distribution ---
 // Uses text length as proxy for speaking time
@@ -140,11 +140,21 @@ export function computeSemanticRepetitionRate(
 
 export function computeStagnationDuration(
   segments: TranscriptSegment[],
-  currentTime: number = Date.now()
+  currentTime: number = Date.now(),
+  allSegments?: TranscriptSegment[],
 ): number {
   const finalSegments = segments.filter(s => s.isFinal && !isActivityMarker(s));
 
-  if (finalSegments.length === 0) return 0;
+  if (finalSegments.length === 0) {
+    // No segments in current window — check full history for silence duration
+    if (allSegments) {
+      const allFinal = allSegments.filter(s => s.isFinal && !isActivityMarker(s));
+      if (allFinal.length > 0) {
+        return Math.max(0, (currentTime - allFinal[allFinal.length - 1].timestamp) / 1000);
+      }
+    }
+    return 0;
+  }
 
   // Find the last segment that introduced new content
   // For simplicity, we use the timestamp of the last segment
@@ -163,16 +173,27 @@ export function computeStagnationDurationSemantic(
   embeddings: Map<string, number[]>,
   currentTime: number = Date.now(),
   stagnationNoveltyThreshold: number = 0.85,
+  allSegments?: TranscriptSegment[],
 ): number {
   // Exclude system activity markers — their embeddings are near-identical, which
   // would make the novelty walk conclude "no novel content" even during active speech.
   const allFinal = segments.filter(s => s.isFinal && s.text.trim().length > 3 && !/^\[.*\]$/.test(s.text.trim()));
 
-  if (allFinal.length === 0) return 0;
+  if (allFinal.length === 0) {
+    // No segments in current window — check if there were ANY segments ever
+    // (from the full unwindowed list). If so, stagnation = time since last segment.
+    if (allSegments) {
+      const allFinalEver = allSegments.filter(s => s.isFinal && s.text.trim().length > 3 && !/^\[.*\]$/.test(s.text.trim()));
+      if (allFinalEver.length > 0) {
+        return Math.max(0, (currentTime - allFinalEver[allFinalEver.length - 1].timestamp) / 1000);
+      }
+    }
+    return 0;
+  }
   if (allFinal.length === 1) return 0; // First segment is novel
 
-  // Cap at 30 most recent segments to keep the backward walk O(30²) = O(900) worst-case
-  const finalSegments = allFinal.slice(-30);
+  // Cap at 50 most recent segments to keep the backward walk O(50²) = O(2500) worst-case
+  const finalSegments = allFinal.slice(-50);
 
   // Walk backwards to find the last segment that was truly novel
   for (let i = finalSegments.length - 1; i >= 1; i--) {
@@ -329,6 +350,7 @@ export async function computeMetricsAsync(
   let diversityDevelopment: number;
   let stagnationDuration: number;
   let semanticDynamicsResult;
+  let metricsMethod: 'embedding' | 'fallback' = 'fallback';
 
   // Exclude system activity markers ([speaking], etc.) from embedding analysis —
   // near-identical embeddings would produce false repetition and stagnation signals.
@@ -359,11 +381,12 @@ export async function computeMetricsAsync(
       const embeddingCount = finalSegments.filter(s => embeddings.has(s.id)).length;
 
       if (embeddingCount >= 2) {
+        metricsMethod = 'embedding';
         const segmentIds = finalSegments.map(s => s.id);
         semanticRepetitionRate = computeEmbeddingRepetition(embeddings, segmentIds);
         diversityDevelopment = computeEmbeddingDiversity(embeddings, segmentIds);
         stagnationDuration = computeStagnationDurationSemantic(
-          windowedSegments, embeddings, currentTime, config.STAGNATION_NOVELTY_THRESHOLD,
+          windowedSegments, embeddings, currentTime, config.STAGNATION_NOVELTY_THRESHOLD, segments,
         );
         // Reuse same embeddings for semantic dynamics
         semanticDynamicsResult = computeSemanticDynamicsMetrics(
@@ -376,7 +399,7 @@ export async function computeMetricsAsync(
         // Fallback to Jaccard + time-based stagnation
         semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
         diversityDevelopment = computeDiversityDevelopment(windowedSegments);
-        stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+        stagnationDuration = computeStagnationDuration(windowedSegments, currentTime, segments);
         semanticDynamicsResult = computeSemanticDynamicsFallback(
           windowedSegments,
           previousSnapshots ?? [],
@@ -386,7 +409,7 @@ export async function computeMetricsAsync(
       // Fallback to Jaccard on error
       semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
       diversityDevelopment = computeDiversityDevelopment(windowedSegments);
-      stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+      stagnationDuration = computeStagnationDuration(windowedSegments, currentTime, segments);
       semanticDynamicsResult = computeSemanticDynamicsFallback(
         windowedSegments,
         previousSnapshots ?? [],
@@ -395,7 +418,7 @@ export async function computeMetricsAsync(
   } else {
     semanticRepetitionRate = computeSemanticRepetitionRate(windowedSegments, REPETITION_WINDOW_SEGMENTS);
     diversityDevelopment = computeDiversityDevelopment(windowedSegments);
-    stagnationDuration = computeStagnationDuration(windowedSegments, currentTime);
+    stagnationDuration = computeStagnationDuration(windowedSegments, currentTime, segments);
     semanticDynamicsResult = computeSemanticDynamicsFallback(
       windowedSegments,
       previousSnapshots ?? [],
@@ -414,6 +437,7 @@ export async function computeMetricsAsync(
     windowEnd: currentTime,
     participation,
     semanticDynamics: semanticDynamicsResult,
+    metricsMethod,
     // inferredState is attached by the hook after metrics computation
   };
 }

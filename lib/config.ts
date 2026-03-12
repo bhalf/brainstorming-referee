@@ -8,7 +8,7 @@ import { ExperimentConfig, Scenario } from './types';
 
 export const DEFAULT_CONFIG: ExperimentConfig = {
   // Window & Analysis
-  WINDOW_SECONDS: 180,
+  WINDOW_SECONDS: 300,
   ANALYZE_EVERY_MS: 5000,
 
   // Trigger Timing
@@ -24,11 +24,11 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   RULE_VIOLATION_COOLDOWN_MS: 15_000,
 
   // Thresholds
-  THRESHOLD_SILENT_PARTICIPANT: 0.05,
+  THRESHOLD_SILENT_PARTICIPANT: 0.10,
   THRESHOLD_PARTICIPATION_RISK: 0.55,
   THRESHOLD_NOVELTY_RATE: 0.3,
   THRESHOLD_CLUSTER_CONCENTRATION: 0.7,
-  CONFIRMATION_SECONDS: 30,
+  CONFIRMATION_SECONDS: 45,
   RECOVERY_IMPROVEMENT_THRESHOLD: 0.15,
 
   // Computation parameters
@@ -40,11 +40,14 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
   // to almost never detect stagnation or convergence in practice.
   NOVELTY_COSINE_THRESHOLD: 0.45,
   CLUSTER_MERGE_THRESHOLD: 0.35,
-  STAGNATION_NOVELTY_THRESHOLD: 0.50,
+  STAGNATION_NOVELTY_THRESHOLD: 0.40,
   EXPLORATION_COSINE_THRESHOLD: 0.30,
   ELABORATION_COSINE_THRESHOLD: 0.50,
   PARTICIPATION_RISK_WEIGHTS: [0.35, 0.25, 0.25, 0.15],
   CUMULATIVE_WINDOW_SECONDS: 600,
+
+  // UI Visibility
+  PARTICIPANT_VIEW_RESTRICTED: false,
 };
 
 // --- Config Validation ---

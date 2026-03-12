@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import {
-  ExperimentConfig, Intervention, VoiceSettings,
+  ExperimentConfig, Intervention, VoiceSettings, InterventionDisplayMode,
   SessionLog, ModelRoutingLogEntry, MetricSnapshot, DecisionEngineState,
 } from '@/lib/types';
 import { CONFIG_CONSTRAINTS, DEFAULT_CONFIG } from '@/lib/config';
@@ -107,6 +107,37 @@ export default function SettingsTab({
 
   return (
     <div className="h-full overflow-y-auto space-y-3 p-3">
+
+      {/* Intervention Display Mode */}
+      <Panel className="!p-3">
+        <SectionHeader icon="📢" size="page">Intervention Display</SectionHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">How interventions are shown to participants.</p>
+          <div className="flex rounded-lg overflow-hidden border border-slate-600">
+            {([
+              { mode: 'visual' as InterventionDisplayMode, label: 'Visual Only', icon: '👁' },
+              { mode: 'both' as InterventionDisplayMode, label: 'Both', icon: '👁+🔊' },
+              { mode: 'voice' as InterventionDisplayMode, label: 'Voice Only', icon: '🔊' },
+            ]).map(({ mode, label, icon }) => (
+              <button
+                key={mode}
+                onClick={() => voice.onUpdateSettings({ displayMode: mode })}
+                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  (voice.settings.displayMode ?? 'both') === mode
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-slate-200'
+                }`}
+              >
+                <span className="block text-sm leading-none mb-0.5">{icon}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-500">
+            Visual: pulsing border + text banner on video. Voice: TTS speech output.
+          </p>
+        </div>
+      </Panel>
 
       {/* Voice */}
       <Panel className="!p-3">

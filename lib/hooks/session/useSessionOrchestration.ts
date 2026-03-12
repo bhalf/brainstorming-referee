@@ -24,6 +24,7 @@ import { useRealtimeVoiceSettings } from '@/lib/hooks/useRealtimeVoiceSettings';
 import { useRealtimeIdeas } from '@/lib/hooks/useRealtimeIdeas';
 import { useRealtimeConnections } from '@/lib/hooks/useRealtimeConnections';
 import { useIdeaExtraction } from '@/lib/hooks/useIdeaExtraction';
+import { useConnectionReview } from '@/lib/hooks/useConnectionReview';
 import { useLiveSummary } from '@/lib/hooks/useLiveSummary';
 import type { LiveSummaryState } from '@/lib/hooks/useLiveSummary';
 import { useLatestRef } from '@/lib/hooks/useLatestRef';
@@ -51,6 +52,8 @@ interface UseSessionOrchestrationParams {
   addIdea: (idea: Idea) => void;
   updateIdea: (id: string, updates: Partial<Idea>) => void;
   addIdeaConnection: (connection: IdeaConnection) => void;
+  removeIdeaConnection: (id: string) => void;
+  updateIdeaConnection: (id: string, updates: Partial<IdeaConnection>) => void;
   addModelRoutingLog: (entry: ModelRoutingLogEntry) => void;
   addError: (message: string, context?: string) => void;
   updateDecisionState: (updates: Partial<DecisionEngineState>) => void;
@@ -62,6 +65,7 @@ interface UseSessionOrchestrationParams {
   voiceSettings: VoiceSettings;
   interventions: Intervention[];
   ideas: Idea[];
+  ideaConnections: IdeaConnection[];
 
   // Refs from CallPage
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
@@ -123,6 +127,8 @@ export function useSessionOrchestration({
   addIdea,
   updateIdea,
   addIdeaConnection,
+  removeIdeaConnection,
+  updateIdeaConnection,
   addModelRoutingLog,
   addError,
   updateDecisionState,
@@ -132,6 +138,7 @@ export function useSessionOrchestration({
   voiceSettings,
   interventions,
   ideas,
+  ideaConnections,
   transcriptSegmentsRef,
   speakingTimeRef,
   participantCountRef,
@@ -232,6 +239,7 @@ export function useSessionOrchestration({
     addIntervention,
     speak,
     voiceEnabled: voiceSettings.enabled,
+    displayMode: voiceSettings.displayMode ?? 'both',
     isTTSSupported,
     spokenInterventionIdsRef,
   });
@@ -258,11 +266,26 @@ export function useSessionOrchestration({
     sessionId,
     transcriptSegmentsRef,
     ideas,
+    connections: ideaConnections,
     language,
     addIdea,
     addIdeaConnection,
     addModelRoutingLog,
     addError,
+  });
+
+  // --- Connection Review (periodic review of all connections, decision owner only) ---
+  useConnectionReview({
+    isActive,
+    isDecisionOwner,
+    sessionId,
+    ideas,
+    connections: ideaConnections,
+    language,
+    addIdeaConnection,
+    removeIdeaConnection,
+    updateIdeaConnection,
+    addModelRoutingLog,
   });
 
   // --- Live Summary (decision owner generates, others receive via Supabase Realtime) ---

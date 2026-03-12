@@ -16,8 +16,8 @@ const MAX_CACHE_ENTRIES = 500; // LRU limit (~6MB max in localStorage)
 let cachedModelName: string | null = null;
 
 // Max segments used in O(n²) pairwise operations.
-// 30 segments → 435 pairs, runs in <1ms on any modern device.
-const MAX_PAIRWISE_SEGMENTS = 30;
+// 50 segments → 1225 pairs, runs in <1ms on any modern device.
+const MAX_PAIRWISE_SEGMENTS = 50;
 
 // --- Cache ---
 

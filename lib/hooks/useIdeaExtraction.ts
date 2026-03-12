@@ -13,6 +13,7 @@ interface UseIdeaExtractionParams {
   sessionId: string | null;
   transcriptSegmentsRef: MutableRefObject<TranscriptSegment[]>;
   ideas: Idea[];
+  connections: IdeaConnection[];
   language: string;
   addIdea: (idea: Idea) => void;
   addIdeaConnection: (connection: IdeaConnection) => void;
@@ -20,6 +21,38 @@ interface UseIdeaExtractionParams {
   addError: (message: string, context?: string) => void;
 }
 
+
+/**
+ * Fuzzy-matches a query title against the title→id map.
+ * Tries exact match first, then prefix match, then Jaccard word-set similarity (>= 0.6).
+ */
+function fuzzyMatchTitle(titleToId: Map<string, string>, query: string): string | null {
+  const normalized = query.toLowerCase().trim();
+  if (!normalized) return null;
+  // 1. Exact match
+  if (titleToId.has(normalized)) return titleToId.get(normalized)!;
+  // 2. Prefix match (handles small additions like articles)
+  for (const [title, id] of titleToId) {
+    if (title.startsWith(normalized) || normalized.startsWith(title)) return id;
+  }
+  // 3. Word-set Jaccard similarity >= 0.6
+  const queryWords = new Set(normalized.split(/\s+/).filter(w => w.length > 2));
+  if (queryWords.size === 0) return null;
+  let bestId: string | null = null;
+  let bestScore = 0;
+  for (const [title, id] of titleToId) {
+    const titleWords = new Set(title.split(/\s+/).filter(w => w.length > 2));
+    if (titleWords.size === 0) continue;
+    const intersection = [...queryWords].filter(w => titleWords.has(w)).length;
+    const union = new Set([...queryWords, ...titleWords]).size;
+    const jaccard = intersection / union;
+    if (jaccard > bestScore && jaccard >= 0.6) {
+      bestScore = jaccard;
+      bestId = id;
+    }
+  }
+  return bestId;
+}
 
 /** Default minimum number of new transcript segments before triggering extraction. */
 const MIN_NEW_SEGMENTS_DEFAULT = 2;
@@ -165,6 +198,7 @@ export function useIdeaExtraction({
   sessionId,
   transcriptSegmentsRef,
   ideas,
+  connections,
   language,
   addIdea,
   addIdeaConnection,
@@ -175,6 +209,7 @@ export function useIdeaExtraction({
   const isExtractingRef = useRef(false);
   const sessionIdRef = useLatestRef(sessionId);
   const ideasRef = useLatestRef(ideas);
+  const connectionsRef = useLatestRef(connections);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastSuccessfulExtractionRef = useRef(Date.now());
   const extractionStartTimeRef = useRef<number | null>(null);
@@ -254,6 +289,17 @@ export function useIdeaExtraction({
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
+        // Build existing connections summary for deduplication context
+        const activeIdSet = new Set(currentIdeas.map(i => i.id));
+        const idToTitle = new Map(currentIdeas.map(i => [i.id, i.title]));
+        const existingConnsForApi = connectionsRef.current
+          .filter(c => activeIdSet.has(c.sourceIdeaId) && activeIdSet.has(c.targetIdeaId))
+          .map(c => ({
+            sourceTitle: idToTitle.get(c.sourceIdeaId) || c.sourceIdeaId,
+            targetTitle: idToTitle.get(c.targetIdeaId) || c.targetIdeaId,
+            type: c.connectionType,
+          }));
+
         const response = await apiPost<{
           ideas?: Array<{ title: string; description?: string; author: string; sourceSegmentIds?: string[]; type?: string; ideaType?: string; parentTitle?: string | null; parentId?: string | null }>;
           connections?: Array<{ sourceTitle: string; targetTitle: string; sourceId?: string | null; targetId?: string | null; label?: string; type?: string }>;
@@ -263,6 +309,7 @@ export function useIdeaExtraction({
           contextSegments: contextSegments.map(s => ({ id: s.id, speaker: s.speaker, text: s.text })),
           existingTitles,
           existingIdeas: existingIdeasForApi,
+          existingConnections: existingConnsForApi,
           language,
         }, { signal: controller.signal, maxRetries: 1 });
 
@@ -351,21 +398,36 @@ export function useIdeaExtraction({
             knownIdeaIds.add(entry.id);
           }
 
+          // Build dedup set from existing connections to avoid duplicates
+          const existingPairs = new Set<string>();
+          for (const c of connectionsRef.current) {
+            existingPairs.add(`${c.sourceIdeaId}→${c.targetIdeaId}`);
+            existingPairs.add(`${c.targetIdeaId}→${c.sourceIdeaId}`);
+          }
+
           for (const conn of data.connections) {
             // Resolve IDs: only trust LLM-provided IDs if they match a known idea.
-            // Otherwise use title-based resolution (LLM can't know client-generated UUIDs)
+            // Otherwise use fuzzy title-based resolution (LLM can't know client-generated UUIDs)
             const sourceId = (conn.sourceId && knownIdeaIds.has(conn.sourceId))
               ? conn.sourceId
-              : titleToId.get((conn.sourceTitle || '').toLowerCase().trim()) || null;
+              : fuzzyMatchTitle(titleToId, conn.sourceTitle || '');
             const targetId = (conn.targetId && knownIdeaIds.has(conn.targetId))
               ? conn.targetId
-              : titleToId.get((conn.targetTitle || '').toLowerCase().trim()) || null;
+              : fuzzyMatchTitle(titleToId, conn.targetTitle || '');
 
             if (!sourceId || !targetId || sourceId === targetId) {
               console.log('[IdeaExtraction] Skipping connection — unresolved:', conn.sourceTitle, '→', conn.targetTitle,
                 '(sourceId:', sourceId, 'targetId:', targetId, ')');
               continue;
             }
+
+            // Skip duplicate connections (check both directions)
+            if (existingPairs.has(`${sourceId}→${targetId}`)) {
+              console.log('[IdeaExtraction] Skipping duplicate connection:', conn.sourceTitle, '→', conn.targetTitle);
+              continue;
+            }
+            existingPairs.add(`${sourceId}→${targetId}`);
+            existingPairs.add(`${targetId}→${sourceId}`);
 
             const connection: IdeaConnection = {
               id: `conn-${crypto.randomUUID()}`,
