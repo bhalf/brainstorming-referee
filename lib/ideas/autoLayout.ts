@@ -6,7 +6,7 @@
  * @module
  */
 
-import * as dagre from '@dagrejs/dagre';
+import dagre from '@dagrejs/dagre';
 import type { Idea, IdeaConnection } from '@/lib/types';
 
 /**
