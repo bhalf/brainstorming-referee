@@ -80,6 +80,19 @@ Generate a brief, energizing process reflection (1-2 sentences) to restart creat
 Reference what the group has already explored and point toward SPECIFIC unexplored dimensions related to their topic.
 Do NOT use generic phrases like "let's think about what we haven't covered yet".`,
 
+    GOAL_REFOCUS: `SITUATION: The conversation has been going well, but some predefined discussion goals remain unaddressed.
+The group's topic: {topic}
+
+{goalContextBlock}
+
+Full conversation transcript ({totalTurns} turns total):
+{transcriptExcerpt}
+
+Generate a brief, encouraging process reflection (1-2 sentences) that gently steers the group toward one of the open topics.
+Reference what the group has achieved so far and suggest a natural transition to an open topic.
+Do NOT list all open topics. Pick the most natural one to transition to.
+Do NOT use generic phrases like "we still have some topics to cover".`,
+
     NORM_REINFORCEMENT: `SITUATION: A brainstorming rule violation was detected.
 Rule violated: {violationType}
 Evidence from transcript: {violationEvidence}
@@ -136,6 +149,19 @@ Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
 Formuliere eine kurze, energetisierende Prozessreflexion (1-2 Sätze), um den kreativen Fluss wieder anzuregen.
 Verweise auf das, was die Gruppe bereits erkundet hat, und zeige KONKRETE unerforschte Dimensionen auf, die zum Thema passen.
 Verwende KEINE generischen Floskeln wie "lasst uns überlegen, was wir noch nicht behandelt haben".`,
+
+    GOAL_REFOCUS: `SITUATION: Das Gespräch läuft gut, aber einige vordefinierte Gesprächsziele wurden noch nicht angesprochen.
+Thema der Gruppe: {topic}
+
+{goalContextBlock}
+
+Vollständiges Gesprächstranskript ({totalTurns} Beiträge insgesamt):
+{transcriptExcerpt}
+
+Formuliere eine kurze, ermutigende Prozessreflexion (1-2 Sätze), die die Gruppe sanft in Richtung eines offenen Themas lenkt.
+Verweise auf das, was die Gruppe bisher erreicht hat, und schlage einen natürlichen Übergang zu einem offenen Thema vor.
+Liste NICHT alle offenen Themen auf. Wähle das natürlichste aus.
+Verwende KEINE generischen Floskeln wie "wir haben noch einige Themen zu besprechen".`,
 
     NORM_REINFORCEMENT: `SITUATION: Ein Brainstorming-Regelverstoss wurde erkannt.
 Verletzte Regel: {violationType}
@@ -223,6 +249,10 @@ const FALLBACKS: Record<string, { en: string; de: string }> = {
     NORM_REINFORCEMENT: {
         en: "Quick reminder — in brainstorming, all ideas are welcome! Let's save evaluation for later and keep building on each other's thoughts.",
         de: 'Kurze Erinnerung: Beim Brainstorming sind alle Ideen willkommen! Bewertungen heben wir uns für später auf — lasst uns weiter aufeinander aufbauen.',
+    },
+    GOAL_REFOCUS: {
+        en: "Great progress so far! There are still some interesting topics we haven't explored yet — shall we take a look at those?",
+        de: 'Toller Fortschritt bisher! Es gibt noch einige spannende Themen, die wir noch nicht angeschaut haben — sollen wir uns die mal vornehmen?',
     },
 };
 

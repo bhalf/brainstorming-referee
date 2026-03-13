@@ -13,11 +13,12 @@ import {
   loadRoomFromStorage,
   encodeConfig,
 } from '@/lib/config';
-import { ExperimentConfig, Scenario } from '@/lib/types';
+import { ExperimentConfig, Scenario, ConversationGoal } from '@/lib/types';
 import { apiGet } from '@/lib/services/apiClient';
 import JoinRoomForm from '@/components/setup/JoinRoomForm';
 import ScenarioSelector from '@/components/setup/ScenarioSelector';
 import LanguageSelector from '@/components/setup/LanguageSelector';
+import GoalInput from '@/components/setup/GoalInput';
 import AdvancedConfig from '@/components/setup/AdvancedConfig';
 import { SessionsDisplay } from '@/components/setup/SessionsDisplay';
 
@@ -171,6 +172,15 @@ export default function SetupPage() {
 
               <ScenarioSelector value={scenario} onChange={setScenario} />
               <LanguageSelector value={language} onChange={setLanguage} />
+
+              <GoalInput
+                goals={config.conversationGoals}
+                onChange={(goals: ConversationGoal[]) => setConfig((prev) => ({ ...prev, conversationGoals: goals }))}
+                goalRefocusEnabled={config.GOAL_REFOCUS_ENABLED}
+                onGoalRefocusChange={(v: boolean) => setConfig((prev) => ({ ...prev, GOAL_REFOCUS_ENABLED: v }))}
+                goalsVisibleToAll={config.GOALS_VISIBLE_TO_ALL}
+                onGoalsVisibleChange={(v: boolean) => setConfig((prev) => ({ ...prev, GOALS_VISIBLE_TO_ALL: v }))}
+              />
 
               {/* Participant View Restriction */}
               <section className="mb-5">

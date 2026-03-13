@@ -12,6 +12,7 @@ import {
   ModelRoutingLogEntry,
   ConversationStateInference,
 } from '@/lib/types';
+import type { GoalContext } from '@/lib/hooks/useGoalTracker';
 import { evaluatePolicy, intentToTrigger, countRecentInterventions, pruneInterventionTimestamps, generateInterventionContext } from '@/lib/decision/interventionPolicy';
 import { checkRuleViolations, RULE_CHECK_INTERVAL_MS, RuleViolationResult } from '@/lib/decision/ruleViolationChecker';
 import { buildTranscriptContext } from '@/lib/decision/transcriptContext';
@@ -42,6 +43,7 @@ interface UseDecisionLoopParams {
   addError: (message: string, context?: string) => void;
   updateDecisionState: (updates: Partial<DecisionEngineState>) => void;
   broadcastIntervention?: (intervention: Intervention) => void;
+  getGoalContext?: () => GoalContext | null;
 }
 
 /**
@@ -75,6 +77,7 @@ export function useDecisionLoop({
   addError,
   updateDecisionState,
   broadcastIntervention,
+  getGoalContext,
 }: UseDecisionLoopParams) {
   // Stable refs — useLatestRef keeps them in sync automatically
   const decisionStateRef = useLatestRef(decisionState);
@@ -85,6 +88,7 @@ export function useDecisionLoop({
   const speakRef = useLatestRef(speak);
   const isTTSSupportedRef = useLatestRef(isTTSSupported);
   const sessionIdRef = useLatestRef(sessionId);
+  const getGoalContextRef = useLatestRef(getGoalContext);
   const isProcessingRef = useRef(false);
   /** Tracks the last fired intervention ID for post-intervention recovery checks. */
   const lastInterventionIdRef = useRef<string | null>(null);
@@ -349,6 +353,7 @@ export function useDecisionLoop({
           stateConfidence: decision?.stateConfidence,
           participationMetrics: metrics?.participation,
           semanticDynamics: metrics?.semanticDynamics,
+          goalContext: getGoalContextRef.current?.() ?? undefined,
         };
 
         // Add violation info for combined or rule-only messages

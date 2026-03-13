@@ -341,3 +341,15 @@ export function clearEmbeddingCache(sessionId?: string): void {
 export function getCacheSize(): number {
     return embeddingCache.size;
 }
+
+/**
+ * Returns a cached embedding if available (no fetch).
+ * Used by goal tracker to read segment embeddings already cached by metrics computation.
+ */
+export function getCachedEmbedding(id: string): number[] | undefined {
+    const emb = embeddingCache.get(id);
+    if (emb) {
+        accessTimestamp.set(id, Date.now());
+    }
+    return emb;
+}

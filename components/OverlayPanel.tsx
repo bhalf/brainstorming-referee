@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode, useState } from 'react';
-import { Scenario, TranscriptSegment, MetricSnapshot, ExperimentConfig, DecisionEngineState, Intervention, VoiceSettings, SessionLog, ModelRoutingLogEntry } from '@/lib/types';
+import { Scenario, TranscriptSegment, MetricSnapshot, ExperimentConfig, DecisionEngineState, Intervention, VoiceSettings, SessionLog, ModelRoutingLogEntry, GoalTrackingState } from '@/lib/types';
 import { SCENARIO_DESCRIPTIONS } from '@/lib/config';
 import DashboardTab from './DashboardTab';
 import SettingsTab from './SettingsTab';
@@ -51,12 +51,13 @@ interface OverlayPanelProps {
   interventions: Intervention[];
   sessionLog: SessionLog;
   modelRoutingLog: ModelRoutingLogEntry[];
-  onUpdateConfig?: (key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => void;
+  onUpdateConfig?: (key: keyof ExperimentConfig, value: ExperimentConfig[keyof ExperimentConfig]) => void;
   onResetConfig?: () => void;
   health?: SystemHealthProps;
   liveSummary: LiveSummaryState;
   children?: ReactNode;
   isParticipant?: boolean;
+  goalTracking?: GoalTrackingState | null;
 }
 
 type TabId = 'dashboard' | 'transcript' | 'settings';
@@ -99,6 +100,7 @@ export default function OverlayPanel({
   liveSummary,
   children,
   isParticipant,
+  goalTracking,
 }: OverlayPanelProps) {
   const isRestricted = isParticipant && metrics.config.PARTICIPANT_VIEW_RESTRICTED;
   const visibleTabs = isRestricted ? TABS.filter(t => t.id !== 'settings') : TABS;
@@ -176,6 +178,7 @@ export default function OverlayPanel({
             interventions={interventions}
             liveSummary={liveSummary}
             restrictedView={isRestricted}
+            goalTracking={goalTracking}
           />
         )}
 

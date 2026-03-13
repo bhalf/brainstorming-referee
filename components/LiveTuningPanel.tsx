@@ -10,7 +10,7 @@ import WeightsEditor from './shared/WeightsEditor';
 
 interface LiveTuningPanelProps {
   config: ExperimentConfig;
-  onUpdateConfig: (key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => void;
+  onUpdateConfig: (key: keyof ExperimentConfig, value: ExperimentConfig[keyof ExperimentConfig]) => void;
   onResetAll: () => void;
 }
 

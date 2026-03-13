@@ -11,6 +11,7 @@ const INTENT_LABELS: Record<string, string> = {
   REACTIVATION: 'Reactivation',
   ALLY_IMPULSE: 'Ally Impulse',
   NORM_REINFORCEMENT: 'Rule Reminder',
+  GOAL_REFOCUS: 'Goal Refocus',
 };
 
 function getIntentLabel(intervention: Intervention): string {

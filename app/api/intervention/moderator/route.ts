@@ -12,7 +12,7 @@ import {
 // --- Types ---
 
 interface ModeratorRequest {
-  trigger: 'imbalance' | 'repetition' | 'stagnation' | 'rule_violation';
+  trigger: 'imbalance' | 'repetition' | 'stagnation' | 'rule_violation' | 'goal_refocus';
   speakerDistribution: string;
   language: string;
   participationImbalance?: number;
@@ -51,6 +51,12 @@ interface ModeratorRequest {
   };
   // Existing ideas for context
   existingIdeas?: string[];
+  // Conversation goals context
+  goalContext?: {
+    coveredGoals: string[];
+    uncoveredGoals: string[];
+    suggestedTopics: string[];
+  };
 }
 
 // --- Prompts are now managed centrally in lib/prompts/moderator/prompts.ts ---
@@ -86,7 +92,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = (await request.json()) as ModeratorRequest;
-    const { trigger, speakerDistribution, language, transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, scenario, intent, participationMetrics, semanticDynamics, stagnationDuration, violationType, violationEvidence, violationSeverity, combined, ruleViolation, topic, dominantSpeakers, quietSpeakers } = body;
+    const { trigger, speakerDistribution, language, transcriptExcerpt = [], totalTurns = transcriptExcerpt.length, scenario, intent, participationMetrics, semanticDynamics, stagnationDuration, violationType, violationEvidence, violationSeverity, combined, ruleViolation, topic, dominantSpeakers, quietSpeakers, goalContext } = body;
 
     // Server-side scenario guard: moderator is never appropriate in baseline
     if (scenario === 'baseline') {
@@ -137,6 +143,23 @@ export async function POST(request: NextRequest) {
         ? `${(participationMetrics.silentParticipantRatio * 100).toFixed(0)}% of participants have been quiet.`
         : '';
 
+    // Build goal context block for enrichment (used by GOAL_REFOCUS and other intents)
+    let goalContextBlock = '';
+    if (goalContext && goalContext.uncoveredGoals.length > 0) {
+      const isGerman = language.startsWith('de');
+      const covered = goalContext.coveredGoals.length > 0
+        ? `${isGerman ? 'Bereits behandelt' : 'Covered'}: ${goalContext.coveredGoals.join(', ')}`
+        : '';
+      const uncovered = `${isGerman ? 'Noch offen' : 'Still open'}: ${goalContext.uncoveredGoals.join(', ')}`;
+      const suggested = goalContext.suggestedTopics.length > 0
+        ? `${isGerman ? 'Vorgeschlagene Themen' : 'Suggested topics'}: ${goalContext.suggestedTopics.join(', ')}`
+        : '';
+      goalContextBlock = [
+        isGerman ? 'GESPRÄCHSZIELE (einige noch offen):' : 'CONVERSATION GOALS (some still open):',
+        covered, uncovered, suggested,
+      ].filter(Boolean).join('\n');
+    }
+
     // Interpolate all metric values into the selected prompt template
     const userPrompt = buildModeratorUserPrompt(promptTemplate, {
       speakerDistribution: speakerDistribution || 'Not available',
@@ -156,6 +179,7 @@ export async function POST(request: NextRequest) {
       violationType: effectiveViolationType,
       violationEvidence: effectiveViolationEvidence,
       violationSeverity: effectiveViolationSeverity,
+      goalContextBlock: goalContextBlock || '',
     });
 
     try {

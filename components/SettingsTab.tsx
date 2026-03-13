@@ -26,7 +26,7 @@ interface SettingsTabProps {
     onCancelVoice: () => void;
   };
   config: ExperimentConfig;
-  onUpdateConfig?: (key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => void;
+  onUpdateConfig?: (key: keyof ExperimentConfig, value: ExperimentConfig[keyof ExperimentConfig]) => void;
   onResetConfig?: () => void;
   health?: SystemHealthProps;
   modelRoutingLog: ModelRoutingLogEntry[];

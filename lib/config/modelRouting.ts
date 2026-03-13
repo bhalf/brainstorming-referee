@@ -19,7 +19,8 @@ export type ModelTaskKey =
     | 'idea_extraction'
     | 'connection_review'
     | 'rule_check'
-    | 'live_summary';
+    | 'live_summary'
+    | 'goal_assessment';
 
 /** Ordered list of all task keys, used for iteration in UI and validation. */
 export const MODEL_TASK_KEYS: ModelTaskKey[] = [
@@ -31,6 +32,7 @@ export const MODEL_TASK_KEYS: ModelTaskKey[] = [
     'connection_review',
     'rule_check',
     'live_summary',
+    'goal_assessment',
 ];
 
 /** Human-readable short labels shown in the settings UI. */
@@ -43,6 +45,7 @@ export const TASK_LABELS: Record<ModelTaskKey, string> = {
     connection_review: 'Connection Review',
     rule_check: 'Rule Check',
     live_summary: 'Live Summary',
+    goal_assessment: 'Goal Assessment',
 };
 
 /** Longer descriptions explaining what each task does, shown as tooltips. */
@@ -55,6 +58,7 @@ export const TASK_DESCRIPTIONS: Record<ModelTaskKey, string> = {
     connection_review: 'Review and correct connections between brainstorming ideas',
     rule_check: 'Classify transcript segments for brainstorming rule violations',
     live_summary: 'Generate rolling summary of the brainstorming session',
+    goal_assessment: 'Assess conversation goal coverage from transcript and metrics',
 };
 
 // --- Provider & Model Definitions ---
@@ -96,6 +100,7 @@ export function getModelsForTask(task: ModelTaskKey): ModelOption[] {
         case 'connection_review':
         case 'rule_check':
         case 'live_summary':
+        case 'goal_assessment':
             return AVAILABLE_MODELS.filter((m) => m.type === 'chat');
         case 'embeddings_similarity':
             return AVAILABLE_MODELS.filter((m) => m.type === 'embedding');
@@ -203,6 +208,15 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
         temperature: 0.3,
         maxTokens: 600,
         timeoutMs: 15000,
+        fallbacks: [],
+        enabled: true,
+    },
+    goal_assessment: {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        maxTokens: 400,
+        timeoutMs: 10000,
         fallbacks: [],
         enabled: true,
     },

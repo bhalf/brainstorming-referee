@@ -2,13 +2,14 @@
 
 import { useState, useMemo } from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
-import { MetricSnapshot, ExperimentConfig, DecisionEngineState, Intervention } from '@/lib/types';
+import { MetricSnapshot, ExperimentConfig, DecisionEngineState, Intervention, GoalTrackingState } from '@/lib/types';
 import { CONVERSATION_STATE_CONFIG, ENGINE_PHASE_CONFIG } from '@/lib/decision/stateConfig';
 import { generateSessionSummaryText } from '@/lib/state/generateSessionSummaryText';
 
 import type { LiveSummaryState } from '@/lib/hooks/useLiveSummary';
 import InfoPopover from './shared/InfoPopover';
 import Panel from './shared/Panel';
+import GoalsPanel from './GoalsPanel';
 
 interface DashboardTabProps {
   currentMetrics: MetricSnapshot | null;
@@ -18,6 +19,7 @@ interface DashboardTabProps {
   interventions: Intervention[];
   liveSummary: LiveSummaryState;
   restrictedView?: boolean;
+  goalTracking?: GoalTrackingState | null;
 }
 
 // ─── Mini Sparkline ──────────────────────────────────────────────────────────
@@ -124,6 +126,7 @@ export default function DashboardTab({
   interventions,
   liveSummary,
   restrictedView,
+  goalTracking,
 }: DashboardTabProps) {
 
   const [showMoreParticipation, setShowMoreParticipation] = useState(false);
@@ -230,6 +233,13 @@ export default function DashboardTab({
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">{summaryText}</p>
       </Panel>
+
+      {/* Goals Progress */}
+      {goalTracking && goalTracking.goals.length > 0 && (
+        (!restrictedView || config.GOALS_VISIBLE_TO_ALL) && (
+          <GoalsPanel goalTracking={goalTracking} />
+        )
+      )}
 
       {/* Analytics sections (host only) */}
       {!restrictedView && (<>
@@ -484,6 +494,7 @@ export default function DashboardTab({
                 REACTIVATION: 'Reactivation',
                 ALLY_IMPULSE: 'Ally Impulse',
                 NORM_REINFORCEMENT: 'Rule Reminder',
+                GOAL_REFOCUS: 'Goal Refocus',
               };
               const label = intervention.intent
                 ? intentLabels[intervention.intent] || intervention.intent

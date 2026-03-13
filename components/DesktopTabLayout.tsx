@@ -4,6 +4,7 @@ import { useState, ReactNode } from 'react';
 import {
     Scenario, Intervention, ExperimentConfig,
     VoiceSettings, SessionLog, ModelRoutingLogEntry,
+    GoalTrackingState,
 } from '@/lib/types';
 import type { LiveSummaryState } from '@/lib/hooks/useLiveSummary';
 import { SCENARIO_DESCRIPTIONS } from '@/lib/config';
@@ -42,7 +43,7 @@ export interface DesktopTabLayoutProps {
     interventions: Intervention[];
     sessionLog: SessionLog;
     modelRoutingLog: ModelRoutingLogEntry[];
-    onUpdateConfig?: (key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => void;
+    onUpdateConfig?: (key: keyof ExperimentConfig, value: ExperimentConfig[keyof ExperimentConfig]) => void;
     onResetConfig?: () => void;
     health?: SystemHealthProps;
     roomName: string;
@@ -50,6 +51,9 @@ export interface DesktopTabLayoutProps {
 
     // Participant view restriction
     isParticipant?: boolean;
+
+    // Goal tracking
+    goalTracking?: GoalTrackingState | null;
 }
 
 /**
@@ -164,6 +168,7 @@ export default function DesktopTabLayout(props: DesktopTabLayoutProps) {
                             interventions={props.interventions}
                             liveSummary={props.liveSummary}
                             restrictedView={isRestricted}
+                            goalTracking={props.goalTracking}
                         />
                     </div>
 

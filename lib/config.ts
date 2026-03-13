@@ -48,6 +48,11 @@ export const DEFAULT_CONFIG: ExperimentConfig = {
 
   // UI Visibility
   PARTICIPANT_VIEW_RESTRICTED: false,
+
+  // Conversation Goals
+  conversationGoals: [],
+  GOAL_REFOCUS_ENABLED: false,
+  GOALS_VISIBLE_TO_ALL: false,
 };
 
 // --- Config Validation ---

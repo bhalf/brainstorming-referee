@@ -71,7 +71,8 @@ export type InterventionIntent =
   | 'PERSPECTIVE_BROADENING'
   | 'REACTIVATION'
   | 'ALLY_IMPULSE'
-  | 'NORM_REINFORCEMENT';
+  | 'NORM_REINFORCEMENT'
+  | 'GOAL_REFOCUS';
 
 // --- Engine Phase (v2) ---
 
@@ -110,6 +111,7 @@ export type InterventionTrigger =
   | 'stagnation'
   | 'escalation'
   | 'rule_violation'
+  | 'goal_refocus'
   | 'manual';
 
 export interface Intervention {
@@ -144,6 +146,33 @@ export interface DecisionEngineState {
   confirmingState: ConversationStateName | null;
   postCheckIntent: InterventionIntent | null;
   lastRuleViolationTime: number | null; // when last rule violation intervention fired
+}
+
+// --- Conversation Goals ---
+
+export type GoalCoverageStatus = 'not_started' | 'mentioned' | 'partially_covered' | 'covered';
+
+export interface ConversationGoal {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface GoalAssessment {
+  goalId: string;
+  status: GoalCoverageStatus;
+  heatScore: number;           // 0-1, embedding-based similarity signal
+  relevantSegmentCount: number;
+  notes?: string;              // LLM explanation
+}
+
+export interface GoalTrackingState {
+  goals: ConversationGoal[];
+  assessments: GoalAssessment[];
+  lastAssessedAt: number | null;
+  isAssessing: boolean;
+  overallProgress: number;     // 0-1, fraction of goals at least partially covered
+  suggestedTopics: string[];
 }
 
 // --- Experiment Configuration ---
@@ -186,6 +215,11 @@ export interface ExperimentConfig {
 
   // UI Visibility
   PARTICIPANT_VIEW_RESTRICTED: boolean; // Hide analytics/settings from non-host participants (default: false)
+
+  // Conversation Goals
+  conversationGoals: ConversationGoal[];  // Predefined discussion topics/goals (default: [])
+  GOAL_REFOCUS_ENABLED: boolean;          // Enable GOAL_REFOCUS intervention intent (default: false)
+  GOALS_VISIBLE_TO_ALL: boolean;          // Show goal progress to all participants (default: false)
 }
 
 // --- Model Routing Log ---

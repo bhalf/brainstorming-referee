@@ -16,13 +16,15 @@ Vollstaendige technische Dokumentation des Systems (Maerz 2026).
 8. [Zustandsinferenz (State Inference)](#8-zustandsinferenz)
 9. [Interventions-Engine](#9-interventions-engine)
 10. [Ideen-System](#10-ideen-system)
-11. [API-Routen](#11-api-routen)
-12. [LLM-Prompts](#12-llm-prompts)
-13. [Datensynchronisation](#13-datensynchronisation)
-14. [Session-Kontext (React State)](#14-session-kontext)
-15. [Datenfluss-Diagramm](#15-datenfluss-diagramm)
-16. [Konfiguration](#16-konfiguration)
-17. [Umgebungsvariablen](#17-umgebungsvariablen)
+11. [Gespraechsziele (Goal Tracking)](#11-gespraechsziele)
+12. [Live-Zusammenfassung](#12-live-zusammenfassung)
+13. [API-Routen](#13-api-routen)
+14. [LLM-Prompts](#14-llm-prompts)
+15. [Datensynchronisation](#15-datensynchronisation)
+16. [Session-Kontext (React State)](#16-session-kontext)
+17. [Datenfluss-Diagramm](#17-datenfluss-diagramm)
+18. [Konfiguration](#18-konfiguration)
+19. [Umgebungsvariablen](#19-umgebungsvariablen)
 
 ---
 
@@ -46,6 +48,9 @@ Forschungs-Webapp fuer KI-gestuetzte Moderation in Brainstorming-Sitzungen.
 - LLM-generierte Moderations-Interventionen mit TTS-Wiedergabe
 - Supabase als zentrale Datenbank und Echtzeit-Synchronisation
 - LiveKit DataChannel fuer latenzarme P2P-Synchronisation
+- Automatische Ideen-Extraktion und -Visualisierung als Graph
+- Optionales Gespraechsziel-Tracking mit Embedding-Heat und LLM-Bewertung
+- Rolling Live-Zusammenfassung der Session
 
 ---
 
@@ -53,25 +58,35 @@ Forschungs-Webapp fuer KI-gestuetzte Moderation in Brainstorming-Sitzungen.
 
 | Komponente | Technologie |
 |-----------|-------------|
-| Framework | Next.js 16, App Router, TypeScript, React 19 |
+| Framework | Next.js 16.1, App Router, TypeScript, React 19 |
 | Video/Audio | LiveKit Cloud (WebRTC via SFU) |
 | Transkription | OpenAI Realtime API (primaer) + Web Speech API (Fallback) |
 | LLM | OpenAI Chat Completions (konfigurierbare Modelle mit Fallback-Kette) |
-| Embeddings | OpenAI Embeddings API (`text-embedding-3-small`) |
+| Embeddings | OpenAI Embeddings API (`text-embedding-3-small` / `text-embedding-3-large`) |
 | TTS | OpenAI Cloud TTS via `/api/tts` |
 | State | React Context + useReducer |
 | Datenbank | Supabase (PostgreSQL) |
 | Sync | Supabase Realtime (WebSocket) + LiveKit DataChannel (WebRTC) |
 | Cache | localStorage fuer Embedding-Vektoren + Konfiguration |
+| Graph-UI | @xyflow/react (Ideen-Board) + @dagrejs/dagre (Auto-Layout) |
+| Charts | Recharts (Metriken-Visualisierung) |
 
 ### Pakete
 
 ```
-livekit-server-sdk          — JWT-Token-Generierung (Server)
-livekit-client              — WebRTC-Client (Browser)
-@livekit/components-react   — React-Komponenten (VideoConference, RoomAudioRenderer)
-@livekit/components-styles  — Standard-CSS-Theme (ueberschrieben)
-@supabase/supabase-js       — Supabase-Client (Browser + Server)
+next                        16.1.6  — Framework (App Router)
+react / react-dom           19.2.3  — UI-Library
+@supabase/supabase-js       2.98.0  — Supabase-Client (Browser + Server)
+livekit-client              2.17.2  — WebRTC-Client (Browser)
+livekit-server-sdk          2.15.0  — JWT-Token-Generierung (Server)
+@livekit/components-react   2.9.20  — React-Komponenten (VideoConference, RoomAudioRenderer)
+openai                      6.21.0  — LLM, Embeddings, Realtime, TTS
+@xyflow/react               12.10.1 — Graph-Visualisierung (Ideen-Verbindungen)
+@dagrejs/dagre              2.0.4   — Layout-Algorithmus (Auto-Layout)
+recharts                    3.8.0   — Diagramme (Partizipation, Metriken)
+tailwindcss                 4       — CSS Utility Framework
+typescript                  5       — Typsicherheit
+vitest                      4.0.18  — Unit-Tests (103 Tests)
 ```
 
 ---
@@ -83,6 +98,7 @@ app/
   layout.tsx                              — Root-Layout, SessionProvider
   page.tsx                                — Landing/Setup-Seite
   call/[room]/page.tsx                    — Haupt-Session-Seite
+  replay/[sessionId]/page.tsx             — Session-Replay-Seite
   globals.css                             — Design-Tokens + LiveKit-Theme-Overrides
   api/
     livekit/
@@ -95,6 +111,10 @@ app/
       moderator/route.ts                  — Moderator-LLM-Endpoint
       ally/route.ts                       — Ally-LLM-Endpoint
     rule-check/route.ts                   — LLM-basierte Regelpruefung
+    goals/
+      assess/route.ts                     — LLM-Gespraechsziel-Bewertung
+    summary/
+      live/route.ts                       — Rolling-Zusammenfassung (LLM)
     session/route.ts                      — Session CRUD (POST/GET/PUT/PATCH)
     session/join/route.ts                 — Session beitreten
     session/export/route.ts               — Session-Export (alle Daten)
@@ -107,6 +127,7 @@ app/
     ideas/route.ts                        — Ideen CRUD
     ideas/extract/route.ts                — LLM-Ideenextraktion
     ideas/connections/route.ts            — Ideen-Verbindungen
+    ideas/review-connections/route.ts     — LLM-Verbindungsreview
     metrics/snapshot/route.ts             — Metrik-Snapshot persistieren
     engine-state/route.ts                 — Engine-State (PUT/GET)
     interventions/route.ts                — Interventionen (POST/GET/PATCH)
@@ -115,36 +136,45 @@ app/
     model-routing-log/route.ts            — Routing-Log persistieren
     annotations/route.ts                  — Forscher-Annotationen
     errors/route.ts                       — Fehler-Logging
-    summary/live/route.ts                 — Live-Zusammenfassung (LLM)
 
 components/
   LiveKitRoom.tsx                         — Video-UI + P2P-Sync
   IdeaBoard.tsx                           — Ideen-Graph (React Flow)
+  IdeaBoardExport.tsx                     — Ideen-Board als Bild exportieren
   TranscriptFeed.tsx                      — Transkript-Anzeige
+  TranscriptTab.tsx                       — Transkript-Tab
   ChatFeed.tsx                            — Chat-artige Transkript-Anzeige
   OverlayPanel.tsx                        — Transkript, Metriken, Interventionen
   DesktopTabLayout.tsx                    — Tabbed Sidebar (Desktop)
-  DashboardTab.tsx                        — Engine-Phase, Cooldown, Budget
-  SettingsTab.tsx                         — TTS-Einstellungen
+  DashboardTab.tsx                        — Engine-Phase, Cooldown, Budget, Ziele
+  SettingsTab.tsx                         — TTS-Einstellungen, Konfiguration
   DebugPanel.tsx                          — System-Health, Fehler, Logs
   ReadinessCheck.tsx                      — Pre-Session-Gate
   SessionReplayView.tsx                   — Post-Session Timeline-Replay
   LiveTuningPanel.tsx                     — Live-Schwellenwert-Anpassung
+  LiveSummaryTab.tsx                      — Rolling-Zusammenfassung
   ModelRoutingPanel.tsx                   — Modell-Auswahl + Routing-Log
+  SystemHealthPanel.tsx                   — System-Diagnostik
+  GoalsPanel.tsx                          — Gespraechsziel-Fortschritt
+  InterventionOverlay.tsx                 — Interventions-Overlay
   VoiceControls.tsx                       — TTS-Test/Cancel
   ExportButton.tsx                        — Session-Export
-  LiveSummaryTab.tsx                      — Rolling-Zusammenfassung
-  shared/                                 — Wiederverwendbare UI-Komponenten
+  ResizableLayout.tsx                     — Responsive Layout Container
+  Tooltip.tsx                             — Wiederverwendbarer Tooltip
+  shared/                                 — Wiederverwendbare UI-Komponenten (Panel, SectionHeader, TuningSlider, WeightsEditor)
   replay/                                 — Replay-Subkomponenten
-  setup/                                  — Setup-Flow-Subkomponenten
+  setup/
+    AdvancedConfig.tsx                    — Erweiterte Konfiguration
+    GoalInput.tsx                         — Gespraechsziel-Eingabe
 
 lib/
   types.ts                                — Alle geteilten TypeScript-Typen
+  config.ts                               — DEFAULT_CONFIG, Validierung, Constraints
   context/
     SessionContext.tsx                    — React Context + Reducer
   hooks/
-    useDecisionLoop.ts                    — Entscheidungs-Engine (Intervall)
-    useMetricsComputation.ts              — Metriken-Orchestrierung
+    useDecisionLoop.ts                    — Entscheidungs-Engine (1s Intervall)
+    useMetricsComputation.ts              — Metriken-Orchestrierung (5s)
     useTranscriptionManager.ts            — Lokale Mikrofon-Transkription
     useLiveKitSync.ts                     — P2P-Sync via LiveKit DataChannel
     useRealtimeSegments.ts                — Supabase Realtime: Segmente
@@ -154,9 +184,11 @@ lib/
     useRealtimeEngineState.ts             — Supabase Realtime: Engine-State
     useRealtimeConnections.ts             — Supabase Realtime: Ideen-Verbindungen
     useRealtimeVoiceSettings.ts           — Supabase Realtime: TTS-Settings
-    useIdeaExtraction.ts                  — LLM-Ideenextraktion (periodisch)
-    useLiveSummary.ts                     — Rolling-Zusammenfassung (LLM)
-    useDecisionOwnership.ts               — Server-Side Ownership-Lock
+    useIdeaExtraction.ts                  — LLM-Ideenextraktion (4s Intervall)
+    useConnectionReview.ts                — LLM-Verbindungsreview (periodisch)
+    useLiveSummary.ts                     — Rolling-Zusammenfassung (60s, LLM)
+    useGoalTracker.ts                     — Gespraechsziel-Tracking (Embedding-Heat 5s + LLM 90s)
+    useDecisionOwnership.ts               — Server-Side Ownership-Lock (5s Heartbeat)
     useMediaQuery.ts                      — CSS Media Query Hook
     useLatestRef.ts                       — Ref-Utility (Closure-Safety)
     useLiveKitErrorSuppression.ts         — LiveKit-Fehler unterdruecken
@@ -175,39 +207,66 @@ lib/
     metricsService.ts                     — Metrik-Persistenz
     interventionService.ts                — Interventions-Persistenz
     ideaService.ts                        — Ideen-Persistenz
-    eventService.ts                       — Event-Logging
+    eventService.ts                       — Event-Logging (10+ Funktionen)
   decision/
     interventionPolicy.ts                 — Policy-Engine (4 Phasen)
+    stateConfig.ts                        — Zustandskonfiguration (5 States + 4 Phasen)
     ruleViolationChecker.ts               — LLM-Regelpruefung
     interventionExecutor.ts               — Interventions-Ausfuehrung
     transcriptContext.ts                  — Kontext-Aufbau
     postCheck.ts                          — Erholungs-Evaluation
-    tickConfig.ts                         — Timing-Konstanten
+    tickConfig.ts                         — Timing-Konstanten (zentral)
   state/
     inferConversationState.ts             — 5-Zustands-Inferenz mit Hysterese
     generateSessionReport.ts              — Post-Session-Report
+    generateSessionSummaryText.ts         — Zusammenfassungs-Text
   metrics/
     participation.ts                      — Partizipations-Metriken (v2)
     semanticDynamics.ts                   — Semantische Dynamik-Metriken (v2)
     computeMetrics.ts                     — Gefensterte Metrik-Berechnung
-    embeddingCache.ts                     — Embedding-Cache (localStorage + Memory)
+    embeddingCache.ts                     — Embedding-Cache (localStorage + Memory LRU)
   supabase/
     client.ts                             — Browser Supabase-Client (Anon-Key)
     server.ts                             — Server Supabase-Client (Service-Role)
     types.ts                              — Database-Interface (TypeScript)
-    converters.ts                         — DB-Row <-> App-Type Konverter
+    converters.ts                         — DB-Row <-> App-Type Konverter (13+)
   transcription/
     useOpenAIRealtimeStream.ts            — Primaere Transkriptions-Engine
     useSpeechRecognition.ts               — Web Speech API Fallback
+    whisperHallucinationFilter.ts         — Halluzinations-Erkennung fuer Whisper
   tts/
     useCloudTTS.ts                        — Cloud TTS (OpenAI)
   llm/
-    openai.ts                             — OpenAI API Wrapper
-  prompts/                                — Alle LLM-Prompt-Templates
+    openai.ts                             — OpenAI API Wrapper (callLLM mit Fallback-Kette)
+  prompts/
+    index.ts                              — Prompt-Exports
+    templateEngine.ts                     — Variable Substitution ({placeholder})
+    moderator/prompts.ts                  — Moderator-Prompts (DE + EN, alle Intents)
+    ally/prompts.ts                       — Ally-Prompts (DE + EN)
+    extraction/prompts.ts                 — Ideen-Extraktions-Prompts
+    ruleCheck/prompts.ts                  — Regel-Pruefungs-Prompts
+    summary/prompts.ts                    — Zusammenfassungs-Prompts
+    goals/prompts.ts                      — Gespraechsziel-Bewertungs-Prompts (DE + EN)
+    shared/                               — Gemeinsame Prompt-Fragmente
   config/
-    index.ts                              — DEFAULT_CONFIG mit Schwellenwerten
-    modelRouting.ts                        — Modell-Routing-Strategie
+    modelRouting.ts                       — Modell-Routing-Strategie (9 Task-Keys)
+    modelRoutingPersistence.ts            — Routing-Persistenz (Supabase)
     promptVersion.ts                      — Prompt-Versionierung
+    timeouts.ts                           — API-Timeout-Konfiguration
+  ideas/
+    autoLayout.ts                         — Dagre-basiertes Auto-Layout
+  api/
+    validateSession.ts                    — Session-Validierung
+    rateLimit.ts                          — Sliding-Window Rate-Limiting
+    routeHelpers.ts                       — Gemeinsame API-Route-Muster
+  utils/
+    format.ts                             — Formatierungs-Hilfsfunktionen
+    transcript.ts                         — Transkript-Filterung
+    stopwords.ts                          — Stoppwort-Listen
+    generateId.ts                         — ID-Generierung
+    fetchWithRetry.ts                     — HTTP-Client mit Exponential Backoff
+  help/
+    helpContent.ts                        — Hilfe-Texte und Tooltips
 
 supabase/
   schema.sql                              — Vollstaendiges DB-Schema
@@ -221,8 +280,10 @@ supabase/
 
 1. Host waehlt Szenario (baseline/A/B), Sprache (de-CH/en-US), Raumnamen
 2. Optionale Konfiguration der Schwellenwerte und Zeitparameter
-3. Konfiguration wird in `localStorage` gespeichert
-4. Weiterleitung zu `/call/[room]?scenario=A&lang=de-CH&config=<base64>`
+3. Optionale Gespraechsziele eingeben (ein Ziel pro Zeile, Format: `Label | Beschreibung`)
+4. Optionale Toggles: Gespraechsziel-Refokussierung aktivieren, Ziele fuer alle sichtbar
+5. Konfiguration wird in `localStorage` gespeichert
+6. Weiterleitung zu `/call/[room]?scenario=A&lang=de-CH&config=<base64>`
 
 ### 4.2 Session-Start (`app/call/[room]/page.tsx`)
 
@@ -251,13 +312,23 @@ Hook-Orchestrierung via `useSessionOrchestration`:
 | `useLiveKitSync` (P2P DataChannel) | Event-basiert | Alle |
 | `useRealtimeSegments` (Supabase) | Event-basiert | Alle |
 | `useRealtimeIdeas` (Supabase) | Event-basiert | Alle |
+| `useRealtimeConnections` (Supabase) | Event-basiert | Alle |
 | `useRealtimeInterventions` (Supabase) | Event-basiert | Alle |
 | `useRealtimeEngineState` (Supabase) | Event-basiert | Nicht-Owner |
+| `useRealtimeVoiceSettings` (Supabase) | Event-basiert | Teilnehmer |
 | `useMetricsComputation` | 5000ms | Decision-Owner |
-| `useDecisionLoop` | 2000ms | Decision-Owner |
-| `useIdeaExtraction` | Periodisch | Decision-Owner |
+| `useDecisionLoop` | 1000ms | Decision-Owner |
+| `useIdeaExtraction` | 4000ms | Decision-Owner |
+| `useConnectionReview` | Periodisch | Decision-Owner |
 | `useLiveSummary` | 60s | Decision-Owner |
-| `useDecisionOwnership` (Heartbeat) | 30s | Host |
+| `useGoalTracker` (Embedding-Heat) | 5000ms | Decision-Owner |
+| `useGoalTracker` (LLM-Assessment) | 90s | Decision-Owner |
+| `useDecisionOwnership` (Heartbeat) | 5000ms | Host |
+
+**Stagger-Offsets** (`lib/decision/tickConfig.ts`):
+- Metriken: +500ms
+- Decision-Engine: +1500ms
+- Ideen-Extraktion: +2500ms
 
 ### 4.4 Session-Ende
 
@@ -356,10 +427,10 @@ Lokales Mikrofon
 - Automatische Reconnection mit Exponential Backoff
 - AudioWorklet mit ScriptProcessorNode-Fallback
 - Server-seitige VAD (kein Client-seitiges Speaking-Detection noetig)
+- Halluzinations-Filter (`whisperHallucinationFilter.ts`)
 
 ### 6.2 Fallback: Web Speech API (`lib/transcription/useSpeechRecognition.ts`)
 
-**Ablauf:**
 ```
 Lokales Mikrofon
   → SpeechRecognition (Browser-API, continuous)
@@ -410,7 +481,7 @@ Intervall-Tick
 |--------|-----------|-------------|
 | `volumeShare` | Woerter pro Sprecher / Gesamt | 0-1 pro Sprecher |
 | `turnShare` | Finale Segmente pro Sprecher / Gesamt | 0-1 pro Sprecher |
-| `silentParticipantRatio` | Sprecher mit < 5% Volumen / Gesamt | 0-1 |
+| `silentParticipantRatio` | Sprecher mit < 10% Volumen / Gesamt | 0-1 |
 | `dominanceStreakScore` | Laengste ununterbrochene Reihe eines Sprechers (normalisiert) | 0-1 |
 | `participationRiskScore` | Gewichteter Composite | 0-1 |
 
@@ -426,12 +497,12 @@ Intervall-Tick
 
 | Metrik | Berechnung | Wertebereich |
 |--------|-----------|-------------|
-| `noveltyRate` | Anteil neuer Ideen (Cosinus-Aehnlichkeit < 0.80) | 0-1 |
+| `noveltyRate` | Anteil neuer Ideen (Cosinus-Aehnlichkeit < 0.45) | 0-1 |
 | `clusterConcentration` | HHI ueber Ideen-Cluster | 0-1 |
 | `explorationElaborationRatio` | Exploration vs. Vertiefung | 0-1 |
 | `semanticExpansionScore` | Trend-Aenderung der Konzentration + Neuheit | -1 bis 1 |
 
-**Cluster-Algorithmus:** Gieriges Centroid-Clustering mit Merge-Schwelle 0.75 (Cosinus-Aehnlichkeit).
+**Cluster-Algorithmus:** Gieriges Centroid-Clustering mit Merge-Schwelle 0.35 (Cosinus-Aehnlichkeit).
 
 **Fallback:** Ohne Embeddings wird Jaccard-Aehnlichkeit mit Schwelle 0.40 verwendet.
 
@@ -442,6 +513,7 @@ Intervall-Tick
 - Max 500 Eintraege (~6MB)
 - Deduplizierung: Identische Texte teilen sich einen Embedding-Vektor
 - Eviction: Aelteste 25% bei `QuotaExceededError`
+- `getCachedEmbedding(id)` fuer Read-Only-Zugriff (verwendet von Goal-Tracker)
 
 ### 7.5 MetricSnapshot-Format
 
@@ -554,7 +626,7 @@ interface ConversationStateInference {
 Vier Phasen:
 
 ```
-MONITORING → CONFIRMING (30s) → POST_CHECK (90s) → COOLDOWN (180s)
+MONITORING → CONFIRMING (45s) → POST_CHECK (180s) → COOLDOWN (180s)
      ↑                                                    |
      └────────────────────────────────────────────────────┘
 ```
@@ -566,7 +638,7 @@ MONITORING → CONFIRMING (30s) → POST_CHECK (90s) → COOLDOWN (180s)
 4. Bestaetigt → `shouldIntervene = true`, Wechsel zu POST_CHECK
 
 **POST_CHECK (nach Intervention):**
-1. Wartet `POST_CHECK_SECONDS` (90s)
+1. Wartet `POST_CHECK_SECONDS` (180s)
 2. Ruft `evaluateRecovery(intent, currentMetrics, metricsAtIntervention)` auf
 3. Erholung erkannt → zurueck zu MONITORING
 4. Keine Erholung + Szenario B → Eskalation zu Ally (`intent = 'ALLY_IMPULSE'`)
@@ -578,19 +650,23 @@ MONITORING → CONFIRMING (30s) → POST_CHECK (90s) → COOLDOWN (180s)
 
 ### 9.2 Intent-Mapping
 
-| Zustand | Intent |
-|---------|--------|
-| `DOMINANCE_RISK` | `PARTICIPATION_REBALANCING` |
-| `CONVERGENCE_RISK` | `PERSPECTIVE_BROADENING` |
-| `STALLED_DISCUSSION` | `REACTIVATION` |
-| (Eskalation) | `ALLY_IMPULSE` |
+| Zustand | Intent | Trigger |
+|---------|--------|---------|
+| `DOMINANCE_RISK` | `PARTICIPATION_REBALANCING` | `participation_rebalancing` |
+| `CONVERGENCE_RISK` | `PERSPECTIVE_BROADENING` | `perspective_broadening` |
+| `STALLED_DISCUSSION` | `REACTIVATION` | `reactivation` |
+| (Eskalation) | `ALLY_IMPULSE` | `ally_impulse` |
+| (Regelverstoss) | `NORM_REINFORCEMENT` | `rule_violation` |
+| (Ziel-Drift) | `GOAL_REFOCUS` | `goal_refocus` |
 
 ### 9.3 Rate-Limiting
 
 - Max `MAX_INTERVENTIONS_PER_10MIN` (3) Interventionen pro 10-Minuten-Fenster (Sliding Window)
 - Minimale Konfidenz: 0.45 fuer Risiko-Zustaende
 - Cooldown: 180s nach jeder Intervention
-- Szenario `baseline` → keine Interventionen
+- Regel-Violations: eigener Cooldown (`RULE_VIOLATION_COOLDOWN_MS`, 15s)
+- Duplikat-Evidence-Erkennung (5-Minuten-Fenster)
+- Szenario `baseline` → keine Interventionen (Detektion laeuft, Logging wird geschrieben)
 
 ### 9.4 Erholungs-Evaluation (`lib/decision/postCheck.ts`)
 
@@ -627,20 +703,24 @@ score = improvements / 3
 
 ### 9.5 Decision Loop (`lib/hooks/useDecisionLoop.ts`)
 
-Laeuft alle 2000ms beim Decision-Owner:
+Laeuft alle 1000ms beim Decision-Owner:
 
 ```
-1. Pruefe: isActive, isDecisionOwner, !baseline, metrics vorhanden
-2. Rate-Limit pruefen (Sliding Window, 10min)
+1. Prune stale Intervention-Timestamps (Sliding Window Housekeeping)
+2. Rule-Violation-Check (periodisch, LLM-basiert):
+   - Mindestens 1 Segment in letzten 60s noetig
+   - Pending Violations werden bis zum naechsten Tick gehalten
 3. evaluatePolicy(inferredState, metrics, history, engineState, config, scenario)
 4. Bei stateUpdateOnly → updateDecisionState()
 5. Bei recoveryResult → updateIntervention() am letzten Eingriff
-6. Bei shouldIntervene:
+6. Budget pruefen (Sliding Window, 10min)
+7. Cooldown pruefen (global + rule-violation-spezifisch)
+8. Bei shouldIntervene:
    a. Kontext aufbauen (letzte 200 Segmente, letzte 3 Interventionen)
-   b. POST /api/intervention/moderator ODER /api/intervention/ally
-   c. Intervention erstellen, TTS abspielen
-   d. DecisionState aktualisieren
-   e. Engine-State in Supabase persistieren
+   b. Goal-Context injizieren (wenn Ziele konfiguriert)
+   c. POST /api/intervention/moderator ODER /api/intervention/ally
+   d. Intervention erstellen, TTS abspielen, via DataChannel broadcasten
+   e. DecisionState aktualisieren + Engine-State in Supabase persistieren
 ```
 
 ### 9.6 Decision-Ownership (`lib/hooks/useDecisionOwnership.ts`)
@@ -652,7 +732,7 @@ POST /api/decision-owner { sessionId, clientId }
   → Server prueft: Existierender Owner mit aktivem Heartbeat?
   → Ja: isOwner = false
   → Nein (kein Owner oder stale): isOwner = true
-  → Heartbeat alle 30s erneuern
+  → Heartbeat alle 5s erneuern
 ```
 
 ### 9.7 Regelpruefung (`lib/decision/ruleViolationChecker.ts`)
@@ -672,7 +752,7 @@ POST /api/rule-check { segments, language }
 
 ### 10.1 LLM-Ideenextraktion (`lib/hooks/useIdeaExtraction.ts`)
 
-Periodisch extrahiert der Decision-Owner Ideen aus neuen Transkript-Segmenten:
+Periodisch (4s) extrahiert der Decision-Owner Ideen aus neuen Transkript-Segmenten:
 
 ```
 POST /api/ideas/extract {
@@ -685,14 +765,31 @@ POST /api/ideas/extract {
 
 **Ideen-Typen:** `brainstorming_ideas`, `ally_intervention`, `action_item`
 
-### 10.2 Ideen-Board (`components/IdeaBoard.tsx`)
+### 10.2 Verbindungs-Review (`lib/hooks/useConnectionReview.ts`)
+
+Periodische LLM-basierte Ueberpruefung aller Verbindungen:
+
+```
+POST /api/ideas/review-connections {
+  ideas, connections, language
+}
+  → LLM bewertet bestehende Verbindungen
+  → Neue Verbindungen vorschlagen
+  → Schwache Verbindungen entfernen
+```
+
+**Verbindungstypen:** `builds_on`, `contrasts`, `supports`, `refines`
+
+### 10.3 Ideen-Board (`components/IdeaBoard.tsx`)
 
 Visuelle Darstellung der Ideen als Graph via `@xyflow/react`:
-- Sticky-Note-artige Knoten mit Farb-Kodierung
+- Sticky-Note-artige Knoten mit Farb-Kodierung nach Typ
 - Gerichtete Kanten zwischen verbundenen Ideen
 - Drag-and-Drop-Positionierung (persistiert in Supabase)
+- Auto-Layout via `@dagrejs/dagre`
+- Export als Bild (`IdeaBoardExport.tsx`)
 
-### 10.3 Persistenz
+### 10.4 Persistenz
 
 - POST `/api/ideas` — Idee erstellen/aktualisieren
 - PATCH `/api/ideas` — Position, Farbe, Soft-Delete
@@ -701,29 +798,149 @@ Visuelle Darstellung der Ideen als Graph via `@xyflow/react`:
 
 ---
 
-## 11. API-Routen
+## 11. Gespraechsziele (Goal Tracking)
 
-### 11.1 Session-Management
+### 11.1 Ueberblick
+
+Optionales Feature zur Ueberwachung vordefinierter Diskussionsthemen. Der Host gibt bei Session-Start Ziele ein, das System trackt deren Abdeckung und kann bei Abdrift sanft refokussieren.
+
+**Drei Schichten der Refokussierung:**
+1. **Prompt-Enrichment** (immer aktiv): Goal-Context wird in alle Moderator-Interventionen injiziert
+2. **Dashboard-Nudge** (immer sichtbar): GoalsPanel zeigt Fortschritt, Warnung bei niedrigem Heat
+3. **GOAL_REFOCUS-Intent** (optional, konfigurierbar): Dedizierte Refokussierungs-Intervention
+
+### 11.2 Setup (`components/setup/GoalInput.tsx`)
+
+- Textarea fuer Ziele (ein Ziel pro Zeile, Format: `Label` oder `Label | Beschreibung`)
+- Toggle: `GOAL_REFOCUS_ENABLED` (dedizierte Interventionen aktivieren)
+- Toggle: `GOALS_VISIBLE_TO_ALL` (Ziel-Fortschritt fuer alle Teilnehmer sichtbar)
+- Ziele werden als `ConversationGoal[]` in `ExperimentConfig` gespeichert (Supabase JSONB, keine Schema-Migration)
+
+### 11.3 Hybrid-Tracking (`lib/hooks/useGoalTracker.ts`)
+
+Folgt dem Decision-Owner-Pattern (wie `useLiveSummary`):
+
+**Embedding-Heat (alle 5s, zero extra API-Calls):**
+```
+Fuer jedes Ziel:
+  → getCachedEmbedding(goal.label)          // Aus bestehendem Cache
+  → Fuer alle Segmente im 60s-Fenster:
+    → getCachedEmbedding(segment.id)        // Bereits fuer Metriken berechnet
+    → cosineSimilarity(goalEmb, segmentEmb)
+  → heatScore = max(similarities)
+```
+
+**LLM-Assessment (alle 90s):**
+```
+POST /api/goals/assess {
+  goals, heatScores, liveSummary, recentTranscript, language
+}
+  → gpt-4o-mini klassifiziert: not_started | mentioned | partially_covered | covered
+  → Gibt Notes und suggestedTopics zurueck
+  → Ergebnis wird via Supabase session_events an alle Clients broadcastet
+```
+
+**Nicht-Owner-Clients:**
+- Supabase Realtime-Subscription auf `session_events` WHERE `event_type = 'goal_assessment'`
+- Initialer Fetch beim Beitritt fuer Late-Joiner-Support
+
+### 11.4 Typen
+
+```typescript
+type GoalCoverageStatus = 'not_started' | 'mentioned' | 'partially_covered' | 'covered';
+
+interface ConversationGoal {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+interface GoalAssessment {
+  goalId: string;
+  status: GoalCoverageStatus;
+  heatScore: number;
+  relevantSegmentCount: number;
+  notes?: string;
+}
+
+interface GoalTrackingState {
+  goals: ConversationGoal[];
+  assessments: GoalAssessment[];
+  lastAssessedAt: number | null;
+  isAssessing: boolean;
+  overallProgress: number;   // 0-1
+  suggestedTopics: string[];
+}
+
+interface GoalContext {
+  coveredGoals: string[];
+  uncoveredGoals: string[];
+  suggestedTopics: string[];
+}
+```
+
+### 11.5 Dashboard-UI (`components/GoalsPanel.tsx`)
+
+- Gesamt-Fortschrittsbalken (0-100%)
+- Pro-Ziel-Anzeige mit:
+  - Farbkodierter Status-Punkt (rot/gelb/blau/gruen)
+  - Heat-Indikator-Balken
+  - LLM-Notizen
+- Vorgeschlagene Themen
+- Low-Heat-Warnung wenn alle Ziele Heat < 0.3
+
+### 11.6 Integration in Decision Loop
+
+`getGoalContext()` wird als Parameter an `useDecisionLoop` weitergereicht und in den Body jeder Interventions-Anfrage als `goalContext` injiziert. Der Moderator-Endpoint baut daraus einen `goalContextBlock` fuer das Prompt-Template.
+
+---
+
+## 12. Live-Zusammenfassung
+
+### 12.1 Ueberblick (`lib/hooks/useLiveSummary.ts`)
+
+Rolling-Zusammenfassung der Session, generiert vom Decision-Owner alle 60s:
+
+```
+POST /api/summary/live {
+  transcriptSegmentsRef, ideas, language, previousSummary
+}
+  → LLM generiert strukturierte Zusammenfassung
+  → Ergebnis via Supabase session_events broadcasten
+  → Nicht-Owner empfangen via Realtime-Subscription
+```
+
+### 12.2 Anzeige (`components/LiveSummaryTab.tsx`)
+
+- Anzeige im Dashboard-Tab
+- Wird auch als Input fuer Goal-Assessment verwendet
+
+---
+
+## 13. API-Routen
+
+### 13.1 Session-Management
 
 | Route | Methoden | Beschreibung |
 |-------|----------|-------------|
 | `/api/session` | POST, GET, PUT, PATCH | Session erstellen, abrufen, aktualisieren, beenden |
 | `/api/session/join` | POST | Session beitreten (Name-Deduplizierung) |
 | `/api/session/participants` | POST, PATCH, DELETE | Teilnehmer-Lifecycle (Register/Heartbeat/Leave) |
-| `/api/session/export` | GET | Vollstaendiger Session-Export aus Supabase |
+| `/api/session/export` | GET | Vollstaendiger Session-Export aus Supabase (inkl. goalAssessments) |
 | `/api/session/report` | GET | Post-Session-Report (mit optionaler LLM-Zusammenfassung) |
 | `/api/session/cleanup` | POST | Stale Sessions bereinigen (Cron-sicher) |
 | `/api/session/events` | POST, GET | Session-Events fuer Analytics |
 | `/api/sessions` | GET | Alle Sessions auflisten |
 
-### 11.2 Daten-Persistenz
+### 13.2 Daten-Persistenz
 
 | Route | Methoden | Beschreibung |
 |-------|----------|-------------|
 | `/api/segments` | POST, GET | Transkript-Segmente (idempotenter Upsert) |
-| `/api/ideas` | POST, GET, PATCH | Ideen CRUD (mit Soft-Delete) |
+| `/api/ideas` | POST, GET, PATCH, DELETE | Ideen CRUD (mit Soft-Delete) |
 | `/api/ideas/extract` | POST | LLM-Ideenextraktion aus Transkript |
 | `/api/ideas/connections` | POST, GET | Ideen-Verbindungen |
+| `/api/ideas/review-connections` | POST | LLM-Verbindungsreview |
 | `/api/metrics/snapshot` | POST | Metrik-Snapshot persistieren |
 | `/api/engine-state` | PUT, GET | Engine-State Upsert/Abruf |
 | `/api/interventions` | POST, GET, PATCH | Interventionen CRUD |
@@ -732,19 +949,20 @@ Visuelle Darstellung der Ideen als Graph via `@xyflow/react`:
 | `/api/errors` | POST, GET | Fehler-Logging |
 | `/api/model-routing-log` | POST | Routing-Decision-Log |
 
-### 11.3 LLM/AI-Endpunkte
+### 13.3 LLM/AI-Endpunkte
 
 | Route | Methoden | Beschreibung |
 |-------|----------|-------------|
 | `/api/intervention/moderator` | POST | LLM-Moderator-Intervention (Rate-Limited) |
 | `/api/intervention/ally` | POST | LLM-Ally-Impuls (nur Szenario B, Rate-Limited) |
 | `/api/rule-check` | POST | LLM-Regelverstoss-Erkennung |
+| `/api/goals/assess` | POST | LLM-Gespraechsziel-Bewertung (Rate-Limited) |
 | `/api/summary/live` | POST | Rolling-Zusammenfassung (LLM) |
 | `/api/embeddings` | POST | OpenAI Embeddings (Batch max 50) |
 | `/api/transcription/token` | POST | Ephemerer OpenAI Realtime Token |
 | `/api/tts` | POST | Cloud TTS Streaming |
 
-### 11.4 Infrastruktur
+### 13.4 Infrastruktur
 
 | Route | Methoden | Beschreibung |
 |-------|----------|-------------|
@@ -754,9 +972,25 @@ Visuelle Darstellung der Ideen als Graph via `@xyflow/react`:
 
 ---
 
-## 12. LLM-Prompts
+## 14. LLM-Prompts
 
-### 12.1 Moderator — System-Prompt
+### 14.1 Modell-Routing (`lib/config/modelRouting.ts`)
+
+Jede LLM-Aufgabe hat eine eigene Routing-Konfiguration mit Fallback-Kette:
+
+| Task-Key | Primaeres Modell | Beschreibung |
+|----------|-----------------|-------------|
+| `brainstorming_ideas` | gpt-4o | Ideen-Extraktion |
+| `ally_intervention` | gpt-4o | Ally-Impuls |
+| `moderator_intervention` | gpt-4o | Moderator-Intervention |
+| `rule_violation_check` | gpt-4o-mini | Regelverstoss-Erkennung |
+| `idea_connection_review` | gpt-4o-mini | Verbindungs-Review |
+| `live_summary` | gpt-4o-mini | Rolling-Zusammenfassung |
+| `goal_assessment` | gpt-4o-mini | Gespraechsziel-Bewertung |
+| `session_report` | gpt-4o | Post-Session-Report |
+| `session_summary_text` | gpt-4o-mini | Zusammenfassungs-Text |
+
+### 14.2 Moderator — System-Prompt
 
 **Deutsch:**
 ```
@@ -773,16 +1007,17 @@ WICHTIGE REGELN:
 7. Adressiere NIEMALS einzelne Personen direkt.
 ```
 
-### 12.2 Moderator — User-Prompts (Intent-basiert)
+### 14.3 Moderator — User-Prompts (Intent-basiert)
 
 | Intent | Kontext | Anweisung |
 |--------|---------|-----------|
 | `PARTICIPATION_REBALANCING` | participationRiskScore, silentParticipantRatio, dominanceStreakScore | Sanfte Prozessreflexion fuer ausgewogenere Beteiligung |
 | `PERSPECTIVE_BROADENING` | clusterConcentration, noveltyRate, explorationRatio | Ermutigung, verschiedene Blickwinkel zu erkunden |
 | `REACTIVATION` | stagnationDuration, noveltyRate, expansionScore | Energetisierende Prozessreflexion |
+| `GOAL_REFOCUS` | goalContextBlock (covered/uncovered goals, suggestedTopics) | Sanfte Erinnerung an noch offene Diskussionsthemen |
 | `rule_violation` | rule, evidence, severity | Normen-Verstaerkung ohne Beschuldigung |
 
-### 12.3 Ally — System-Prompt
+### 14.4 Ally — System-Prompt
 
 ```
 Du bist ein kreativer Verbuendeter in einer Brainstorming-Sitzung. Deine Aufgabe ist es,
@@ -798,7 +1033,26 @@ WICHTIGE REGELN:
 7. Wiederhole KEINE Themen aus vorherigen Interventionen.
 ```
 
-### 12.4 Fallback-Texte (bei LLM-Fehler)
+### 14.5 Gespraechsziel-Bewertung — System-Prompt
+
+```
+Du analysierst den Fortschritt einer Brainstorming-Session gegenueber vordefinierten
+Diskussionszielen.
+
+Fuer jedes Ziel erhaeltst du:
+- Label und optionale Beschreibung
+- Embedding-basierter "Heat Score" (0-1)
+- Aktuelle Session-Zusammenfassung
+- Aktuelle Transkript-Segmente
+
+Klassifiziere jedes Ziel als:
+- "not_started": Ziel wurde nicht beruehrt
+- "mentioned": Kurz angesprochen, nicht vertieft
+- "partially_covered": Teilweise behandelt, weiteres Potenzial
+- "covered": Gruendlich behandelt
+```
+
+### 14.6 Fallback-Texte (bei LLM-Fehler)
 
 Statische, vorformulierte Antworten pro Intent in DE und EN.
 
@@ -807,8 +1061,9 @@ Statische, vorformulierte Antworten pro Intent in DE und EN.
 | PARTICIPATION_REBALANCING | "Es waere bereichernd, noch mehr Perspektiven zu hoeren..." | "It feels like we could benefit from hearing more perspectives..." |
 | PERSPECTIVE_BROADENING | "Welche voellig andere Richtung koennten wir erkunden?" | "What completely different direction could we explore?" |
 | REACTIVATION | "Welche Dimensionen sind noch offen?" | "What dimensions are still open?" |
+| GOAL_REFOCUS | "Super Fortschritt bisher! Es gibt noch spannende Themen, die wir nicht erkundet haben..." | "Great progress so far! There are still some interesting topics we haven't explored yet..." |
 
-### 12.5 LLM-Client und Fallback-Kette
+### 14.7 LLM-Client und Fallback-Kette
 
 ```
 callLLM(task, routingConfig, messages, apiKey)
@@ -818,11 +1073,15 @@ callLLM(task, routingConfig, messages, apiKey)
         → Alle fehlgeschlagen: HTTP 200 mit Fallback-Text
 ```
 
+### 14.8 Template-Engine (`lib/prompts/templateEngine.ts`)
+
+Variable Substitution mit `{placeholder}` Syntax. Alle Prompts verwenden Template-Variablen die zur Laufzeit ersetzt werden (z.B. `{language}`, `{transcriptExcerpt}`, `{goalContextBlock}`).
+
 ---
 
-## 13. Datensynchronisation
+## 15. Datensynchronisation
 
-### 13.1 Drei-Schicht-Architektur
+### 15.1 Drei-Schicht-Architektur
 
 | Schicht | Technologie | Latenz | Verwendung |
 |---------|-----------|---------|----------|
@@ -830,7 +1089,7 @@ callLLM(task, routingConfig, messages, apiKey)
 | **P2P Fast Path** | LiveKit DataChannel (WebRTC) | ~50ms | Interim-Transkripte, finale Segmente, Interventionen |
 | **Autoritativ** | Supabase Realtime (WebSocket) | ~200ms | Persistenz, Metriken, Ideen, Engine-State (Source of Truth) |
 
-### 13.2 Supabase Realtime-Subscriptions
+### 15.2 Supabase Realtime-Subscriptions
 
 Generischer Hook `useSupabaseChannel` mit:
 - Race-Condition-Schutz bei ueberlappenden `subscribe()` Aufrufen
@@ -847,8 +1106,10 @@ Generischer Hook `useSupabaseChannel` mit:
 | Ideen | `ideas` | INSERT, UPDATE | Alle |
 | Verbindungen | `idea_connections` | INSERT | Alle |
 | Voice-Settings | `sessions` | UPDATE | Teilnehmer |
+| Goal-Assessments | `session_events` (filter: goal_assessment) | INSERT | Nicht-Owner |
+| Live-Summary | `session_events` (filter: live_summary) | INSERT | Nicht-Owner |
 
-### 13.3 Deduplizierungs-Strategie
+### 15.3 Deduplizierungs-Strategie
 
 Drei Ebenen verhindern Doppelverarbeitung:
 
@@ -856,7 +1117,7 @@ Drei Ebenen verhindern Doppelverarbeitung:
 2. **Reducer-Ebene:** SessionContext dedupliziert via ID bei allen ADD-Actions
 3. **TTS-Ebene:** `spokenInterventionIdsRef` verhindert doppelte Sprachausgabe
 
-### 13.4 Persistenz-Pattern: Fire-and-Forget
+### 15.4 Persistenz-Pattern: Fire-and-Forget
 
 Asynchrone Operationen blockieren nicht die UI:
 
@@ -871,7 +1132,7 @@ apiFireAndForget('/api/segments', {
 - `keepalive: true` bei Session-Ende (ueberlebt Navigation)
 - Fehler werden geloggt, aber nicht an den User propagiert
 
-### 13.5 Supabase-Schema (Uebersicht)
+### 15.5 Supabase-Schema (Uebersicht)
 
 | Tabelle | Beschreibung | Realtime |
 |---------|-------------|----------|
@@ -881,18 +1142,18 @@ apiFireAndForget('/api/segments', {
 | `metric_snapshots` | Metriken + Zustandsinferenz | Ja (INSERT) |
 | `interventions` | KI-Interventionen + Recovery | Ja (INSERT) |
 | `engine_state` | Decision-Engine Phase (Singleton pro Session) | Ja (UPDATE) |
-| `ideas` | Extrahierte Ideen | Ja (INSERT, UPDATE) |
+| `ideas` | Extrahierte Ideen (Position, Farbe, Typ) | Ja (INSERT, UPDATE) |
 | `idea_connections` | Verbindungen zwischen Ideen | Ja (INSERT) |
 | `model_routing_logs` | LLM-Routing-Telemetrie | Nein |
-| `intervention_annotations` | Forscher-Bewertungen | Nein |
+| `intervention_annotations` | Forscher-Bewertungen (Rating, Relevanz, Effektivitaet) | Nein |
 | `session_errors` | Laufzeit-Fehler | Nein |
-| `session_events` | Lifecycle-Events | Nein |
+| `session_events` | Lifecycle-Events, Goal-Assessments, Live-Summaries | Nein |
 
 ---
 
-## 14. Session-Kontext
+## 16. Session-Kontext
 
-### 14.1 State-Struktur (`lib/context/SessionContext.tsx`)
+### 16.1 State-Struktur (`lib/context/SessionContext.tsx`)
 
 ```typescript
 interface SessionState {
@@ -915,7 +1176,9 @@ interface SessionState {
 }
 ```
 
-### 14.2 Memory-Caps
+**Hinweis:** `GoalTrackingState` und `LiveSummaryState` leben in ihren jeweiligen Hooks (`useGoalTracker`, `useLiveSummary`), nicht im SessionContext, und werden als Props durchgereicht.
+
+### 16.2 Memory-Caps
 
 | Array | Max Eintraege | Ausreichend fuer |
 |-------|--------------|-----------------|
@@ -926,7 +1189,7 @@ interface SessionState {
 | `modelRoutingLog` | 500 | Vollstaendige Session |
 | `errors` | 100 | Vollstaendige Session |
 
-### 14.3 Decision Engine State
+### 16.3 Decision Engine State
 
 ```typescript
 interface DecisionEngineState {
@@ -936,35 +1199,45 @@ interface DecisionEngineState {
   postCheckIntent: InterventionIntent | null;
   lastInterventionTime: number | null;
   interventionCount: number;         // legacy: kept for Supabase backward compat
+  interventionTimestamps: number[];  // Sliding-Window fuer Rate-Limiting
   persistenceStartTime: number | null;
   postCheckStartTime: number | null;
   cooldownUntil: number | null;
   metricsAtIntervention: MetricSnapshot | null;
   triggerAtIntervention: InterventionTrigger | null;
+  lastRuleViolationTime: number | null;
 }
 ```
 
-### 14.4 Actions
+### 16.4 Actions
 
 | Action | Beschreibung |
 |--------|-------------|
 | `START_SESSION` | Session initialisieren |
 | `SET_SESSION_ID` | SessionId setzen (nach POST /api/session) |
 | `END_SESSION` | Session beenden |
+| `UPDATE_CONFIG` | Konfiguration partiell aktualisieren |
 | `ADD_TRANSCRIPT_SEGMENT` | Segment hinzufuegen (mit Dedup) |
+| `UPDATE_TRANSCRIPT_SEGMENT` | Segment aktualisieren |
 | `ADD_METRIC_SNAPSHOT` | Metrik-Snapshot speichern (mit Dedup) |
 | `ADD_INTERVENTION` | Intervention hinzufuegen (mit Dedup) |
 | `UPDATE_INTERVENTION` | Erholungsergebnis anhaengen |
 | `UPDATE_DECISION_STATE` | Engine-State partiell aktualisieren |
 | `ADD_IDEA` | Idee hinzufuegen (mit Dedup) |
+| `UPDATE_IDEA` | Idee aktualisieren |
+| `REMOVE_IDEA` | Idee soft-deleten |
 | `ADD_IDEA_CONNECTION` | Verbindung hinzufuegen |
+| `REMOVE_IDEA_CONNECTION` | Verbindung entfernen |
+| `UPDATE_IDEA_CONNECTION` | Verbindung aktualisieren |
 | `UPDATE_VOICE_SETTINGS` | TTS-Einstellungen aendern |
 | `ADD_MODEL_ROUTING_LOG` | API-Aufruf protokollieren |
-| `ADD_ERROR` | Fehler protokollieren |
+| `ADD_ERROR` | Fehler protokollieren (+ Fire-and-Forget an DB) |
+| `CLEAR_ERRORS` | Fehler-Liste leeren |
+| `RESET_SESSION` | Zurueck auf Initialzustand |
 
 ---
 
-## 15. Datenfluss-Diagramm
+## 17. Datenfluss-Diagramm
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -991,27 +1264,54 @@ interface DecisionEngineState {
 │  │  └────────────┘  │               │                               │
 │  └──────────────────┘               │ segments + speakingTime       │
 │                                     ▼                               │
-│                          ┌──────────────────────────────────────┐   │
-│                          │  useMetricsComputation (5s)          │   │
-│                          │  → computeMetricsAsync               │   │
-│                          │    → POST /api/embeddings (cached)   │   │
-│                          │    → ParticipationMetrics            │   │
-│                          │    → SemanticDynamicsMetrics          │   │
-│                          │  → inferConversationState             │   │
-│                          └──────────┬───────────────────────────┘   │
-│                                     │ MetricSnapshot                │
-│                                     ▼                               │
-│                          ┌──────────────────────────────────────┐   │
-│                          │  useDecisionLoop (2s)                │   │
-│                          │  → evaluatePolicy()                  │   │
-│                          │    → MONITORING → CONFIRMING (30s)   │   │
-│                          │    → POST_CHECK (90s)                │   │
-│                          │    → COOLDOWN (180s)                 │   │
-│                          │  → Bei shouldIntervene:              │   │
-│                          │    → POST /api/intervention/         │   │
-│                          │      moderator ODER ally             │   │
-│                          │    → speak() (Cloud TTS)             │   │
-│                          └──────────────────────────────────────┘   │
+│                 ┌──────────────────────────────────────┐            │
+│                 │  useSessionOrchestration              │            │
+│                 │  (Master-Hook: komponiert alle)       │            │
+│                 ├──────────────────────────────────────┤            │
+│                 │                                      │            │
+│                 │  ┌──────────────────────────────┐    │            │
+│                 │  │  useMetricsComputation (5s)  │    │            │
+│                 │  │  → computeMetricsAsync       │    │            │
+│                 │  │    → POST /api/embeddings    │    │            │
+│                 │  │    → ParticipationMetrics    │    │            │
+│                 │  │    → SemanticDynamics        │    │            │
+│                 │  │  → inferConversationState    │    │            │
+│                 │  └──────────┬───────────────────┘    │            │
+│                 │             │ MetricSnapshot          │            │
+│                 │             ▼                         │            │
+│                 │  ┌──────────────────────────────┐    │            │
+│                 │  │  useDecisionLoop (1s)        │    │            │
+│                 │  │  → evaluatePolicy()          │    │            │
+│                 │  │    → MONITORING→CONFIRMING   │    │            │
+│                 │  │    → POST_CHECK→COOLDOWN     │    │            │
+│                 │  │  → ruleViolationCheck        │    │            │
+│                 │  │  → goalContext injection     │    │            │
+│                 │  │  → POST /api/intervention/   │    │            │
+│                 │  │    moderator ODER ally        │    │            │
+│                 │  │  → speak() (Cloud TTS)       │    │            │
+│                 │  └──────────────────────────────┘    │            │
+│                 │                                      │            │
+│                 │  ┌──────────────────────────────┐    │            │
+│                 │  │  useIdeaExtraction (4s)      │    │            │
+│                 │  │  → POST /api/ideas/extract   │    │            │
+│                 │  │  useConnectionReview         │    │            │
+│                 │  │  → POST /api/ideas/review    │    │            │
+│                 │  └──────────────────────────────┘    │            │
+│                 │                                      │            │
+│                 │  ┌──────────────────────────────┐    │            │
+│                 │  │  useLiveSummary (60s)        │    │            │
+│                 │  │  → POST /api/summary/live    │    │            │
+│                 │  │  → Broadcast via session_events│  │            │
+│                 │  └──────────────────────────────┘    │            │
+│                 │                                      │            │
+│                 │  ┌──────────────────────────────┐    │            │
+│                 │  │  useGoalTracker              │    │            │
+│                 │  │  → Embedding-Heat (5s)       │    │            │
+│                 │  │  → LLM-Assessment (90s)      │    │            │
+│                 │  │  → POST /api/goals/assess    │    │            │
+│                 │  │  → Broadcast via session_events│  │            │
+│                 │  └──────────────────────────────┘    │            │
+│                 └──────────────────────────────────────┘            │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │  Supabase Realtime Subscriptions                             │   │
@@ -1021,6 +1321,8 @@ interface DecisionEngineState {
 │  │  → useRealtimeEngineState (UPDATE → Nicht-Owner)             │   │
 │  │  → useRealtimeIdeas (INSERT/UPDATE)                          │   │
 │  │  → useRealtimeConnections (INSERT)                           │   │
+│  │  → useRealtimeVoiceSettings (UPDATE → Teilnehmer)            │   │
+│  │  → session_events: goal_assessment, live_summary (Nicht-Owner)│  │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 
@@ -1034,7 +1336,9 @@ interface DecisionEngineState {
 │    moderator              → OpenAI Chat API (Moderator-Prompt)     │
 │    ally                   → OpenAI Chat API (Ally-Prompt)          │
 │  /api/rule-check          → OpenAI Chat API (Regel-Klassifikation) │
+│  /api/goals/assess        → OpenAI Chat API (Ziel-Bewertung)      │
 │  /api/ideas/extract       → OpenAI Chat API (Ideen-Extraktion)     │
+│  /api/ideas/review-connections → OpenAI Chat API (Verbindungen)    │
 │  /api/summary/live        → OpenAI Chat API (Zusammenfassung)      │
 │                                                                     │
 │  /api/session             → Supabase: sessions                     │
@@ -1046,28 +1350,53 @@ interface DecisionEngineState {
 │  /api/ideas/connections   → Supabase: idea_connections             │
 │  /api/decision-owner      → Supabase: engine_state                 │
 │  /api/model-routing       → Server-Memory (Konfiguration)          │
+│  /api/annotations         → Supabase: intervention_annotations     │
+│  /api/errors              → Supabase: session_errors               │
+│  /api/session/events      → Supabase: session_events               │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 16. Konfiguration
+## 18. Konfiguration
 
-### 16.1 ExperimentConfig (Standard-Werte)
+### 18.1 ExperimentConfig (Standard-Werte)
 
 | Parameter | Wert | Beschreibung |
 |-----------|------|-------------|
-| `WINDOW_SECONDS` | 180 | Analyse-Zeitfenster in Sekunden |
+| `WINDOW_SECONDS` | 300 | Analyse-Zeitfenster in Sekunden |
 | `ANALYZE_EVERY_MS` | 5000 | Metriken-Berechnung alle X ms |
 | `COOLDOWN_SECONDS` | 180 | Abkuehlzeit nach Intervention |
-| `POST_CHECK_SECONDS` | 90 | Wartezeit fuer Erholungs-Pruefung |
-| `CONFIRMATION_SECONDS` | 30 | Bestaetigungszeit fuer Risiko-Zustand |
+| `POST_CHECK_SECONDS` | 180 | Wartezeit fuer Erholungs-Pruefung |
+| `CONFIRMATION_SECONDS` | 45 | Bestaetigungszeit fuer Risiko-Zustand |
 | `MAX_INTERVENTIONS_PER_10MIN` | 3 | Rate-Limit (Sliding Window) |
+| `TTS_RATE_LIMIT_SECONDS` | 30 | Min. Abstand zwischen TTS-Ausgaben |
 | `RECOVERY_IMPROVEMENT_THRESHOLD` | 0.15 | Mindest-Score fuer "erholt" |
-| `THRESHOLD_SILENT_PARTICIPANT` | 0.05 | Volumen-Schwelle fuer "still" |
+| `THRESHOLD_SILENT_PARTICIPANT` | 0.10 | Volumen-Schwelle fuer "still" |
+| `THRESHOLD_PARTICIPATION_RISK` | 0.55 | Risiko-Schwelle fuer Partizipation |
+| `THRESHOLD_NOVELTY_RATE` | 0.30 | Neuheits-Schwelle |
+| `THRESHOLD_CLUSTER_CONCENTRATION` | 0.70 | Cluster-Konzentrations-Schwelle |
+| `RULE_CHECK_ENABLED` | true | LLM-Regelpruefung aktiv |
+| `RULE_VIOLATION_COOLDOWN_MS` | 15.000 | Cooldown zwischen Regel-Interventionen |
+| `PARTICIPANT_VIEW_RESTRICTED` | false | UI-Einschraenkung fuer Teilnehmer |
+| `conversationGoals` | [] | Vordefinierte Gespraechsziele |
+| `GOAL_REFOCUS_ENABLED` | false | Dedizierte Refokussierungs-Interventionen |
+| `GOALS_VISIBLE_TO_ALL` | false | Ziel-Fortschritt fuer alle sichtbar |
 
-### 16.2 Engine-Konstanten (nicht konfigurierbar)
+**Cosinus-Aehnlichkeits-Schwellen** (kalibriert via `scripts/calibrate-thresholds.ts`):
+
+| Parameter | Wert | Beschreibung |
+|-----------|------|-------------|
+| `NOVELTY_COSINE_THRESHOLD` | 0.45 | Schwelle fuer "neues" Segment |
+| `CLUSTER_MERGE_THRESHOLD` | 0.35 | Cluster-Merge-Schwelle |
+| `STAGNATION_NOVELTY_THRESHOLD` | 0.40 | Stagnations-Erkennung |
+| `EXPLORATION_COSINE_THRESHOLD` | 0.30 | Exploration vs. Elaboration |
+| `ELABORATION_COSINE_THRESHOLD` | 0.50 | Vertiefungs-Erkennung |
+| `PARTICIPATION_RISK_WEIGHTS` | [0.35, 0.25, 0.25, 0.15] | Gewichtung (Gini, Silent, Dominance, TurnGini) |
+| `CUMULATIVE_WINDOW_SECONDS` | 600 | Erweitertes kumulatives Fenster |
+
+### 18.2 Engine-Konstanten (nicht konfigurierbar)
 
 | Konstante | Wert | Ort |
 |-----------|------|-----|
@@ -1075,17 +1404,24 @@ interface DecisionEngineState {
 | Tiebreak-Marge | 0.03 | `inferConversationState.ts` |
 | Min-Konfidenz | 0.45 | `interventionPolicy.ts` |
 | Persistenz-Anteil | 70% | `interventionPolicy.ts` |
-| Decision-Loop | 2000ms | `useDecisionLoop.ts` |
+| Decision-Loop | 1000ms | `tickConfig.ts` |
+| Extraction-Loop | 4000ms | `tickConfig.ts` |
+| Ownership-Heartbeat | 5000ms | `tickConfig.ts` |
 | Metrics-Loop | 5000ms | `useMetricsComputation.ts` |
 | Metrics-Persist | 30s | `useMetricsComputation.ts` |
-| Ownership-Heartbeat | 30s | `useDecisionOwnership.ts` |
+| Goal-Heat-Loop | 5000ms | `useGoalTracker.ts` |
+| Goal-LLM-Assessment | 90s | `useGoalTracker.ts` |
+| Live-Summary | 60s | `useLiveSummary.ts` |
+| Stagger: Metrics | +500ms | `tickConfig.ts` |
+| Stagger: Decision | +1500ms | `tickConfig.ts` |
+| Stagger: Extraction | +2500ms | `tickConfig.ts` |
 | Embedding-Cache-Max | 500 | `embeddingCache.ts` |
 | Segment-Max | 15.000 | `SessionContext.tsx` |
 | Snapshot-Max | 720 | `SessionContext.tsx` |
 
 ---
 
-## 17. Umgebungsvariablen
+## 19. Umgebungsvariablen
 
 ### `.env.local`
 

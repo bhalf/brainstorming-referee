@@ -246,6 +246,7 @@ export function intentToTrigger(intent: InterventionIntent): InterventionTrigger
     case 'REACTIVATION': return 'stagnation';
     case 'ALLY_IMPULSE': return 'escalation';
     case 'NORM_REINFORCEMENT': return 'rule_violation';
+    case 'GOAL_REFOCUS': return 'goal_refocus';
   }
 }
 

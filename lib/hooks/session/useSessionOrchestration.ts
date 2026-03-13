@@ -1,4 +1,4 @@
-import { useMemo, MutableRefObject } from 'react';
+import { useMemo, useRef, MutableRefObject } from 'react';
 import {
   TranscriptSegment,
   MetricSnapshot,
@@ -27,6 +27,9 @@ import { useIdeaExtraction } from '@/lib/hooks/useIdeaExtraction';
 import { useConnectionReview } from '@/lib/hooks/useConnectionReview';
 import { useLiveSummary } from '@/lib/hooks/useLiveSummary';
 import type { LiveSummaryState } from '@/lib/hooks/useLiveSummary';
+import { useGoalTracker } from '@/lib/hooks/useGoalTracker';
+import type { GoalContext } from '@/lib/hooks/useGoalTracker';
+import type { GoalTrackingState } from '@/lib/types';
 import { useLatestRef } from '@/lib/hooks/useLatestRef';
 
 // --- Params ---
@@ -98,6 +101,8 @@ interface UseSessionOrchestrationReturn {
   realtimeSyncConnected: boolean;
   persistVoiceSettings: (settings: Partial<VoiceSettings>) => void;
   liveSummary: LiveSummaryState;
+  goalTracking: GoalTrackingState | null;
+  getGoalContext: () => GoalContext | null;
 }
 
 // --- Hook ---
@@ -206,6 +211,11 @@ export function useSessionOrchestration({
     participantCountRef,
   });
 
+  // Stable ref for goal context — populated after useGoalTracker mounts below.
+  // useDecisionLoop reads this via useLatestRef inside the interval, so the value
+  // is always current by the time the engine ticks.
+  const getGoalContextRef = useRef<(() => GoalContext | null) | undefined>(undefined);
+
   // --- Decision Engine (only runs on the decision owner) ---
   useDecisionLoop({
     isActive,
@@ -229,6 +239,7 @@ export function useSessionOrchestration({
     addError,
     updateDecisionState,
     broadcastIntervention,
+    getGoalContext: () => getGoalContextRef.current?.() ?? null,
   });
 
   // --- Realtime Interventions (Supabase -> all participants) ---
@@ -300,6 +311,21 @@ export function useSessionOrchestration({
     addError,
   });
 
+  // --- Goal Tracking (decision owner generates assessments, others via Supabase Realtime) ---
+  const { goalTracking, getGoalContext } = useGoalTracker({
+    isActive,
+    isDecisionOwner,
+    sessionId,
+    goals: stableConfig.conversationGoals ?? [],
+    transcriptSegmentsRef,
+    liveSummary,
+    language,
+    addModelRoutingLog,
+    addError,
+  });
+  // Keep ref in sync so useDecisionLoop (mounted earlier) can access the latest getter
+  getGoalContextRef.current = getGoalContext;
+
   return {
     isDecisionOwner,
     currentMetrics,
@@ -312,5 +338,7 @@ export function useSessionOrchestration({
     realtimeSyncConnected,
     persistVoiceSettings,
     liveSummary,
+    goalTracking,
+    getGoalContext,
   };
 }

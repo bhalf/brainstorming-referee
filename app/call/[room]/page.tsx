@@ -119,7 +119,7 @@ export default function CallPage() {
     addError,
   });
 
-  const handleUpdateConfig = useCallback((key: keyof ExperimentConfig, value: number | boolean | [number, number, number, number]) => {
+  const handleUpdateConfig = useCallback((key: keyof ExperimentConfig, value: ExperimentConfig[keyof ExperimentConfig]) => {
     updateConfig({ [key]: value } as Partial<ExperimentConfig>);
   }, [updateConfig]);
 
@@ -223,6 +223,8 @@ export default function CallPage() {
     realtimeSyncConnected,
     persistVoiceSettings,
     liveSummary,
+    goalTracking,
+    getGoalContext,
   } = useSessionOrchestration({
     isActive: state.isActive,
     sessionId: state.sessionId,
@@ -438,6 +440,7 @@ export default function CallPage() {
     health: healthProps,
     liveSummary,
     isParticipant,
+    goalTracking,
   }), [
     state.scenario, state.isActive, handleEndSession, language, roomName,
     state.transcriptSegments, interimEntries, transcription.isTranscribing, transcription.isTranscriptionSupported,
@@ -445,7 +448,7 @@ export default function CallPage() {
     transcription.isRealtimeEnabled, isDecisionOwner, currentMetrics, state.metricSnapshots, metricsHistory,
     state.config, state.decisionState, state.voiceSettings, handleUpdateSettings,
     isSpeaking, handleTestVoice, handleCancelVoice, state.interventions, sessionLog, state.modelRoutingLog,
-    handleUpdateConfig, handleResetConfig, healthProps, liveSummary, isParticipant
+    handleUpdateConfig, handleResetConfig, healthProps, liveSummary, isParticipant, goalTracking
   ]);
 
   // --- Readiness Check Gate ---
@@ -550,6 +553,7 @@ export default function CallPage() {
               roomName={roomName}
               liveSummary={liveSummary}
               isParticipant={isParticipant}
+              goalTracking={goalTracking}
             />
           </div>
         )}

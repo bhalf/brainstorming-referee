@@ -104,6 +104,12 @@ export async function GET(request: NextRequest) {
       payload: e.payload,
       actor: e.actor,
     })),
+    goalAssessments: (eventsRes.data || [])
+      .filter(e => e.event_type === 'goal_assessment')
+      .map(e => ({
+        timestamp: e.timestamp,
+        ...(e.payload as Record<string, unknown> ?? {}),
+      })),
     report: session.report ?? null,
   };
 
