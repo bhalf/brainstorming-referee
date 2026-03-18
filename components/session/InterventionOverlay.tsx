@@ -65,7 +65,11 @@ const INTENT_STYLES: Record<InterventionIntent, { gradient: string; border: stri
 const TRIGGER_LABELS: Record<string, string> = {
   state: 'Zustandsbasiert',
   rule_violation: 'Regelverstoss erkannt',
+  rule_violation_soft: 'Hinweis',
   goal_refocus: 'Zielabweichung erkannt',
+  goal_check: 'Zielabweichung erkannt',
+  goal_negative_loop: 'Ziel-Wiederholung',
+  escalation: 'Eskalation',
 };
 
 const AUTO_DISMISS_MS = 12_000;
@@ -73,21 +77,23 @@ const AUTO_DISMISS_MS = 12_000;
 export default function InterventionOverlay({ intervention, onDismiss, isTTSPlaying = false, children }: InterventionOverlayProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const hasText = !!intervention?.text?.trim();
+
   useEffect(() => {
     if (!intervention) return;
 
     // Clear any existing timer
     if (timerRef.current) clearTimeout(timerRef.current);
 
-    // Don't start dismiss timer while TTS is playing
-    if (isTTSPlaying) return;
+    // Don't start dismiss timer while TTS is playing or while waiting for text
+    if (isTTSPlaying || !hasText) return;
 
-    // Start dismiss timer (with buffer after TTS ends)
+    // Start dismiss timer (resets when text arrives via UPDATE)
     timerRef.current = setTimeout(onDismiss, AUTO_DISMISS_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [intervention, onDismiss, isTTSPlaying]);
+  }, [intervention, onDismiss, isTTSPlaying, hasText]);
 
   const style = intervention ? INTENT_STYLES[intervention.intent] : null;
 
@@ -122,7 +128,14 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
                 </span>
               </div>
               <p className="text-white/70 text-xs leading-relaxed mb-2">{style.reason}</p>
-              <p className="text-white text-base leading-relaxed font-medium">{intervention.text}</p>
+              {intervention.text?.trim() ? (
+                <p className="text-white text-base leading-relaxed font-medium">{intervention.text}</p>
+              ) : (
+                <p className="text-white/50 text-sm leading-relaxed italic flex items-center gap-2">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/40 animate-pulse" />
+                  Generiert Antwort...
+                </p>
+              )}
               <div className="flex items-center gap-2 mt-2.5">
                 <p className="text-[10px] text-white/40 font-mono">
                   {intervention.created_at && !isNaN(new Date(intervention.created_at).getTime())
@@ -139,12 +152,12 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
             </div>
           </div>
 
-          {/* Progress bar for auto-dismiss (paused during TTS) */}
+          {/* Progress bar for auto-dismiss (paused during TTS or while waiting for text) */}
           <div className="mt-3 h-1 bg-white/10 rounded-full overflow-hidden">
             <div
               className="h-full bg-white/40 rounded-full"
               style={{
-                animation: isTTSPlaying ? 'none' : `shrink ${AUTO_DISMISS_MS}ms linear forwards`,
+                animation: (isTTSPlaying || !hasText) ? 'none' : `shrink ${AUTO_DISMISS_MS}ms linear forwards`,
               }}
             />
           </div>

@@ -5,28 +5,24 @@ import { useSupabaseChannel, type RealtimeEventType } from '@/lib/hooks/sync/use
 import { supabase } from '@/lib/supabase/client';
 import type { Intervention } from '@/types';
 
-const MAX_AGE_MS = 30_000; // Only show overlay for interventions newer than 30s
+const MAX_AGE_MS = 60_000; // Only show overlay for interventions newer than 60s
 
 /**
  * Subscribes to new interventions via Supabase Realtime AND loads initial data.
  *
- * Listens for both INSERT and UPDATE events so that:
- * - INSERT with empty text (from decision engine) is tracked but not shown as overlay
- * - UPDATE with text (from moderator/ally after LLM) triggers the overlay
- * This ensures the overlay text and TTS audio arrive close together.
+ * Shows the overlay IMMEDIATELY on INSERT (even without text) so the user sees
+ * the intent/reason right away. When the UPDATE arrives with generated text,
+ * the overlay updates in-place and the auto-dismiss timer resets.
  */
 export function useRealtimeInterventions(sessionId: string | null) {
   const [interventions, setInterventions] = useState<Intervention[]>([]);
   const [latestIntervention, setLatestIntervention] = useState<Intervention | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
-  /** IDs that were inserted with empty text — waiting for UPDATE with content */
-  const pendingIdsRef = useRef<Set<string>>(new Set());
 
   // ── Initial data load ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
     seenIdsRef.current.clear();
-    pendingIdsRef.current.clear();
 
     supabase
       .from('interventions')
@@ -41,8 +37,6 @@ export function useRealtimeInterventions(sessionId: string | null) {
         }
         if (!data || data.length === 0) return;
 
-        console.log(`[rt-interventions] Loaded ${data.length} initial interventions`);
-
         // Mark all as seen to prevent Realtime duplicates
         for (const row of data) seenIdsRef.current.add(row.id);
 
@@ -55,43 +49,35 @@ export function useRealtimeInterventions(sessionId: string | null) {
 
   // ── Realtime subscription callback (INSERT + UPDATE) ──────────────────────
   const onPayload = useCallback((row: Intervention, eventType: RealtimeEventType) => {
-    const hasText = !!row.text?.trim();
-
     if (eventType === 'UPDATE') {
       // UPDATE: refresh existing intervention with new data (text, audio_duration)
       setInterventions((prev) =>
         prev.map((iv) => (iv.id === row.id ? row : iv))
       );
 
-      // If this was pending (empty-text INSERT) and now has text → show overlay
-      if (hasText && pendingIdsRef.current.has(row.id)) {
-        pendingIdsRef.current.delete(row.id);
-        const age = Date.now() - new Date(row.created_at).getTime();
-        if (age < MAX_AGE_MS) {
-          console.log('[rt-interventions] UPDATE with text → showing overlay:', row.id);
-          setLatestIntervention(row);
+      // If overlay is currently showing this intervention, update it in-place
+      // (this resets the auto-dismiss timer in InterventionOverlay)
+      setLatestIntervention((prev) => {
+        if (prev?.id === row.id) return row;
+        // If no overlay showing but text just arrived, show it now
+        if (!prev && row.text?.trim()) {
+          const age = Date.now() - new Date(row.created_at).getTime();
+          if (age < MAX_AGE_MS) return row;
         }
-      }
+        return prev;
+      });
       return;
     }
 
-    // INSERT: new intervention
+    // INSERT: new intervention — show overlay immediately
     if (seenIdsRef.current.has(row.id)) return;
     seenIdsRef.current.add(row.id);
 
-    if (hasText) {
-      // INSERT already has text → show overlay immediately
-      console.log('[rt-interventions] INSERT with text:', row.id);
-      const age = Date.now() - new Date(row.created_at).getTime();
-      if (age < MAX_AGE_MS) {
-        setLatestIntervention(row);
-      }
-      setInterventions((prev) => [...prev, row]);
-    } else {
-      // INSERT with empty text → track as pending, wait for UPDATE
-      console.log('[rt-interventions] INSERT pending (no text yet):', row.id);
-      pendingIdsRef.current.add(row.id);
-      setInterventions((prev) => [...prev, row]);
+    setInterventions((prev) => [...prev, row]);
+
+    const age = Date.now() - new Date(row.created_at).getTime();
+    if (age < MAX_AGE_MS) {
+      setLatestIntervention(row);
     }
   }, []);
 

@@ -160,7 +160,7 @@ export type InterventionIntent =
   | 'NORM_REINFORCEMENT'
   | 'GOAL_REFOCUS';
 
-export type InterventionTrigger = 'state' | 'rule_violation' | 'goal_refocus';
+export type InterventionTrigger = 'state' | 'rule_violation' | 'rule_violation_soft' | 'goal_refocus' | 'goal_check' | 'goal_negative_loop' | 'escalation';
 
 export interface Intervention {
   id: string;
