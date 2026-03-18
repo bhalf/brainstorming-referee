@@ -1,41 +1,39 @@
 @import "tailwindcss";
 
 /* ============================================
-   Design Tokens — UZH Brainstorming Webapp
-   ============================================
-   All recurring colors, radii, and spacings are
-   defined here as CSS custom properties so components
-   use consistent values instead of hardcoded Tailwind classes.
+   Design System — UZH Brainstorming Webapp
+   Modern dark glassmorphism with ambient gradients
    ============================================ */
 
 :root {
-  /* --- Surface colors (dark theme) --- */
-  --surface-primary: #0f172a;     /* slate-900 */
-  --surface-secondary: #1e293b;   /* slate-800 */
-  --surface-elevated: #334155;    /* slate-700 */
-  --surface-overlay: rgba(30, 41, 59, 0.9); /* slate-800/90 */
+  /* --- Core palette --- */
+  --bg-base: #06050e;
+  --bg-surface: rgba(255, 255, 255, 0.03);
+  --bg-elevated: rgba(255, 255, 255, 0.06);
+  --bg-glass: rgba(255, 255, 255, 0.05);
+  --bg-glass-hover: rgba(255, 255, 255, 0.08);
 
-  /* --- Text colors --- */
-  --text-primary: #f8fafc;        /* slate-50 */
-  --text-secondary: #94a3b8;      /* slate-400 */
-  --text-muted: #64748b;          /* slate-500 */
+  /* --- Text --- */
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --text-tertiary: rgba(255, 255, 255, 0.35);
 
-  /* --- Accent colors --- */
-  --accent-primary: #3b82f6;      /* blue-500 */
-  --accent-secondary: #a855f7;    /* purple-500 */
-  --accent-success: #22c55e;      /* green-500 */
-  --accent-warning: #eab308;      /* yellow-500 */
-  --accent-danger: #ef4444;       /* red-500 */
-  --accent-info: #06b6d4;         /* cyan-500 */
+  /* --- Borders --- */
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glass-hover: rgba(255, 255, 255, 0.15);
 
-  /* --- Border --- */
-  --border-default: #334155;      /* slate-700 */
-  --border-subtle: #1e293b;       /* slate-800 */
+  /* --- Accent --- */
+  --accent-blue: #6366f1;
+  --accent-blue-light: #818cf8;
+  --accent-violet: #a78bfa;
+  --accent-emerald: #34d399;
+  --accent-amber: #fbbf24;
+  --accent-rose: #fb7185;
+  --accent-cyan: #22d3ee;
 
-  /* --- Panel / Card --- */
-  --panel-bg: rgba(51, 65, 85, 0.3);  /* slate-700/30 */
-  --panel-radius: 0.5rem;              /* rounded-lg */
-  --panel-padding: 1rem;               /* p-4 */
+  /* --- Gradient stops --- */
+  --gradient-start: #4f46e5;
+  --gradient-end: #7c3aed;
 
   /* --- Font --- */
   --font-sans: var(--font-geist-sans);
@@ -43,48 +41,378 @@
 }
 
 @theme inline {
-  --color-background: var(--surface-primary);
+  --color-background: var(--bg-base);
   --color-foreground: var(--text-primary);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 }
 
 body {
-  background: var(--surface-primary);
+  background: var(--bg-base);
   color: var(--text-primary);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
 }
 
 /* ============================================
-   LiveKit Theme Overrides — Dark theme
+   Background & Ambient Effects
    ============================================ */
+
+.bg-ambient {
+  background: var(--bg-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.bg-ambient::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(99, 102, 241, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(124, 58, 237, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 40% 30% at 50% 50%, rgba(34, 211, 238, 0.04) 0%, transparent 40%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bg-ambient > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================
+   Glass Card System
+   ============================================ */
+
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+}
+
+.glass-sm {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+}
+
+.glass-hover {
+  transition: all 0.2s ease;
+}
+
+.glass-hover:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-glass-hover);
+  box-shadow: 0 0 30px rgba(99, 102, 241, 0.06);
+}
+
+.glass-interactive {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  transition: all 0.25s ease;
+  cursor: pointer;
+}
+
+.glass-interactive:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-glass-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 30px rgba(99, 102, 241, 0.05);
+}
+
+/* ============================================
+   Gradient Button
+   ============================================ */
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+  color: white;
+  font-weight: 500;
+  border: none;
+  border-radius: 12px;
+  padding: 0.75rem 1.5rem;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.btn-primary:hover::before {
+  opacity: 1;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-primary:disabled::before {
+  display: none;
+}
+
+.btn-glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  color: var(--text-primary);
+  font-weight: 500;
+  border-radius: 12px;
+  padding: 0.75rem 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.btn-glass:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-glass-hover);
+}
+
+.btn-glass:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   Input Styles
+   ============================================ */
+
+.input-glass {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  outline: none;
+  width: 100%;
+}
+
+.input-glass::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input-glass:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.select-glass {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  outline: none;
+  width: 100%;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='rgba(255,255,255,0.4)' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 6l3.5 4 3.5-4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+.select-glass:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.select-glass option {
+  background: #1a1625;
+  color: white;
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 15px rgba(99, 102, 241, 0.2); }
+  50% { box-shadow: 0 0 30px rgba(99, 102, 241, 0.4); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+.animate-fade-in-scale {
+  animation: fade-in-scale 0.3s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s ease-out forwards;
+}
+
+.animate-slide-down {
+  animation: slide-down 0.3s ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Staggered children animations */
+.stagger-children > * {
+  opacity: 0;
+  animation: fade-in 0.4s ease-out forwards;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 120ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 180ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 300ms; }
+
+/* ============================================
+   Spinner
+   ============================================ */
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin-slow 0.8s linear infinite;
+}
+
+/* ============================================
+   Status Indicators
+   ============================================ */
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot-live {
+  background: var(--accent-emerald);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+}
+
+.status-dot-connecting {
+  background: var(--accent-amber);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+/* ============================================
+   Scrollbar
+   ============================================ */
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================
+   LiveKit Theme Overrides
+   ============================================ */
+
 .lk-theme-default {
-  --lk-bg: var(--surface-primary);
-  --lk-bg2: var(--surface-secondary);
-  --lk-bg3: var(--surface-elevated);
+  --lk-bg: var(--bg-base);
+  --lk-bg2: rgba(255, 255, 255, 0.03);
+  --lk-bg3: rgba(255, 255, 255, 0.06);
   --lk-fg: var(--text-primary);
   --lk-fg2: var(--text-secondary);
-  --lk-border-color: var(--border-default);
-  --lk-control-bg: var(--surface-secondary);
-  --lk-control-hover-bg: var(--surface-elevated);
-  --lk-accent-bg: var(--accent-primary);
-  --lk-danger: var(--accent-danger);
-  --lk-success: var(--accent-success);
-  --lk-border-radius: var(--panel-radius);
+  --lk-border-color: var(--border-glass);
+  --lk-control-bg: rgba(255, 255, 255, 0.05);
+  --lk-control-hover-bg: rgba(255, 255, 255, 0.1);
+  --lk-accent-bg: var(--accent-blue);
+  --lk-danger: var(--accent-rose);
+  --lk-success: var(--accent-emerald);
+  --lk-border-radius: 12px;
 }
 
 [data-lk-theme="default"] {
-  --lk-bg: var(--surface-primary);
-  --lk-bg2: var(--surface-secondary);
-  --lk-bg3: var(--surface-elevated);
+  --lk-bg: var(--bg-base);
+  --lk-bg2: rgba(255, 255, 255, 0.03);
+  --lk-bg3: rgba(255, 255, 255, 0.06);
 }
 
-/* Ensure LiveKit fills container */
 .lk-room-container {
   height: 100% !important;
 }
 
-/* Fix: Ensure control bar is never clipped when layout switches (e.g. on participant join) */
 .lk-video-conference {
   display: flex !important;
   flex-direction: column !important;
@@ -104,14 +432,14 @@ body {
   overflow: hidden !important;
 }
 
-/* Control bar styling */
 .lk-control-bar {
-  background: var(--surface-secondary) !important;
-  border-top: 1px solid var(--border-default) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-top: 1px solid var(--border-glass) !important;
   flex-shrink: 0 !important;
 }
 
-/* Mobile: stack focus layout vertically */
 @media (max-width: 640px) {
   .lk-focus-layout {
     grid-template-columns: 1fr !important;
@@ -119,34 +447,10 @@ body {
   }
 }
 
-/* Safe area insets for notched phones */
 @supports (padding: env(safe-area-inset-bottom)) {
   .lk-control-bar {
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)) !important;
   }
-}
-
-/* ============================================
-   Responsive Utilities
-   ============================================ */
-
-/* Hide scrollbar but keep scroll functionality */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-/* Bottom tab bar with safe-area support */
-.bottom-tab-bar {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-/* Touch-friendly drag handles */
-.touch-handle {
-  touch-action: none;
 }
 
 /* ============================================
@@ -178,4 +482,32 @@ body {
 
 .intervention-toast-exit {
   animation: intervention-slide-out 0.3s ease-in forwards;
+}
+
+/* ============================================
+   Bottom Tab Bar (Mobile)
+   ============================================ */
+
+.bottom-tab-bar {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.touch-handle {
+  touch-action: none;
+}
+
+/* ============================================
+   Progress Bar Gradient
+   ============================================ */
+
+.progress-gradient {
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-violet));
+}
+
+.progress-emerald {
+  background: linear-gradient(90deg, #059669, var(--accent-emerald));
+}
+
+.progress-amber {
+  background: linear-gradient(90deg, #d97706, var(--accent-amber));
 }

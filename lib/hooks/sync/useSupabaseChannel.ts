@@ -116,8 +116,8 @@ export function useSupabaseChannel<TRow>({
                     setIsSubscribed(true);
                 } else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && isMountedRef.current) {
                     setIsSubscribed(false);
-                    const errorMsg = `Realtime ${channelName} error (${status})`;
-                    console.error(errorMsg, err);
+                    const errorMsg = `Realtime ${channelName} error (${status}) — ensure table "${table}" has Realtime enabled in Supabase Dashboard`;
+                    console.error(errorMsg, err ?? '(no details)');
                     onErrorRef.current?.(errorMsg, channelName);
 
                     // Exponential backoff reconnect: 1s, 2s, 4s, 8s, 16s

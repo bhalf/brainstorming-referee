@@ -1,1410 +1,1980 @@
-# Brainstorming Platform — Vollständige Anforderungsspezifikation
-
-**Version:** 1.0  
-**Datum:** März 2026  
-**Status:** Bereit zur Implementierung
+# Brainstorming SaaS — Master-Anforderungsdokument v3.0
+*Stand: März 2026 — Einzige Quelle der Wahrheit für Frontend, Backend und Architektur-Entscheidungen*
 
 ---
 
-## 1. Projektziel
+## 0. Executive Summary
 
-Aufbau einer professionellen, SaaS-fähigen KI-gestützten Brainstorming-Plattform. Die Plattform ermöglicht Teams, strukturierte Brainstorming-Sessions via Video-Call durchzuführen, wobei ein KI-Agent die Diskussion in Echtzeit analysiert und bei Bedarf moderierend eingreift.
+Eine KI-gestützte Brainstorming-Plattform die aus einem UZH-Forschungsprototyp zu einem kommerziellen SaaS-Produkt wird. Das System analysiert Gruppenkonversationen in Echtzeit, erkennt Kommunikationsmuster (dominante Sprecher, Stagnation, thematische Verengung) und interveniert mit KI-generierter Moderation via Sprachausgabe — ohne dass die Gruppe einen menschlichen Moderator braucht.
 
-Das System wird als Multi-Tenant SaaS vermarktet und muss von Anfang an produktionsreif, erweiterbar und skalierbar aufgebaut sein — keine Forschungs-Hacks, keine Client-seitige Business-Logik, keine fragile Decision-Owner-Architektur.
+**Kern-Differenzierung gegenüber Zoom/Teams/Miro:**
+- Echtzeit-Analyse der Gesprächsdynamik (nicht nur Transkription)
+- KI-Moderator der proaktiv eingreift, nicht nur aufzeichnet
+- Drei Modi: Beobachtung / Moderation / Moderation + Ally-Eskalation
+- Vollständige Session-Daten für Forscher und Facilitatoren
+
+**Aktuelle Phase:** Phase 1 — Core-Infrastruktur (Transkription + Speicherung)  
+**Nächste Phase:** Phase 2 — Echtzeit-Analyse-Engine (Metriken + State Inference)
+
+---
+
+## 1. System-Architektur (stabil)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Browser (Next.js 16 / React 19)                            │
+│  Reiner UI-Layer — berechnet NICHTS, schreibt nie in DB     │
+│                                                             │
+│  Video/Audio ──────────────────────────────────────────┐   │
+│  FastAPI HTTP ──────────────────────────────────────┐   │   │
+│  Supabase Realtime (read-only) ─────────────────┐   │   │   │
+└─────────────────────────────────────────────────│───│───│───┘
+                                                  │   │   │
+                                    ┌─────────────▼───▼───▼──┐
+                                    │  LiveKit Cloud (SFU)    │
+                                    │  WebRTC Audio/Video     │
+                                    └────────────────┬────────┘
+                                                     │ Audio-Tracks
+                                    ┌────────────────▼────────┐
+                                    │  Railway: Agent Service  │
+                                    │  livekit-agents Worker   │
+                                    │  Pro Participant: 1 WS   │
+                                    │  → OpenAI Realtime API   │
+                                    │  → Alle Berechnungen     │
+                                    │  → TTS → LiveKit Track   │
+                                    └────────────────┬────────┘
+                                                     │
+                                    ┌────────────────▼────────┐
+                                    │  Railway: API Service    │
+                                    │  FastAPI / Uvicorn       │
+                                    │  Session CRUD, Tokens    │
+                                    │  Webhooks, Export        │
+                                    └────────────────┬────────┘
+                                                     │
+                          ┌──────────────────────────▼────────┐
+                          │  Supabase (PostgreSQL 17)          │
+                          │  16 Tabellen + pgvector 0.8        │
+                          │  Realtime → Browser (read-only)    │
+                          └───────────────────────────────────┘
+```
+
+**Goldene Regeln:**
+1. Browser schreibt **nie** direkt in Supabase — immer via FastAPI
+2. OpenAI Keys sind **nie** im Browser — nur im Agent/API
+3. Der Agent ist **alleiniger** Owner der Decision-Engine
+4. Alle DB-Writes im Agent laufen **nur** via `SupabaseWriter`
+5. Modul-Fehler dürfen Transkription **nie** stoppen
 
 ---
 
 ## 2. Stack
 
-| Schicht | Technologie | Begründung |
-|---|---|---|
-| Frontend | Next.js 16, TypeScript, Tailwind | Stabil, App Router, keine RC-Versionen |
-| Auth | Clerk (Phase 2) | B2B SSO, Organizations, Invites out of the box |
-| Backend API | FastAPI (Python 3.12) | HTTP-Endpoints, Auth-Middleware, Workspace-Logik |
-| Agent Worker | LiveKit Agents SDK (Python) | Server-seitiger Audio-Zugriff, persistente Prozesse |
-| Datenbank | Supabase (PostgreSQL + pgvector) | RLS, Realtime, Storage, Embeddings |
-| Cache / State | Railway Redis | Agent-Heartbeat, Rate Limiting, Session-Flags — direkt auf Railway, internes Netzwerk |
-| Video | LiveKit Cloud | SFU, per-Track Audio-Zugriff, Agents-Integration |
-| Transkription | OpenAI Realtime API (gpt-4o-transcribe) | Echter Streaming-WebSocket, Server-VAD, keine Deepgram-Abhängigkeit am Anfang |
-| LLM | OpenAI GPT-4o | Interventions-Generierung, Ideen-Extraktion, Summaries |
-| Embeddings | OpenAI text-embedding-3-small | Semantische Analyse, Topic-Tracking |
-| TTS | OpenAI TTS | Moderator-Stimme in den LiveKit Room injecten |
-| Frontend Deploy | Vercel | CDN, zero-config Next.js |
-| Backend Deploy | Railway | Persistente Prozesse, kein Serverless, ~$5-10/mo Einstieg |
-| Monitoring | Sentry + PostHog (Phase 2) | Nach dem Fundament ergänzen |
-| Billing (Phase 2) | Stripe | Usage-based Pricing via Webhooks |
+| Layer | Technologie | Version |
+|-------|------------|---------|
+| Frontend Framework | Next.js | 16.x |
+| Frontend Runtime | React | 19.x |
+| Sprache Frontend | TypeScript | 5.x |
+| Styling | Tailwind CSS | 4.x |
+| Graph-UI | @xyflow/react | latest |
+| Charts | recharts | latest |
+| Backend API | FastAPI | 0.115.x |
+| Backend Sprache | Python | 3.13 |
+| Validation | Pydantic | v2 |
+| Agent SDK | livekit-agents | 1.4.x |
+| LLM/TTS/Embeddings | OpenAI | gpt-4o-2024-11-20 |
+| Transkription | OpenAI Realtime API | gpt-4o-transcribe |
+| Embeddings | OpenAI | text-embedding-3-small |
+| TTS | OpenAI | tts-1-hd |
+| Datenbank | Supabase | PostgreSQL 17 + pgvector 0.8 |
+| Cache | Railway Redis | 7.x |
+| Video | LiveKit Cloud | latest |
+| Auth (Phase 3) | Clerk | latest |
+| Billing (Phase 3) | Stripe | latest |
 
 ---
 
 ## 3. Repository-Struktur
 
-**2 GitHub Repos, 3 Deployments:**
-
-| Repo | Deployment | Platform |
-|---|---|---|
-| `brainstorming-frontend` | 1 Service | Vercel |
-| `brainstorming-backend` | 2 Services (api + agent) | Railway |
-
-Supabase ist kein eigenes Repo — das Schema liegt als `supabase/schema.sql` im Backend-Repo und wird einmalig in Supabase ausgeführt.
-
 ```
-brainstorming-frontend/              → Vercel (1 Deployment)
-  app/
-  components/
-  lib/
-
-brainstorming-backend/               → Railway (2 Services)
-  api/                               → Service 1: uvicorn api.main:app
-  agent/                             → Service 2: python -m agent.main
-  shared/                            → gemeinsam genutzt
-  supabase/
-    schema.sql                       → einmalig in Supabase ausführen
+brainstorming-backend/          Railway: 2 Services
+  api/
+    main.py                     Service 1: uvicorn api.main:app --port 8000
+    routers/
+      sessions.py               POST/GET/PATCH /api/sessions
+      participants.py           Participant lifecycle
+      livekit.py                Token-Generierung, Webhooks
+      modules.py                Module-Config pro Session
+      export.py                 Session-Export JSON
+    middleware/
+      rate_limit.py             Sliding-Window Rate Limiting
+      auth.py                   Phase 3: Clerk JWT Validation
+    services/
+      livekit.py                LiveKit SDK Wrapper
+  agent/
+    main.py                     Service 2: python -m agent.main
+    session_agent.py            Haupt-Entrypoint pro Room
+    transcription/
+      realtime_client.py        OpenAI Realtime WebSocket pro Participant
+      speaker_tracker.py        Speaking-Time-Tracking
+    modules/
+      base.py                   BaseModule ABC
+      participation.py          Partizipations-Metriken
+      semantic.py               Semantische Dynamik + Embeddings
+      state_inference.py        5-Zustands-Maschine
+      decision_engine.py        4-Phasen Policy-Engine
+      idea_extraction.py        LLM Ideen-Extraktion
+      live_summary.py           Rolling Summary (60s)
+      goal_tracker.py           Ziel-Tracking (Embedding-Heat + LLM)
+      rule_check.py             LLM Regel-Prüfung
+    interventions/
+      moderator.py              GPT-4o → TTS → LiveKit Audio
+      ally.py                   Ally-Impuls (Szenario B)
+    prompts/
+      moderator.py              Alle Moderator-Prompts (DE + EN)
+      ally.py                   Ally-Prompts (DE + EN)
+      extraction.py             Ideen-Extraktion-Prompts
+      rule_check.py             Regel-Prüfungs-Prompts
+      summary.py                Zusammenfassungs-Prompts
+      goals.py                  Ziel-Bewertungs-Prompts
+    sync/
+      supabase_writer.py        EINZIGER Ort für DB-Writes im Agent
+  shared/
+    config.py                   Settings via Pydantic BaseSettings
+    database.py                 Supabase Client (service role)
+    redis_client.py             Redis Client
+    types.py                    Pydantic Models
+  tests/
+  supabase/schema.sql           DB-Schema (einmal ausführen)
   requirements.txt
-  Procfile
-  .env
-```
+  Procfile                      api: uvicorn ...\nagent: python -m agent.main
 
-### 3.1 Frontend-Struktur (`brainstorming-frontend`)
-
-```
-brainstorming-frontend/
+brainstorming-frontend/         Vercel: 1 Service
   app/
-    page.tsx                   Landing
-    dashboard/page.tsx         Sessions-Liste, neue Session erstellen
-    session/[id]/page.tsx      Aktive Session (Video + UI)
-    join/[code]/page.tsx       Beitreten via Join-Code
+    page.tsx                    Landing: Session erstellen / Join-Code
+    dashboard/page.tsx          Session-Liste mit Status
+    join/[code]/page.tsx        Join-Flow: Name eingeben
+    session/[id]/page.tsx       Haupt-Session-View
   components/
     session/
-      VideoGrid.tsx            LiveKit Video-Ansicht
-      TranscriptFeed.tsx       Transkript-Anzeige (read-only)
-      MetricsPanel.tsx         Metriken-Visualisierung (read-only)
-      IdeaBoard.tsx            Ideen-Graph (React Flow)
-      InterventionOverlay.tsx  Moderator-Meldungen
-      GoalsPanel.tsx           Gesprächsziel-Fortschritt
-      SummaryPanel.tsx         Live-Zusammenfassung
+      VideoGrid.tsx             LiveKit Video-Grid
+      TranscriptFeed.tsx        Live-Transkript mit Speaker-Farben
+      MetricsPanel.tsx          Partizipation + Semantik Charts
+      IdeaBoard.tsx             React Flow Ideen-Graph
+      InterventionOverlay.tsx   Toast-Overlay bei Interventionen
+      GoalsPanel.tsx            Ziel-Fortschritt
+      SummaryPanel.tsx          Rolling Summary
     setup/
-      CreateSession.tsx        Session-Erstellung mit Modul-Auswahl
-      ModuleSelector.tsx       Modul-Konfiguration UI
-    shared/                    Wiederverwendbare UI-Elemente
+      CreateSession.tsx         Session-Erstellung mit Modul-Wahl
+      ModuleSelector.tsx        Szenarien: Keine / Moderation / Moderation+Ally
   lib/
-    api-client.ts              HTTP-Client → FastAPI
-    realtime/
-      useRealtimeSegments.ts
-      useRealtimeMetrics.ts
-      useRealtimeInterventions.ts
-      useRealtimeIdeas.ts
-      useRealtimeSummary.ts
-```
-
-### 3.2 Backend-Struktur (`brainstorming-backend`)
-
-```
-brainstorming-backend/
-  api/                               Service 1: uvicorn api.main:app
-    main.py                          App-Entrypoint, CORS, Middleware
-    routers/
-      sessions.py                    Session CRUD, Join via Code
-      workspaces.py                  Workspace Management
-      participants.py                Teilnehmer-Lifecycle
-      modules.py                     Modul-Konfiguration pro Session
-      export.py                      Session-Export (JSON)
-      webhooks.py                    LiveKit + Stripe Webhooks
-    middleware/
-      rate_limit.py                  Redis Rate Limiting
-      auth.py                        Clerk JWT (Phase 2)
-    services/
-      livekit.py                     Token-Generierung
-      agent_dispatcher.py            Agent starten / stoppen
-      usage_tracker.py               Usage-Events für Billing
-  agent/                             Service 2: python -m agent.main
-    main.py                          Worker-Entrypoint, Job-Queue
-    session_agent.py                 Haupt-Agent-Klasse pro Session
-    transcription/
-      realtime_client.py             OpenAI Realtime WebSocket pro Participant
-      speaker_tracker.py             Speaker Identity + Segment-Assembly
-    modules/                         EIN FILE PRO MODUL
-      base.py                        Abstract BaseModule (Interface)
-      participation.py               Partizipations-Metriken
-      semantic.py                    Semantische Dynamik-Metriken
-      state_inference.py             5-Zustands-Inferenz mit Hysterese
-      decision_engine.py             4-Phasen State Machine
-      idea_extraction.py             LLM-Ideen-Extraktion
-      live_summary.py                Rolling Summary
-      goal_tracker.py                Topic Tracking + Embedding Heat
-      rule_check.py                  Regel-Verletzungs-Erkennung
-    interventions/
-      moderator.py                   Moderator GPT-4o Call + TTS Inject
-      ally.py                        Impuls-Teilnehmer GPT-4o Call + TTS Inject
-    sync/
-      supabase_writer.py             Alle DB-Writes aus dem Agent
-  shared/                            Gemeinsam: API + Agent
-    types.py                         Pydantic Models
-    database.py                      Supabase-Client (service role)
-    redis_client.py                  Railway Redis
-    config.py                        Env-Variablen, Konstanten
-  tests/
-    test_participation.py
-    test_state_inference.py
-    test_decision_engine.py
-  supabase/
-    schema.sql                       Einmalig in Supabase ausführen
-  requirements.txt
-  Procfile
+    api-client.ts               HTTP-Client für FastAPI
+    supabase/client.ts          Browser Supabase Client (anon key)
+    realtime/                   7 Read-only Realtime Hooks
+    hooks/useSessionData.ts     Composition-Hook
+  types/index.ts                TypeScript Types (matching DB Schema)
+  _archive/                     Alter Frontend-Code als Referenz für Backend
 ```
 
 ---
 
-## 4. Datenbankschema
-
-### 4.1 Multi-Tenancy Fundament
+## 4. Datenbank-Schema (16 Tabellen)
 
 ```sql
--- Workspaces (Organisationen / Teams)
-CREATE TABLE workspaces (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          TEXT NOT NULL,
-  slug          TEXT UNIQUE NOT NULL,
-  plan          TEXT DEFAULT 'starter',       -- starter / professional / academic / enterprise
-  settings      JSONB DEFAULT '{}',
-  created_at    TIMESTAMPTZ DEFAULT now()
-);
+-- Bereits deployed in Supabase. Nur zur Referenz.
 
--- Workspace-Mitglieder
-CREATE TABLE workspace_members (
-  workspace_id  UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  user_id       TEXT NOT NULL,                -- Clerk User ID
-  role          TEXT DEFAULT 'member',        -- owner / admin / member
-  joined_at     TIMESTAMPTZ DEFAULT now(),
-  PRIMARY KEY (workspace_id, user_id)
-);
-```
-
-### 4.2 Session Management
-
-```sql
--- Sessions
-CREATE TABLE sessions (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id      UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  created_by        TEXT NOT NULL,            -- Clerk User ID
-  title             TEXT NOT NULL,
-  status            TEXT DEFAULT 'scheduled', -- scheduled / active / ended
-  join_code         TEXT UNIQUE NOT NULL,     -- 6-stellig z.B. "BRN-447"
-  livekit_room      TEXT UNIQUE NOT NULL,     -- LiveKit Room Name
-  moderator_enabled BOOLEAN DEFAULT false,    -- KI-Moderation aktiv
-  ally_enabled      BOOLEAN DEFAULT false,    -- Impuls-Teilnehmer aktiv
-  language          TEXT DEFAULT 'de-CH',
-  config            JSONB DEFAULT '{}',       -- Schwellenwerte, Zeitparameter
-  agent_id          UUID,                     -- Referenz auf agent_jobs
-  started_at        TIMESTAMPTZ,
-  ended_at          TIMESTAMPTZ,
-  created_at        TIMESTAMPTZ DEFAULT now()
-);
-
--- Session-Teilnehmer
-CREATE TABLE session_participants (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id        UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  user_id           TEXT,                     -- Clerk User ID (optional für Gäste)
-  display_name      TEXT NOT NULL,
-  role              TEXT DEFAULT 'participant', -- host / participant / observer
-  livekit_identity  TEXT NOT NULL,
-  joined_at         TIMESTAMPTZ DEFAULT now(),
-  left_at           TIMESTAMPTZ
-);
-
--- Session-Module (welche Module für diese Session aktiv)
-CREATE TABLE session_modules (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id   UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  module_key   TEXT NOT NULL,
-  -- Mögliche Werte:
-  -- 'participation_metrics'
-  -- 'semantic_analysis'
-  -- 'state_inference'
-  -- 'decision_engine'
-  -- 'idea_extraction'
-  -- 'live_summary'
-  -- 'goal_tracking'
-  -- 'rule_check'
-  -- 'moderator'
-  -- 'ally'
-  enabled      BOOLEAN DEFAULT true,
-  config       JSONB DEFAULT '{}',
-  UNIQUE (session_id, module_key)
-);
-```
-
-### 4.3 Core Session-Daten
-
-```sql
--- Transkript-Segmente
-CREATE TABLE transcript_segments (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id        UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  speaker_identity  TEXT NOT NULL,           -- LiveKit Participant Identity
-  speaker_name      TEXT NOT NULL,           -- Anzeige-Name
-  text              TEXT NOT NULL,
-  is_final          BOOLEAN DEFAULT true,
-  language          TEXT,
-  embedding         vector(1536),            -- pgvector, gesetzt nach Generierung
-  created_at        TIMESTAMPTZ DEFAULT now()
-);
-
--- Metriken-Snapshots (modular, JSONB pro Modul)
-CREATE TABLE metric_snapshots (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id      UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  computed_at     TIMESTAMPTZ DEFAULT now(),
-  participation   JSONB,   -- gini, silent_ratio, dominance_streak, risk_score etc.
-  semantic        JSONB,   -- novelty_rate, cluster_concentration, stagnation etc.
-  state           TEXT,    -- HEALTHY_EXPLORATION / DOMINANCE_RISK / STALLED_DISCUSSION / etc.
-  confidence      FLOAT
-);
-
--- Engine-State (aktueller Zustand der State Machine)
-CREATE TABLE engine_state (
-  session_id      UUID PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-  phase           TEXT DEFAULT 'MONITORING', -- MONITORING / CONFIRMING / POST_CHECK / COOLDOWN
-  current_state   TEXT DEFAULT 'HEALTHY_EXPLORATION',
-  intervention_count INTEGER DEFAULT 0,
-  last_intervention_at TIMESTAMPTZ,
-  updated_at      TIMESTAMPTZ DEFAULT now()
-);
-
--- Interventionen
-CREATE TABLE interventions (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id      UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  module          TEXT NOT NULL,             -- 'moderator' / 'ally' / 'rule_check' / 'goal_refocus'
-  trigger_state   TEXT,
-  trigger_reason  TEXT,
-  content         TEXT NOT NULL,
-  audio_url       TEXT,
-  executed_at     TIMESTAMPTZ DEFAULT now()
-);
-```
-
-### 4.4 Features
-
-```sql
--- Ideen
-CREATE TABLE ideas (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id  UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  title       TEXT NOT NULL,
+workspaces (id, name, plan, owner_id)
+workspace_members (workspace_id, user_id, role)
+sessions (
+  id UUID PK,
+  title TEXT,
+  join_code VARCHAR(8) UNIQUE,       -- z.B. "BRN-447"
+  livekit_room TEXT,
+  status TEXT,                        -- scheduled|active|ended
+  moderator_enabled BOOLEAN,
+  ally_enabled BOOLEAN,
+  language VARCHAR(10),               -- "de-CH" | "en-US"
+  started_at TIMESTAMPTZ,
+  ended_at TIMESTAMPTZ,
+  workspace_id UUID FK
+)
+session_participants (
+  id UUID PK,
+  session_id UUID FK,
+  display_name TEXT,
+  livekit_identity TEXT,
+  role TEXT,                          -- host|participant
+  joined_at TIMESTAMPTZ,
+  left_at TIMESTAMPTZ
+)
+session_modules (session_id FK, module_key TEXT, enabled BOOLEAN, config JSONB)
+transcript_segments (
+  id UUID PK,
+  session_id UUID FK,
+  speaker_identity TEXT,
+  speaker_name TEXT,
+  text TEXT,
+  is_final BOOLEAN,
+  language TEXT,
+  embedding vector(1536),             -- text-embedding-3-small
+  created_at TIMESTAMPTZ
+)
+metric_snapshots (
+  id UUID PK,
+  session_id UUID FK,
+  participation JSONB,                -- ParticipationMetrics
+  semantic_dynamics JSONB,            -- SemanticDynamicsMetrics
+  inferred_state JSONB,               -- ConversationStateInference
+  window_start TIMESTAMPTZ,
+  window_end TIMESTAMPTZ,
+  created_at TIMESTAMPTZ
+)
+engine_state (
+  id UUID PK,
+  session_id UUID FK UNIQUE,
+  phase TEXT,                         -- MONITORING|CONFIRMING|POST_CHECK|COOLDOWN
+  current_state TEXT,                 -- 5 Zustands-Namen
+  phase_entered_at TIMESTAMPTZ,
+  cooldown_until TIMESTAMPTZ,
+  intervention_count INT,
+  last_heartbeat TIMESTAMPTZ
+)
+interventions (
+  id UUID PK,
+  session_id UUID FK,
+  intent TEXT,                        -- PARTICIPATION_REBALANCING etc.
+  trigger TEXT,                       -- state|rule_violation|goal_refocus
+  text TEXT,                          -- Gesprochener Text
+  audio_duration_ms INT,
+  metrics_at_intervention JSONB,
+  recovery_score FLOAT,
+  recovered BOOLEAN,
+  created_at TIMESTAMPTZ
+)
+ideas (
+  id UUID PK,
+  session_id UUID FK,
+  title TEXT,
   description TEXT,
-  embedding   vector(1536),
-  created_at  TIMESTAMPTZ DEFAULT now()
-);
-
--- Ideen-Verbindungen
-CREATE TABLE idea_connections (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_id   UUID REFERENCES ideas(id) ON DELETE CASCADE,
-  target_id   UUID REFERENCES ideas(id) ON DELETE CASCADE,
-  strength    FLOAT DEFAULT 0.5,
-  label       TEXT
-);
-
--- Gesprächsziele
-CREATE TABLE session_goals (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id  UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  label       TEXT NOT NULL,
+  author_name TEXT,
+  idea_type TEXT,                     -- brainstorming_idea|ally_intervention|action_item
+  position_x FLOAT,
+  position_y FLOAT,
+  color TEXT,
+  is_deleted BOOLEAN,
+  created_at TIMESTAMPTZ
+)
+idea_connections (
+  id UUID PK,
+  session_id UUID FK,
+  source_idea_id UUID FK,
+  target_idea_id UUID FK,
+  connection_type TEXT,               -- builds_on|contrasts|supports|refines
+  created_at TIMESTAMPTZ
+)
+session_summary (
+  id UUID PK,
+  session_id UUID FK UNIQUE,
+  text TEXT,
+  updated_at TIMESTAMPTZ
+)
+session_goals (
+  id UUID PK,
+  session_id UUID FK,
+  label TEXT,
   description TEXT,
-  embedding   vector(1536),
-  progress    FLOAT DEFAULT 0,              -- 0-1, via LLM-Assessment
-  updated_at  TIMESTAMPTZ DEFAULT now()
-);
-
--- Live-Zusammenfassung (rolling, wird überschrieben)
-CREATE TABLE session_summary (
-  session_id  UUID PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-  content     TEXT,
-  updated_at  TIMESTAMPTZ DEFAULT now()
-);
+  status TEXT,                        -- not_started|mentioned|partially_covered|covered
+  heat_score FLOAT,
+  notes TEXT,
+  updated_at TIMESTAMPTZ
+)
+agent_jobs (
+  id UUID PK,
+  session_id UUID FK UNIQUE,
+  status TEXT,                        -- starting|running|ended|error
+  last_heartbeat TIMESTAMPTZ
+)
+usage_events (session_id, event_type, payload JSONB, created_at)
+intervention_annotations (intervention_id FK, annotation TEXT, created_by TEXT)
 ```
 
-### 4.5 Agent Management & Billing
+**Supabase Realtime aktiviert für:**
+`transcript_segments`, `metric_snapshots`, `interventions`, `ideas`, `idea_connections`, `session_summary`, `engine_state`, `session_goals`
 
+---
+
+## 5. Aktueller Stand (März 2026)
+
+### ✅ Fertig und funktionierend
+
+**Infrastruktur:**
+- Railway: Projekt aufgesetzt, Redis deployed und online
+- Supabase: Schema deployed (16 Tabellen), pgvector aktiv, Realtime konfiguriert
+- LiveKit Cloud: Account, Projekt, API Keys vorhanden
+
+**Backend API (FastAPI):**
+- Session CRUD (erstellen, abrufen, listen, beenden)
+- Join via 6-stelligem Code (z.B. "BRN-447")
+- LiveKit Token-Generierung
+- Webhook-Handler (room_finished, participant_joined/left)
+- CORS konfiguriert (Phase 1: offen)
+- Lokaler Smoke-Test bestanden (Session + Join + Token)
+
+**Agent (Grundstruktur):**
+- Worker-Entrypoint (`WorkerType.ROOM`, auto-dispatch)
+- Session-Agent Lifecycle (connect → load session → setup → shutdown)
+- SupabaseWriter Grundstruktur
+- Alle 8 Module als Stubs vorhanden
+- Heartbeat-Loop (Redis + DB)
+- Tick-Loop (Intervall-System: 1s, 4s, 5s, 60s, 90s)
+
+**Frontend:**
+- Build sauber (5 Routes)
+- Session erstellen → funktioniert
+- Session beitreten via Join-Code → funktioniert
+- LiveKit Video verbindet → funktioniert (Kamera + Audio)
+- 7 Realtime-Hooks subscribed und warten auf Backend-Daten
+- Dark Glassmorphism Design implementiert
+- Alle Panel-Komponenten vorhanden (warten auf Daten)
+
+### 🔧 In Arbeit (Fixes nach letzter Review)
+
+**Backend — kritische Fixes ausstehend:**
+1. `realtime_client.py`: Zurück auf offizielle OpenAI SDK (`client.beta.realtime.connect()`) — Raw WebSocket entfernen
+2. `session_agent.py`: `ctx.wait_for_shutdown()` korrekt implementieren
+3. Token-Endpoint: nimmt `session_id`, holt `livekit_room` selbst aus DB
+4. CORS: als `ALLOWED_ORIGINS` ENV-Variable vorbereiten
+
+**Frontend — Fixes ausstehend:**
+1. Token-Flow: kein sessionStorage — über URL-Parameter (`?name=&identity=`)
+2. VideoGrid: Disconnect-Redirect erst nach erfolgter Verbindung
+
+### ⏳ Noch nicht gestartet
+- Transkriptions-Pipeline live getestet (End-to-End Segment im Browser)
+- Metriken-Berechnung
+- State Inference
+- Decision Engine
+- Interventionen (TTS + Audio-Inject)
+- Ideen-Extraktion
+- Live Summary
+- Goal Tracking
+- Railway Deployment
+- Clerk Auth / Stripe (Phase 3)
+
+---
+
+## 6. Implementierungs-Roadmap
+
+### Philosophie
+Jede Stufe muss vollständig verifiziert sein bevor die nächste startet. Kein Weitergehen wenn etwas wackelt. Die Grundlage (Transkription) trägt alles andere.
+
+```
+STUFE 1-4: Transkription stabil      ← AKTUELLE PHASE
+STUFE 5-7: Metriken-Engine           ← NÄCHSTE PHASE
+STUFE 8-9: State + Decision          ← DANACH
+STUFE 10:  Interventionen            ← KI-KERN
+STUFE 11:  LLM-Features              ← VOLLSTÄNDIG
+STUFE 12:  Deployment                ← LAUNCH-BEREIT
+STUFE 13:  SaaS-Layer                ← MONETARISIERUNG
+```
+
+---
+
+### Stufe 1: Transkription End-to-End ← JETZT
+
+**Ziel:** Gesprochenes Wort erscheint in Supabase `transcript_segments`
+
+**Backend (agent):**
+```
+realtime_client.py — open_transcription():
+  1. client.beta.realtime.connect(model="gpt-4o-transcribe") [SDK, NICHT raw WS]
+  2. session.update: input_audio_format=pcm16, server_vad, near_field
+  3. stream_audio(): rtc.AudioStream(track, sample_rate=24000, num_channels=1) → base64 → append
+  4. receive_transcripts(): event.type == "...completed" → writer.write_segment()
+  5. asyncio.gather(stream_audio(), receive_transcripts(), return_exceptions=True)
+  6. Retry-Loop: MAX_RETRIES=3, exponential backoff (1s, 2s, 4s)
+```
+
+**Verifikation:**
 ```sql
--- Agent Jobs (welcher Worker-Prozess läuft für welche Session)
-CREATE TABLE agent_jobs (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id      UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  status          TEXT DEFAULT 'starting',  -- starting / running / ended / error
-  worker_id       TEXT,
-  error           TEXT,
-  started_at      TIMESTAMPTZ DEFAULT now(),
-  last_heartbeat  TIMESTAMPTZ,
-  ended_at        TIMESTAMPTZ
-);
+SELECT speaker_name, text, created_at FROM transcript_segments ORDER BY created_at DESC LIMIT 5;
+```
+→ Rows vorhanden nach gesprochenem Text ✓
 
--- Usage Events (für Billing)
-CREATE TABLE usage_events (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id  UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  session_id    UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  event_type    TEXT NOT NULL,              -- 'session_minute' / 'llm_call' / 'tts_second'
-  quantity      FLOAT NOT NULL,
-  cost_usd      FLOAT,
-  created_at    TIMESTAMPTZ DEFAULT now()
-);
+**Dann Frontend:**
+- TranscriptFeed zeigt Segmente live (Realtime-Hook bereits verdrahtet)
+- Speaker-Name farbkodiert (Hash aus identity → Farbe)
+- Auto-Scroll zum neuesten
 
--- Annotations (Forscher-Annotationen für wissenschaftliche Auswertung)
-CREATE TABLE intervention_annotations (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  intervention_id UUID REFERENCES interventions(id) ON DELETE CASCADE,
-  annotator_id    TEXT NOT NULL,
-  rating          INTEGER,                  -- 1-5
-  comment         TEXT,
-  created_at      TIMESTAMPTZ DEFAULT now()
-);
+---
+
+### Stufe 2: Multi-Participant
+
+**Ziel:** 2+ Sprecher, korrekt getrennte `speaker_identity`
+
+**Test:** 2 Browser-Tabs, beide joinen, beide sprechen → eigene Rows in DB
+
+---
+
+### Stufe 3: Session-Lifecycle sauber
+
+**Ziel:** Session-Start → Ende → kein hängender Agent
+
+**Checks:**
+- `sessions.status = 'ended'` nach POST `/api/sessions/{id}/end`
+- `agent_jobs.status = 'ended'`
+- `session_participants.left_at` gesetzt bei Disconnect
+- Agent macht `on_session_end()` auf allen Modulen
+
+---
+
+### Stufe 4: Embeddings (Background)
+
+**Ziel:** `embedding IS NOT NULL` für alle finalen Segmente
+
+**Implementierung** (bereits in Abschnitt 18 spezifiziert):
+```python
+asyncio.create_task(self._generate_embedding(segment_id, text))
+# text-embedding-3-small → vector(1536) → UPDATE transcript_segments
 ```
 
 ---
 
-## 5. Session-Flow (neu)
+### Stufe 5: Partizipations-Metriken ← NÄCHSTE GROSSE PHASE
 
-### 5.1 Session erstellen (Host)
+**Ziel:** `metric_snapshots` mit echten Partizipations-Daten alle 30s
 
-```
-1. Host öffnet Dashboard
-2. Klickt "Neue Session"
-3. Füllt Formular aus:
-   - Titel
-   - Sprache (de-CH / en-US)
-   - Moderations-Stufe:
-       ○ Keine Moderation
-       ● Moderation
-       ○ Moderation + Impuls
-   - Module (Checkboxen):
-       ✅ Partizipations-Analyse    (immer aktiv wenn Moderation)
-       ✅ Semantische Analyse       (immer aktiv wenn Moderation)
-       ☐  Ideen-Extraktion
-       ☐  Live-Zusammenfassung
-       ☐  Gesprächsziele           → Ziele eingeben wenn aktiv
-       ☐  Regel-Check
-   - Erweiterte Einstellungen (optional, Schwellenwerte)
-4. POST /api/sessions → bekommt join_code zurück (z.B. "BRN-447")
-5. Dashboard zeigt Join-Code + kopierbaren Link
-6. Host kann Link/Code an Teilnehmer senden
-```
+**Datenbasis:** Alle `transcript_segments` der Session im 300s-Fenster
 
-### 5.2 Session beitreten (Teilnehmer)
+**Formeln:** → Abschnitt 7 (vollständige Spezifikation)
 
-```
-1. Teilnehmer öffnet /join/BRN-447 oder gibt Code ein
-2. Gibt Display-Name ein
-3. POST /api/sessions/join → bekommt LiveKit-Token + Session-Metadaten
-4. Klickt "Beitreten" → LiveKit Room wird gejoined
-```
-
-### 5.3 Agent-Dispatch
-
-```
-1. Erster Teilnehmer oder Host joined LiveKit Room
-2. LiveKit Webhook (participant_joined) → FastAPI
-3. FastAPI prüft: Hat diese Session bereits einen laufenden Agent?
-4. Nein → agent_dispatcher.py dispatched neuen Agent-Job
-5. Agent-Worker picked Job auf, started Session-Agent, joined LiveKit Room
-6. Agent öffnet pro Participant einen OpenAI Realtime WebSocket
-7. Agent meldet Heartbeat alle 10s → Redis
-```
-
-### 5.4 Session-Ende
-
-```
-1. Host klickt "Session beenden" ODER alle Teilnehmer haben verlassen
-2. LiveKit Webhook (room_finished) → FastAPI
-3. FastAPI setzt session.status = 'ended'
-4. Agent führt Cleanup aus:
-   - Post-Session Summary generieren
-   - Alle Ideen-Verbindungen finalisieren
-   - Session-Export JSON in Supabase Storage
-5. Agent-Job wird beendet
-```
-
----
-
-## 6. LiveKit Agent — Architektur
-
-### 6.1 Grundprinzip
-
-Der Agent ist ein Python-Prozess der auf Railway läuft. Er ist kein HTTP-Server. Er reagiert auf Events.
-
-```python
-# Jede Session bekommt eine eigene Agent-Instanz
-class SessionAgent:
-    def __init__(self, session_id, config, active_modules):
-        self.modules = active_modules        # nur aktivierte Module
-        self.state = AgentState()
-        self.supabase = SupabaseWriter(session_id)
-
-    async def on_participant_connected(self, participant):
-        # OpenAI Realtime WebSocket für diesen Participant öffnen
-        client = RealtimeClient(participant.identity)
-        client.on_segment(self.handle_segment)
-        await client.start()
-
-    async def handle_segment(self, segment):
-        # Segment in DB schreiben
-        await self.supabase.write_segment(segment)
-        # Alle aktiven Module benachrichtigen
-        for module in self.modules:
-            await module.on_segment(segment)
-```
-
-### 6.2 Modul-System
-
-Jedes Modul implementiert das BaseModule-Interface:
-
-```python
-class BaseModule:
-    key: str                                  # eindeutiger Modul-Schlüssel
-    
-    def __init__(self, config: dict, writer: SupabaseWriter):
-        self.config = config
-        self.writer = writer
-
-    async def on_segment(self, segment: TranscriptSegment):
-        """Aufgerufen für jedes neue finale Transkript-Segment."""
-        pass
-
-    async def on_tick(self, interval_key: str, agent_state: AgentState):
-        """Aufgerufen periodisch (verschiedene Intervalle pro Modul)."""
-        pass
-
-    async def on_session_end(self):
-        """Aufgerufen wenn Session endet — Cleanup, finale Berechnungen."""
-        pass
-```
-
-Beispiel-Intervalle:
-
-| Modul | Trigger | Intervall |
-|---|---|---|
-| participation | on_segment + on_tick | alle 5s |
-| semantic | on_segment + on_tick | alle 5s |
-| state_inference | on_tick (nach metrics) | alle 5s |
-| decision_engine | on_tick | alle 1s |
-| idea_extraction | on_tick | alle 4s |
-| live_summary | on_tick | alle 60s |
-| goal_tracker | on_tick (heat + LLM) | 5s / 90s |
-| rule_check | on_segment | bei jedem Segment |
-
-### 6.3 Transkriptions-Pipeline
-
-```
-LiveKit SFU
-  └── Audio-Track Participant A   ──→  OpenAI Realtime WebSocket A
-  └── Audio-Track Participant B   ──→  OpenAI Realtime WebSocket B
-  └── Audio-Track Participant C   ──→  OpenAI Realtime WebSocket C
-
-Jeder WebSocket:
-  - gpt-4o-transcribe
-  - Server-VAD (kein manuelles Chunking)
-  - Noise Reduction: near_field
-  - Streaming: conversation.item.input_audio_transcription.delta
-  - Final:    conversation.item.input_audio_transcription.completed
-
-→ TranscriptSegment {
-    session_id, speaker_identity, speaker_name,
-    text, is_final, language, timestamp
+**Output nach Supabase:**
+```json
+{
+  "participation": {
+    "volume_share": {"alice": 0.45, "bob": 0.35, "carol": 0.20},
+    "turn_share": {"alice": 0.40, "bob": 0.38, "carol": 0.22},
+    "gini_imbalance": 0.23,
+    "silent_participant_ratio": 0.0,
+    "dominance_streak_score": 0.18,
+    "turn_share_gini": 0.19,
+    "participation_risk_score": 0.21
   }
-→ supabase_writer.write_segment()
-→ Supabase Realtime → alle Browser-Clients (nur anzeigen)
+}
 ```
 
-### 6.4 Interventions-Ausführung
+→ Frontend MetricsPanel zeigt Balken-Charts
 
-```
-decision_engine erkennt: INTERVENTION nötig
-  → moderator.py:
-      1. Kontext aufbauen (letzte N Segmente + aktuelle Metriken)
-      2. GPT-4o Call → Moderations-Text
-      3. OpenAI TTS → Audio-Buffer
-      4. LiveKit: Audio-Track in Room publishen (Teilnehmer hören Moderator)
-      5. intervention in DB schreiben
-      6. Supabase Realtime → Browser zeigt Intervention-Overlay
+---
+
+### Stufe 6: Semantische Metriken
+
+**Ziel:** Semantik-Teil von `metric_snapshots` befüllt
+
+**Voraussetzung:** Embeddings aus Stufe 4 vorhanden
+
+**Formeln:** → Abschnitt 8 (vollständige Spezifikation)
+
+**Output:**
+```json
+{
+  "semantic_dynamics": {
+    "novelty_rate": 0.34,
+    "cluster_concentration": 0.42,
+    "exploration_elaboration_ratio": 0.61,
+    "semantic_expansion_score": 0.15
+  }
+}
 ```
 
 ---
 
-## 7. FastAPI Backend — Endpoints
+### Stufe 7: State Inference
 
-### 7.1 Session-Endpoints
+**Ziel:** `engine_state.current_state` wird gesetzt, alle 5s aktualisiert
 
-```
-POST   /api/sessions                  Session erstellen
-GET    /api/sessions                  Alle Sessions des Workspace
-GET    /api/sessions/{id}             Session-Details
-PATCH  /api/sessions/{id}             Session updaten
-POST   /api/sessions/join             Session beitreten via Code
-POST   /api/sessions/{id}/end         Session beenden
-
-GET    /api/sessions/{id}/export      Vollständiger JSON-Export
-GET    /api/sessions/{id}/segments    Transkript-Segmente
-GET    /api/sessions/{id}/metrics     Metriken-Snapshots
-GET    /api/sessions/{id}/ideas       Ideen + Verbindungen
-GET    /api/sessions/{id}/interventions Interventions-Liste
-```
-
-### 7.2 Workspace-Endpoints
-
-```
-POST   /api/workspaces                Workspace erstellen
-GET    /api/workspaces/{id}           Workspace-Details
-POST   /api/workspaces/{id}/members   Mitglied einladen
-DELETE /api/workspaces/{id}/members/{userId}
-```
-
-### 7.3 System-Endpoints
-
-```
-POST   /api/webhooks/livekit          LiveKit Events (room_finished etc.)
-POST   /api/webhooks/stripe           Stripe Billing Events (Phase 2)
-POST   /api/livekit/token             LiveKit JWT-Token generieren
-```
-
-### 7.4 Auth-Middleware (Phase 2)
-
-In Phase 1 sind alle Endpoints ohne Auth zugänglich. In Phase 2 wird Clerk JWT-Validierung als Middleware ergänzt — ohne dass sich die Endpoint-Struktur ändert.
+**Input:** MetricSnapshot (Stufe 5+6)
+**Output:** Einer von 5 Zuständen + Konfidenz-Score
+**Formeln:** → Abschnitt 9
 
 ---
 
-## 8. Browser (Frontend) — Verantwortlichkeiten
+### Stufe 8: Decision Engine
 
-Der Browser macht **ausschliesslich**:
+**Ziel:** Engine wechselt durch 4 Phasen, `interventions`-Tabelle wird befüllt (ohne Audio)
 
-- Video und Audio via LiveKit Client SDK darstellen
-- UI rendern (React-Komponenten)
-- Supabase Realtime Subscriptions empfangen und anzeigen
-- HTTP-Requests an FastAPI senden (Session erstellen, joinen, etc.)
-- LiveKit-Token von FastAPI holen
+**Phasen:** MONITORING → CONFIRMING (45s) → POST_CHECK (180s) → COOLDOWN (180s)
+**Spezifikation:** → Abschnitt 10
 
-Der Browser berechnet **nichts**:
+---
 
-- Keine Metriken-Berechnung
-- Keine State Machine
-- Keine LLM-Calls
-- Kein localStorage für Embeddings oder Konfiguration
-- Kein Decision-Owner-Konzept
-- Keine OpenAI API-Keys im Client
+### Stufe 9: TTS + Audio-Injection
 
-### 8.1 Supabase Realtime Subscriptions (read-only)
+**Ziel:** Moderator-Text wird als Sprachausgabe im LiveKit Room für alle hörbar
+
+**Pipeline:**
+```
+gpt-4o text → tts-1-hd PCM → rtc.AudioSource → LocalAudioTrack → Room publish
+```
+**Spezifikation:** → Abschnitt 11
+
+---
+
+### Stufe 10: LLM-Features (parallel entwickelbar nach Stufe 4)
+
+| Feature | Modul | Intervall | LLM |
+|---------|-------|-----------|-----|
+| Ideen-Extraktion | `idea_extraction.py` | 4s (on_segment) | gpt-4o |
+| Ideen-Verbindungen | `idea_extraction.py` | periodisch | gpt-4o-mini |
+| Live Summary | `live_summary.py` | 60s | gpt-4o-mini |
+| Goal Tracking Heat | `goal_tracker.py` | 5s (embedding) | — |
+| Goal Assessment | `goal_tracker.py` | 90s | gpt-4o-mini |
+| Regel-Prüfung | `rule_check.py` | on_segment | gpt-4o-mini |
+
+---
+
+### Stufe 11: Railway Deployment
+
+**Checklist:**
+- `Procfile` korrekt: `api: uvicorn api.main:app --host 0.0.0.0 --port $PORT`
+- `agent: python -m agent.main dev` (mit --url + --api-key Flags für Railway)
+- Alle ENV-Variablen im Railway Dashboard gesetzt
+- Redis: interne Railway URL (`redis://redis.railway.internal:6379`)
+- ALLOWED_ORIGINS: auf Vercel-Domain setzen
+- Health-Check: `GET /health → 200`
+- LiveKit Webhook-URL: auf Railway API-URL setzen
+
+---
+
+### Stufe 12: SaaS-Layer (Phase 3)
+
+- Clerk Auth: Organization = Workspace, User = Member
+- Stripe: Subscription-Pläne (Trial/Starter/Professional/Academic)
+- RLS in Supabase aktivieren
+- Usage-Tracking: `usage_events` mit Kosten pro Session
+- CORS einschränken
+
+---
+
+## 7. Partizipations-Metriken — Vollständige Spezifikation
+
+**Datenbasis:** Alle `transcript_segments` der letzten `WINDOW_SECONDS` (300s) der Session.
+
+### 7.1 Hilfsfunktionen
+
+```python
+def gini_coefficient(values: list[float]) -> float:
+    """Misst Ungleichheit. 0 = perfekt gleich, 1 = alles bei einer Person."""
+    if not values or len(values) == 1:
+        return 0.0
+    arr = sorted(values)
+    n = len(arr)
+    total = sum(arr)
+    if total == 0:
+        return 0.0
+    cumulative = sum((i + 1) * v for i, v in enumerate(arr))
+    return (2 * cumulative) / (n * total) - (n + 1) / n
+
+def count_words(text: str) -> int:
+    """Wörter zählen. Deutsch/Englisch kompatibel."""
+    return len(text.strip().split())
+```
+
+### 7.2 Volume Share (Wort-Anteil pro Sprecher)
+
+```python
+def compute_volume_share(segments: list[dict]) -> dict[str, float]:
+    """
+    Anteil der gesprochenen Wörter pro Sprecher im Zeitfenster.
+    segments: Liste von transcript_segments mit speaker_identity + text
+    """
+    word_counts: dict[str, int] = {}
+    for seg in segments:
+        identity = seg["speaker_identity"]
+        word_counts[identity] = word_counts.get(identity, 0) + count_words(seg["text"])
+    
+    total = sum(word_counts.values())
+    if total == 0:
+        return {}
+    return {k: v / total for k, v in word_counts.items()}
+```
+
+### 7.3 Turn Share (Segment-Anteil pro Sprecher)
+
+```python
+def compute_turn_share(segments: list[dict]) -> dict[str, float]:
+    """
+    Anteil der Gesprächsrunden (finaler Segmente) pro Sprecher.
+    """
+    final_segments = [s for s in segments if s.get("is_final", True)]
+    turn_counts: dict[str, int] = {}
+    for seg in final_segments:
+        identity = seg["speaker_identity"]
+        turn_counts[identity] = turn_counts.get(identity, 0) + 1
+    
+    total = sum(turn_counts.values())
+    if total == 0:
+        return {}
+    return {k: v / total for k, v in turn_counts.items()}
+```
+
+### 7.4 Silent Participant Ratio
+
+```python
+THRESHOLD_SILENT = 0.10  # Sprecher mit < 10% Wort-Anteil gilt als "still"
+
+def compute_silent_participant_ratio(
+    volume_share: dict[str, float],
+    all_participant_identities: list[str]
+) -> float:
+    """
+    Anteil der Teilnehmer die weniger als 10% gesprochen haben.
+    Zählt auch Teilnehmer die gar nicht im volume_share sind (= 0%).
+    """
+    n = len(all_participant_identities)
+    if n == 0:
+        return 0.0
+    
+    silent_count = 0
+    for identity in all_participant_identities:
+        share = volume_share.get(identity, 0.0)
+        if share < THRESHOLD_SILENT:
+            silent_count += 1
+    
+    return silent_count / n
+```
+
+### 7.5 Dominance Streak Score
+
+```python
+def compute_dominance_streak_score(segments: list[dict]) -> float:
+    """
+    Längste ununterbrochene Reihe desselben Sprechers, normalisiert auf [0, 1].
+    0 = perfekter Wechsel, 1 = eine Person redet immer.
+    """
+    if not segments:
+        return 0.0
+    
+    final_segs = [s for s in segments if s.get("is_final", True)]
+    if len(final_segs) < 2:
+        return 0.0
+    
+    max_streak = 1
+    current_streak = 1
+    
+    for i in range(1, len(final_segs)):
+        if final_segs[i]["speaker_identity"] == final_segs[i-1]["speaker_identity"]:
+            current_streak += 1
+            max_streak = max(max_streak, current_streak)
+        else:
+            current_streak = 1
+    
+    # Normalisieren: max möglicher Streak = alle Segmente
+    return (max_streak - 1) / max(len(final_segs) - 1, 1)
+```
+
+### 7.6 Participation Risk Score (Composite)
+
+```python
+WEIGHTS = {
+    "gini": 0.35,
+    "silent": 0.25,
+    "dominance": 0.25,
+    "turn_gini": 0.15
+}
+
+def compute_participation_risk_score(
+    gini_imbalance: float,
+    silent_participant_ratio: float,
+    dominance_streak_score: float,
+    turn_share_gini: float
+) -> float:
+    """
+    Gewichteter Composite-Score. 0 = gesund, 1 = hohes Risiko.
+    Gewichtung: 35% Gini, 25% Silent, 25% Dominanz, 15% Turn-Gini
+    """
+    return (
+        WEIGHTS["gini"] * gini_imbalance
+        + WEIGHTS["silent"] * silent_participant_ratio
+        + WEIGHTS["dominance"] * dominance_streak_score
+        + WEIGHTS["turn_gini"] * turn_share_gini
+    )
+```
+
+### 7.7 Vollständige compute_participation()
+
+```python
+def compute_participation_metrics(
+    segments: list[dict],
+    all_participant_identities: list[str]
+) -> dict:
+    """
+    Hauptfunktion: Berechnet alle Partizipations-Metriken.
+    Gibt dict zurück das als JSONB in metric_snapshots.participation gespeichert wird.
+    """
+    volume_share = compute_volume_share(segments)
+    turn_share = compute_turn_share(segments)
+    
+    volume_values = list(volume_share.values()) or [0.0]
+    turn_values = list(turn_share.values()) or [0.0]
+    
+    gini_imbalance = gini_coefficient(volume_values)
+    turn_share_gini = gini_coefficient(turn_values)
+    silent_ratio = compute_silent_participant_ratio(volume_share, all_participant_identities)
+    dominance_streak = compute_dominance_streak_score(segments)
+    risk_score = compute_participation_risk_score(
+        gini_imbalance, silent_ratio, dominance_streak, turn_share_gini
+    )
+    
+    return {
+        "volume_share": volume_share,
+        "turn_share": turn_share,
+        "gini_imbalance": round(gini_imbalance, 4),
+        "silent_participant_ratio": round(silent_ratio, 4),
+        "dominance_streak_score": round(dominance_streak, 4),
+        "turn_share_gini": round(turn_share_gini, 4),
+        "participation_risk_score": round(risk_score, 4),
+    }
+```
+
+---
+
+## 8. Semantische Dynamik-Metriken — Vollständige Spezifikation
+
+**Voraussetzung:** Embeddings (vector(1536)) vorhanden für alle Segmente.
+
+### 8.1 Kosinus-Ähnlichkeit
+
+```python
+import numpy as np
+
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Kosinus-Ähnlichkeit zwischen zwei Embedding-Vektoren. Range: -1 bis 1."""
+    a_arr = np.array(a, dtype=np.float32)
+    b_arr = np.array(b, dtype=np.float32)
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
+```
+
+### 8.2 Novelty Rate
+
+```python
+NOVELTY_COSINE_THRESHOLD = 0.45  # Unter diesem Wert = "neue" Idee
+
+def compute_novelty_rate(
+    segments_with_embeddings: list[dict],
+    window_size: int = 300
+) -> float:
+    """
+    Anteil der Segmente die semantisch neu sind (nicht ähnlich zu vorherigen).
+    Vergleicht jedes Segment mit allen vorherigen im Fenster.
+    
+    segments_with_embeddings: list von dicts mit "embedding" und "created_at"
+    Nur Segmente mit embedding IS NOT NULL berücksichtigen.
+    """
+    eligible = [s for s in segments_with_embeddings if s.get("embedding")]
+    if len(eligible) < 2:
+        return 0.5  # Neutral wenn zu wenig Daten
+    
+    novel_count = 0
+    for i, seg in enumerate(eligible):
+        preceding = eligible[max(0, i - 10):i]  # Max 10 Vorgänger
+        if not preceding:
+            novel_count += 1  # Erstes Segment ist immer neu
+            continue
+        
+        max_similarity = max(
+            cosine_similarity(seg["embedding"], prev["embedding"])
+            for prev in preceding
+        )
+        if max_similarity < NOVELTY_COSINE_THRESHOLD:
+            novel_count += 1
+    
+    return novel_count / len(eligible)
+```
+
+### 8.3 Cluster-Bildung (Greedy Centroid Clustering)
+
+```python
+CLUSTER_MERGE_THRESHOLD = 0.35  # Unter diesem Wert = anderes Cluster
+
+def compute_clusters(segments_with_embeddings: list[dict]) -> list[list[dict]]:
+    """
+    Greedy Centroid Clustering: Segment wird dem nächsten Cluster zugeordnet
+    wenn Ähnlichkeit > CLUSTER_MERGE_THRESHOLD, sonst neues Cluster.
+    Gibt Liste von Clusters zurück (jedes Cluster = Liste von Segmenten).
+    """
+    eligible = [s for s in segments_with_embeddings if s.get("embedding")]
+    if not eligible:
+        return []
+    
+    clusters: list[list[dict]] = []
+    centroids: list[list[float]] = []
+    
+    for seg in eligible:
+        emb = seg["embedding"]
+        
+        if not centroids:
+            clusters.append([seg])
+            centroids.append(emb)
+            continue
+        
+        similarities = [cosine_similarity(emb, c) for c in centroids]
+        best_idx = int(np.argmax(similarities))
+        
+        if similarities[best_idx] >= CLUSTER_MERGE_THRESHOLD:
+            clusters[best_idx].append(seg)
+            # Centroid aktualisieren (laufendes Mittel)
+            n = len(clusters[best_idx])
+            centroids[best_idx] = [
+                (c * (n-1) + e) / n
+                for c, e in zip(centroids[best_idx], emb)
+            ]
+        else:
+            clusters.append([seg])
+            centroids.append(emb)
+    
+    return clusters
+```
+
+### 8.4 Cluster Concentration (HHI)
+
+```python
+def compute_cluster_concentration(clusters: list[list]) -> float:
+    """
+    Herfindahl-Hirschman Index über Cluster-Größen.
+    0 = viele gleichgroße Cluster (diverse Diskussion)
+    1 = alles in einem Cluster (monotone Diskussion)
+    """
+    if not clusters:
+        return 0.0
+    
+    total = sum(len(c) for c in clusters)
+    if total == 0:
+        return 0.0
+    
+    shares = [len(c) / total for c in clusters]
+    return sum(s * s for s in shares)
+```
+
+### 8.5 Exploration/Elaboration Ratio
+
+```python
+EXPLORATION_COSINE_THRESHOLD = 0.30  # Unter diesem = Exploration (neue Richtung)
+ELABORATION_COSINE_THRESHOLD = 0.50  # Über diesem = Elaboration (Vertiefung)
+
+def compute_exploration_elaboration_ratio(
+    segments_with_embeddings: list[dict]
+) -> float:
+    """
+    0 = nur Vertiefung bestehender Ideen
+    1 = nur neue Richtungen erkundet
+    0.5 = ausgewogen
+    """
+    eligible = [s for s in segments_with_embeddings if s.get("embedding")]
+    if len(eligible) < 3:
+        return 0.5
+    
+    exploration_count = 0
+    elaboration_count = 0
+    
+    for i in range(1, len(eligible)):
+        preceding = eligible[max(0, i-5):i]
+        avg_similarity = np.mean([
+            cosine_similarity(eligible[i]["embedding"], p["embedding"])
+            for p in preceding
+        ])
+        
+        if avg_similarity < EXPLORATION_COSINE_THRESHOLD:
+            exploration_count += 1
+        elif avg_similarity > ELABORATION_COSINE_THRESHOLD:
+            elaboration_count += 1
+    
+    total = exploration_count + elaboration_count
+    if total == 0:
+        return 0.5
+    return exploration_count / total
+```
+
+### 8.6 Semantic Expansion Score
+
+```python
+def compute_semantic_expansion_score(
+    clusters_now: list[list],
+    clusters_prev: list[list],
+    novelty_now: float,
+    novelty_prev: float
+) -> float:
+    """
+    Trend-Änderung: Wächst die Diskussion (positiv) oder verengt sie sich (negativ)?
+    Range: -1 bis 1
+    
+    Positiv: mehr Cluster, höhere Novelty → Expansion
+    Negativ: weniger Cluster, niedrigere Novelty → Konvergenz
+    """
+    concentration_now = compute_cluster_concentration(clusters_now)
+    concentration_prev = compute_cluster_concentration(clusters_prev)
+    
+    concentration_delta = concentration_prev - concentration_now  # Positiv wenn weniger konzentriert
+    novelty_delta = novelty_now - novelty_prev
+    
+    raw = 0.5 * concentration_delta + 0.5 * novelty_delta
+    return float(np.clip(raw * 2, -1.0, 1.0))  # Auf [-1, 1] skalieren
+```
+
+### 8.7 Fallback ohne Embeddings (Jaccard)
+
+```python
+def jaccard_similarity(text_a: str, text_b: str) -> float:
+    """Wort-basierte Jaccard-Ähnlichkeit als Fallback wenn keine Embeddings."""
+    words_a = set(text_a.lower().split())
+    words_b = set(text_b.lower().split())
+    if not words_a and not words_b:
+        return 1.0
+    intersection = words_a & words_b
+    union = words_a | words_b
+    return len(intersection) / len(union)
+
+JACCARD_NOVELTY_THRESHOLD = 0.40  # Fallback-Schwelle
+```
+
+### 8.8 Vollständige compute_semantic_dynamics()
+
+```python
+def compute_semantic_dynamics_metrics(
+    segments_with_embeddings: list[dict],
+    previous_snapshot: dict | None = None
+) -> dict:
+    """
+    Hauptfunktion: Berechnet alle semantischen Metriken.
+    Gibt dict zurück für metric_snapshots.semantic_dynamics JSONB.
+    """
+    # Versuche mit Embeddings, sonst Jaccard-Fallback
+    has_embeddings = any(s.get("embedding") for s in segments_with_embeddings)
+    
+    if has_embeddings:
+        novelty_rate = compute_novelty_rate(segments_with_embeddings)
+        clusters = compute_clusters(segments_with_embeddings)
+        cluster_concentration = compute_cluster_concentration(clusters)
+        exploration_ratio = compute_exploration_elaboration_ratio(segments_with_embeddings)
+    else:
+        # Jaccard-Fallback
+        novelty_rate = _jaccard_novelty_rate(segments_with_embeddings)
+        clusters = []
+        cluster_concentration = 0.5
+        exploration_ratio = 0.5
+    
+    # Expansion Score braucht vorherigen Snapshot
+    if previous_snapshot and "semantic_dynamics" in previous_snapshot:
+        prev = previous_snapshot["semantic_dynamics"]
+        novelty_prev = prev.get("novelty_rate", novelty_rate)
+        # Vereinfacht: wenn vorherige Cluster-Konzentration vorhanden
+        prev_concentration = prev.get("cluster_concentration", cluster_concentration)
+        concentration_delta = prev_concentration - cluster_concentration
+        novelty_delta = novelty_rate - novelty_prev
+        raw = 0.5 * concentration_delta + 0.5 * novelty_delta
+        expansion_score = float(np.clip(raw * 2, -1.0, 1.0))
+    else:
+        expansion_score = 0.0
+    
+    return {
+        "novelty_rate": round(novelty_rate, 4),
+        "cluster_concentration": round(cluster_concentration, 4),
+        "exploration_elaboration_ratio": round(exploration_ratio, 4),
+        "semantic_expansion_score": round(expansion_score, 4),
+        "cluster_count": len(clusters),
+        "has_embeddings": has_embeddings,
+    }
+```
+
+---
+
+## 9. State Inference — Vollständige Spezifikation
+
+**5 Gesprächszustände** mit Hysterese und Tiebreaker-Logik.
+
+### 9.1 Konfidenz-Berechnungen
+
+```python
+from dataclasses import dataclass
+
+HYSTERESIS_MARGIN = 0.08  # Neuer Zustand braucht >= 0.08 mehr Konfidenz
+TIEBREAK_MARGIN = 0.03    # Risiko-Zustände gewinnen innerhalb dieser Marge
+MIN_CONFIDENCE = 0.45     # Mindest-Konfidenz für Intervention
+
+@dataclass
+class StateConfidences:
+    healthy_exploration: float
+    healthy_elaboration: float
+    dominance_risk: float
+    convergence_risk: float
+    stalled_discussion: float
+
+
+def compute_state_confidences(metrics: dict) -> StateConfidences:
+    """
+    Berechnet Konfidenz-Score (0-1) für jeden der 5 Zustände.
+    metrics: Kombiniertes dict aus participation + semantic_dynamics
+    """
+    p = metrics.get("participation", {})
+    s = metrics.get("semantic_dynamics", {})
+    
+    # Metriken extrahieren mit Defaults
+    risk = p.get("participation_risk_score", 0.5)
+    gini = p.get("gini_imbalance", 0.5)
+    silent = p.get("silent_participant_ratio", 0.0)
+    dominance = p.get("dominance_streak_score", 0.0)
+    novelty = s.get("novelty_rate", 0.5)
+    concentration = s.get("cluster_concentration", 0.5)
+    exploration = s.get("exploration_elaboration_ratio", 0.5)
+    expansion = s.get("semantic_expansion_score", 0.0)
+    
+    # Hilfsfunktionen
+    def clamp(v, lo=0.0, hi=1.0): return max(lo, min(hi, v))
+    def expansion_bonus(): return clamp(expansion * 0.5 + 0.5, 0, 0.3)
+    def stagnation_penalty(duration_s: float = 0): return clamp(duration_s / 300, 0, 0.4)
+    
+    # 1. HEALTHY_EXPLORATION: Breite Erkundung, gute Beteiligung
+    healthy_exploration = (
+        0.25 * (1 - risk)
+        + 0.30 * novelty
+        + 0.20 * clamp(expansion + 0.5)
+        + 0.25 * exploration
+    )
+    
+    # 2. HEALTHY_ELABORATION: Vertiefung ohne Beteiligungsrisiko
+    if risk > 0.5:
+        healthy_elaboration = 0.0  # Gate: Kein "gesund" wenn Beteiligungsrisiko hoch
+    else:
+        healthy_elaboration = (
+            0.20 * (1 - risk)
+            + 0.25 * (1 - novelty)
+            + 0.25 * (1 - exploration)
+            + 0.15 * (1 - concentration)
+            + 0.15 * expansion_bonus()
+        ) * (1 - stagnation_penalty())
+    
+    # 3. DOMINANCE_RISK: Ungleiche Beteiligung
+    dominance_risk = (
+        0.35 * risk
+        + 0.25 * silent
+        + 0.20 * dominance
+        + 0.20 * gini
+    )
+    
+    # 4. CONVERGENCE_RISK: Ideen verengen sich
+    convergence_risk = (
+        0.25 * concentration
+        + 0.20 * (1 - novelty)
+        + 0.20 * (1 - exploration)
+        + 0.35 * clamp(-expansion)  # Negatives Expansion = Konvergenz
+    )
+    
+    # 5. STALLED_DISCUSSION: Stagnation
+    # stagnation_duration: Sekunden seit letztem neuen Segment (kommt aus agent_state)
+    stagnation_s = metrics.get("stagnation_duration_seconds", 0)
+    stalled_discussion = (
+        0.25 * (1 - novelty)
+        + 0.30 * clamp(stagnation_s / 180)  # 180s = volle Stagnation
+        + 0.25 * clamp(-expansion)
+        + 0.20 * (1 - clamp(expansion + 0.5))  # diversity development proxy
+    )
+    
+    return StateConfidences(
+        healthy_exploration=clamp(healthy_exploration),
+        healthy_elaboration=clamp(healthy_elaboration),
+        dominance_risk=clamp(dominance_risk),
+        convergence_risk=clamp(convergence_risk),
+        stalled_discussion=clamp(stalled_discussion),
+    )
+```
+
+### 9.2 Zustand mit Hysterese wählen
+
+```python
+# Risiko-Priorität (gewinnt innerhalb TIEBREAK_MARGIN)
+RISK_PRIORITY = [
+    "stalled_discussion",
+    "dominance_risk",
+    "convergence_risk",
+    "healthy_exploration",
+    "healthy_elaboration",
+]
+
+def infer_conversation_state(
+    metrics: dict,
+    previous_state: str | None,
+    previous_confidence: float = 0.0,
+) -> dict:
+    """
+    Bestimmt den aktuellen Gesprächszustand mit Hysterese.
+    
+    Returns dict mit:
+      state, confidence, secondary_state, secondary_confidence, criteria_snapshot
+    """
+    conf = compute_state_confidences(metrics)
+    scores = {
+        "healthy_exploration": conf.healthy_exploration,
+        "healthy_elaboration": conf.healthy_elaboration,
+        "dominance_risk": conf.dominance_risk,
+        "convergence_risk": conf.convergence_risk,
+        "stalled_discussion": conf.stalled_discussion,
+    }
+    
+    # Höchsten Score finden
+    best_state = max(scores, key=scores.get)
+    best_score = scores[best_state]
+    
+    # Tiebreaker: Risiko-Zustände bevorzugen innerhalb TIEBREAK_MARGIN
+    for risk_state in RISK_PRIORITY:
+        if risk_state == best_state:
+            break
+        if scores[risk_state] >= best_score - TIEBREAK_MARGIN:
+            best_state = risk_state
+            best_score = scores[risk_state]
+            break
+    
+    # Hysterese: Zustandswechsel nur wenn deutlich besser
+    if (previous_state and
+        previous_state != best_state and
+        best_score < previous_confidence + HYSTERESIS_MARGIN):
+        # Beim aktuellen Zustand bleiben
+        best_state = previous_state
+        best_score = scores[previous_state]
+    
+    # Sekundär-Zustand
+    remaining = {k: v for k, v in scores.items() if k != best_state}
+    secondary_state = max(remaining, key=remaining.get) if remaining else None
+    secondary_confidence = remaining.get(secondary_state, 0.0) if secondary_state else 0.0
+    
+    return {
+        "state": best_state,
+        "confidence": round(best_score, 4),
+        "secondary_state": secondary_state,
+        "secondary_confidence": round(secondary_confidence, 4),
+        "criteria_snapshot": {k: round(v, 4) for k, v in scores.items()},
+    }
+```
+
+---
+
+## 10. Decision Engine — Vollständige Spezifikation
+
+### 10.1 Vier Phasen
+
+```
+MONITORING → (Risiko erkannt, Persistenz >= 70%) → CONFIRMING (45s)
+CONFIRMING → (bestätigt) → POST_CHECK (180s Warten)
+POST_CHECK → (erholt) → MONITORING
+POST_CHECK → (nicht erholt, Szenario B) → Ally-Eskalation → COOLDOWN (180s)
+POST_CHECK → (nicht erholt, Szenario A) → MONITORING
+COOLDOWN → (abgelaufen) → MONITORING
+```
+
+### 10.2 Konfigurationsparameter
+
+```python
+# agent/modules/decision_engine.py — Konstanten
+
+WINDOW_SECONDS = 300            # Analyse-Fenster
+ANALYZE_EVERY_SECONDS = 5       # Metriken alle 5s berechnen
+CONFIRMATION_SECONDS = 45       # Bestätigungszeit für Risiko-Zustand
+POST_CHECK_SECONDS = 180        # Wartezeit nach Intervention
+COOLDOWN_SECONDS = 180          # Abkühlzeit
+PERSISTENCE_THRESHOLD = 0.70    # 70% der Snapshots im Bestätigungs-Fenster müssen gleichen Zustand zeigen
+MAX_INTERVENTIONS_PER_10MIN = 3 # Rate-Limit (Sliding Window)
+MIN_CONFIDENCE = 0.45           # Mindest-Konfidenz für Intervention
+RULE_VIOLATION_COOLDOWN_S = 15  # Cooldown zwischen Regel-Interventionen
+```
+
+### 10.3 Intent-Mapping
+
+```python
+STATE_TO_INTENT = {
+    "dominance_risk": "PARTICIPATION_REBALANCING",
+    "convergence_risk": "PERSPECTIVE_BROADENING",
+    "stalled_discussion": "REACTIVATION",
+}
+# Ally: "ALLY_IMPULSE" (Szenario B, nach fehlgeschlagener Erholung)
+# Regel: "NORM_REINFORCEMENT"
+# Ziel: "GOAL_REFOCUS"
+```
+
+### 10.4 Persistenz-Check
+
+```python
+def check_persistence(
+    state_history: list[dict],  # Letzte N Snapshots mit "state" und "created_at"
+    current_state: str,
+    window_seconds: float = CONFIRMATION_SECONDS
+) -> bool:
+    """
+    Sind >= 70% der Snapshots im Bestätigungs-Fenster im selben Zustand?
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(seconds=window_seconds)
+    recent = [s for s in state_history if s["created_at"] >= cutoff]
+    
+    if len(recent) < 3:  # Zu wenig Daten
+        return False
+    
+    matching = sum(1 for s in recent if s["state"] == current_state)
+    return (matching / len(recent)) >= PERSISTENCE_THRESHOLD
+```
+
+### 10.5 Erholungs-Evaluation (Recovery Check)
+
+```python
+def evaluate_recovery(
+    intent: str,
+    metrics_now: dict,
+    metrics_at_intervention: dict,
+) -> dict:
+    """
+    Prüft ob sich die Situation nach der Intervention erholt hat.
+    Returns: {recovered: bool, score: float, details: dict}
+    """
+    p_now = metrics_now.get("participation", {})
+    p_prev = metrics_at_intervention.get("participation", {})
+    s_now = metrics_now.get("semantic_dynamics", {})
+    s_prev = metrics_at_intervention.get("semantic_dynamics", {})
+    
+    def clamp(v, lo=0.0, hi=1.0): return max(lo, min(hi, v))
+    
+    if intent == "PARTICIPATION_REBALANCING":
+        prev_risk = p_prev.get("participation_risk_score", 0.5)
+        curr_risk = p_now.get("participation_risk_score", 0.5)
+        risk_delta = (prev_risk - curr_risk) / max(prev_risk, 0.01)
+        
+        silent_improved = (p_prev.get("silent_participant_ratio", 0) 
+                          - p_now.get("silent_participant_ratio", 0)) > 0
+        turn_improved = (p_prev.get("turn_share_gini", 0.5) 
+                        - p_now.get("turn_share_gini", 0.5)) > 0.05
+        
+        recovered = risk_delta >= 0.15 and (silent_improved or turn_improved)
+        score = 0.6 * risk_delta + 0.4 * (
+            (p_prev.get("silent_participant_ratio", 0) - p_now.get("silent_participant_ratio", 0))
+        )
+    
+    elif intent == "PERSPECTIVE_BROADENING":
+        novelty_delta = s_now.get("novelty_rate", 0) - s_prev.get("novelty_rate", 0)
+        concentration_delta = s_prev.get("cluster_concentration", 0) - s_now.get("cluster_concentration", 0)
+        
+        recovered = novelty_delta >= 0.10 and concentration_delta >= 0.08
+        score = 0.5 * novelty_delta + 0.5 * concentration_delta
+    
+    elif intent == "REACTIVATION":
+        novelty_delta = s_now.get("novelty_rate", 0) - s_prev.get("novelty_rate", 0)
+        expansion_now = s_now.get("semantic_expansion_score", 0)
+        expansion_prev = s_prev.get("semantic_expansion_score", 0)
+        expansion_delta = expansion_now - expansion_prev
+        
+        novelty_improved = novelty_delta >= 0.10
+        expansion_improved = expansion_now > 0 or expansion_delta >= 0.20
+        
+        recovered = novelty_improved and expansion_improved
+        score = clamp(0.5 * (novelty_delta / 0.3) + 0.5 * (expansion_delta / 0.5))
+    
+    elif intent == "ALLY_IMPULSE":
+        improvements = sum([
+            s_now.get("novelty_rate", 0) - s_prev.get("novelty_rate", 0) >= 0.05,
+            p_prev.get("participation_risk_score", 0) - p_now.get("participation_risk_score", 0) >= 0.05,
+        ])
+        recovered = improvements >= 1
+        score = improvements / 2
+    
+    else:
+        recovered = False
+        score = 0.0
+    
+    return {
+        "recovered": recovered,
+        "score": round(clamp(score), 4),
+    }
+```
+
+---
+
+## 11. Interventions-Pipeline — TTS + Audio-Injection
+
+### 11.1 Moderator-Intervention
+
+```python
+# agent/interventions/moderator.py
+
+async def execute_moderator_intervention(
+    intent: str,
+    metrics: dict,
+    recent_segments: list[dict],
+    room: rtc.Room,
+    session: dict,
+    writer,
+) -> dict | None:
+    """
+    1. GPT-4o generiert Moderations-Text (1-2 Sätze)
+    2. tts-1-hd konvertiert zu PCM Audio
+    3. LiveKit AudioTrack publizieren → alle Participants hören es
+    4. Intervention in Supabase speichern → Browser-Overlay via Realtime
+    """
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+    
+    # 1. Text generieren
+    system_prompt = MODERATOR_PROMPTS[session.get("language", "de-CH")]["system"]
+    user_prompt = build_user_prompt(intent, metrics, recent_segments, session)
+    
+    completion = await client.chat.completions.create(
+        model="gpt-4o-2024-11-20",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        max_tokens=150,
+        temperature=0.7,
+    )
+    text = completion.choices[0].message.content.strip()
+    
+    if not text:
+        return None
+    
+    # 2. TTS generieren (PCM16, 24kHz)
+    tts_response = await client.audio.speech.create(
+        model="tts-1-hd",
+        voice="nova",  # Angenehme, neutrale Stimme
+        input=text,
+        response_format="pcm",  # PCM16 direkt
+    )
+    audio_bytes = tts_response.content
+    
+    # 3. Als LiveKit AudioTrack publishen
+    duration_ms = await publish_audio_to_room(audio_bytes, room)
+    
+    # 4. In Supabase speichern → Realtime → Browser-Overlay
+    intervention = await writer.write_intervention({
+        "session_id": session["id"],
+        "intent": intent,
+        "trigger": "state",
+        "text": text,
+        "audio_duration_ms": duration_ms,
+        "metrics_at_intervention": metrics,
+    })
+    
+    logger.info(f"Intervention executed: {intent} — '{text[:60]}...'")
+    return intervention
+
+
+async def publish_audio_to_room(
+    audio_bytes: bytes,
+    room: rtc.Room,
+    sample_rate: int = 24000,
+    num_channels: int = 1,
+) -> int:
+    """
+    Publiziert PCM16-Audio als LiveKit-Track.
+    Alle Participants im Room hören es.
+    Returns: Dauer in Millisekunden.
+    """
+    source = rtc.AudioSource(sample_rate=sample_rate, num_channels=num_channels)
+    track = rtc.LocalAudioTrack.create_audio_track("moderator", source)
+    
+    options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
+    publication = await room.local_participant.publish_track(track, options)
+    
+    # Audio in 10ms Chunks senden
+    CHUNK_MS = 10
+    bytes_per_sample = 2  # PCM16 = 2 bytes
+    samples_per_chunk = (sample_rate * CHUNK_MS) // 1000
+    bytes_per_chunk = samples_per_chunk * num_channels * bytes_per_sample
+    
+    total_samples = len(audio_bytes) // bytes_per_sample
+    duration_ms = (total_samples * 1000) // sample_rate
+    
+    for i in range(0, len(audio_bytes), bytes_per_chunk):
+        chunk = audio_bytes[i:i + bytes_per_chunk]
+        if len(chunk) < bytes_per_chunk:
+            chunk = chunk + bytes(bytes_per_chunk - len(chunk))  # Padding
+        
+        frame = rtc.AudioFrame(
+            data=chunk,
+            sample_rate=sample_rate,
+            num_channels=num_channels,
+            samples_per_channel=samples_per_chunk,
+        )
+        await source.capture_frame(frame)
+        await asyncio.sleep(CHUNK_MS / 1000)
+    
+    # Track nach Wiedergabe wieder entfernen
+    await room.local_participant.unpublish_track(publication.sid)
+    return duration_ms
+```
+
+---
+
+## 12. LLM-Features
+
+### 12.1 Ideen-Extraktion
+
+```python
+# agent/modules/idea_extraction.py
+# Intervall: on_segment + alle 4s
+
+EXTRACTION_PROMPT_DE = """
+Analysiere die folgenden neuen Transkript-Segmente einer Brainstorming-Session.
+
+BESTEHENDE IDEEN (nicht nochmals extrahieren):
+{existing_titles}
+
+NEUE SEGMENTE:
+{new_segments}
+
+Extrahiere neue, eigenständige Ideen die noch nicht in der Liste sind.
+Gib NUR JSON zurück:
+{
+  "ideas": [
+    {
+      "title": "Kurzer Titel (max 5 Wörter)",
+      "description": "1-2 Sätze Beschreibung",
+      "author_name": "Sprecher-Name oder 'Gruppe'",
+      "idea_type": "brainstorming_idea",
+      "builds_on": "Titel einer bestehenden Idee oder null"
+    }
+  ]
+}
+
+Wenn keine neuen Ideen: {"ideas": []}
+"""
+
+# Verbindungs-Typen: builds_on | contrasts | supports | refines
+```
+
+### 12.2 Live Summary
+
+```python
+# agent/modules/live_summary.py
+# Intervall: 60s
+
+SUMMARY_PROMPT_DE = """
+Erstelle eine kurze Rolling-Zusammenfassung dieser Brainstorming-Session.
+
+VORHERIGE ZUSAMMENFASSUNG:
+{previous_summary}
+
+NEUESTE TRANSKRIPT-SEGMENTE (letzte 5 Minuten):
+{recent_segments}
+
+EXTRAHIERTE IDEEN:
+{ideas}
+
+Erstelle eine neue Zusammenfassung (max 3 Absätze):
+1. Was wurde bisher diskutiert?
+2. Welche Hauptideen sind entstanden?
+3. Was ist die aktuelle Richtung?
+
+Antworte nur mit dem Zusammenfassungs-Text, keine Überschriften.
+"""
+```
+
+### 12.3 Goal Tracking
+
+```python
+# agent/modules/goal_tracker.py
+# Embedding-Heat: 5s (deterministisch)
+# LLM-Assessment: 90s
+
+def compute_goal_heat(
+    goal: dict,
+    recent_embeddings: list[list[float]],
+    goal_embedding: list[float],
+) -> float:
+    """
+    Embedding-basierte Nähe der Diskussion zum Ziel.
+    0 = Ziel wurde nicht berührt, 1 = Ziel im Mittelpunkt.
+    """
+    if not recent_embeddings or not goal_embedding:
+        return 0.0
+    similarities = [cosine_similarity(emb, goal_embedding) for emb in recent_embeddings]
+    return max(similarities)
+
+GOAL_ASSESSMENT_PROMPT_DE = """
+Bewerte den Fortschritt dieser Brainstorming-Session für jedes definierte Ziel.
+
+ZIELE:
+{goals}
+
+AKTUELLE ZUSAMMENFASSUNG:
+{summary}
+
+AKTUELLE TRANSKRIPT-SEGMENTE:
+{segments}
+
+Für jedes Ziel, klassifiziere als:
+- "not_started": Nicht angesprochen
+- "mentioned": Kurz erwähnt, nicht vertieft
+- "partially_covered": Diskutiert aber nicht abgeschlossen
+- "covered": Ausreichend behandelt
+
+Gib NUR JSON zurück:
+{"assessments": [{"goal_id": "...", "status": "...", "notes": "..."}]}
+"""
+```
+
+---
+
+## 13. Moderator-Prompts (vollständig)
+
+### 13.1 System-Prompt (Deutsch)
+
+```
+Du bist ein erfahrener Brainstorming-Moderator. Deine Aufgabe ist es,
+die Gruppendiskussion durch kurze, prozessbezogene Beobachtungen sanft zu lenken.
+
+WICHTIGE REGELN:
+1. Mache NUR Prozessreflexionen — trage NIEMALS eigene Ideen bei
+2. Maximal 1-2 kurze Sätze
+3. Sei neutral, ermutigend und konstruktiv
+4. Formuliere als Fragen oder sanfte Prozess-Vorschläge
+5. Fokussiere auf Gruppendynamik, nicht auf Inhalte
+6. Antworten müssen für Sprachausgabe geeignet sein
+7. Adressiere NIEMALS einzelne Personen direkt
+```
+
+### 13.2 User-Prompts nach Intent
+
+| Intent | Metriken-Kontext | Anweisung |
+|--------|-----------------|-----------|
+| `PARTICIPATION_REBALANCING` | risk_score, silent_ratio, dominance_streak | "Sanfte Prozessreflexion um ausgewogenere Beteiligung anzuregen" |
+| `PERSPECTIVE_BROADENING` | concentration, novelty_rate, exploration_ratio | "Ermutigung verschiedene Blickwinkel zu erkunden" |
+| `REACTIVATION` | stagnation_seconds, novelty_rate, expansion_score | "Energetisierende Prozessreflexion bei Stagnation" |
+| `GOAL_REFOCUS` | covered_goals, uncovered_goals, suggested_topics | "Sanfte Erinnerung an noch offene Diskussionsthemen" |
+| `NORM_REINFORCEMENT` | rule, evidence, severity | "Normen-Verstärkung ohne Beschuldigung" |
+
+### 13.3 Ally-System-Prompt (Deutsch)
+
+```
+Du bist ein kreativer Verbündeter in einer Brainstorming-Sitzung.
+Deine Aufgabe: frische Energie und neue Perspektiven einbringen wenn die Gruppe feststeckt.
+
+WICHTIGE REGELN:
+1. Gib EINEN kurzen, kreativen Impuls oder unerwarteten Blickwinkel
+2. Maximal 1-2 Sätze
+3. Gib KEINE fertigen Lösungen vor — rege zum Nachdenken an
+4. Sei spielerisch und energetisierend
+5. Verwende Sprache die Neugier weckt und Perspektivwechsel erzwingt
+6. Antworten müssen für Sprachausgabe geeignet sein
+7. Wiederhole KEINE Themen aus vorherigen Interventionen
+```
+
+---
+
+## 14. Modul-Timing und Orchestrierung
+
+### 14.1 Tick-Intervalle
+
+```python
+# agent/session_agent.py — tick_loop()
+
+TICK_INTERVALS = {
+    "1s":  1.0,   # Decision Engine: Phase-Evaluation
+    "4s":  4.0,   # Idea Extraction: neue Segmente verarbeiten
+    "5s":  5.0,   # Participation + Semantic + State + Goal Heat
+    "30s": 30.0,  # Metric Snapshot persistieren
+    "60s": 60.0,  # Live Summary
+    "90s": 90.0,  # Goal LLM Assessment
+}
+
+# Stagger-Offsets (verhindern gleichzeitige DB-Hits)
+STAGGER = {
+    "participation": 0.5,    # +500ms nach 5s-Tick
+    "decision_engine": 1.5,  # +1500ms nach 1s-Tick
+    "idea_extraction": 2.5,  # +2500ms nach 4s-Tick
+}
+```
+
+### 14.2 Modul-Zuständigkeiten
+
+| Modul | on_segment | on_tick | Schreibt nach |
+|-------|-----------|---------|---------------|
+| `participation.py` | Segment-Count | `5s` | `metric_snapshots.participation` |
+| `semantic.py` | Embedding laden | `5s` | `metric_snapshots.semantic_dynamics` |
+| `state_inference.py` | — | `5s` | `engine_state.current_state` |
+| `decision_engine.py` | — | `1s` | `interventions` |
+| `idea_extraction.py` | Queue | `4s` | `ideas`, `idea_connections` |
+| `live_summary.py` | — | `60s` | `session_summary` |
+| `goal_tracker.py` | — | `5s` (heat) + `90s` (LLM) | `session_goals` |
+| `rule_check.py` | LLM-Check | — | `interventions` |
+
+---
+
+## 15. Frontend — Panels und Datenbindung
+
+### 15.1 TranscriptFeed
 
 ```typescript
-// Alle Hooks sind reine Empfänger — kein Schreiben aus dem Browser
-useRealtimeSegments(sessionId)        // neue Transkript-Segmente
-useRealtimeMetrics(sessionId)         // Metriken-Updates
-useRealtimeInterventions(sessionId)   // neue Interventionen → Overlay + TTS-Playback
-useRealtimeIdeas(sessionId)           // neue Ideen → IdeaBoard
-useRealtimeSummary(sessionId)         // Summary-Updates
-useRealtimeEngineState(sessionId)     // State-Anzeige im Dashboard
+// Datenbasis: useRealtimeSegments() → TranscriptSegment[]
+// Display:
+// - Speaker-Name farbkodiert (hashCode(identity) → Farbe aus Palette)
+// - Timestamp: formatDistanceToNow(created_at)
+// - Auto-Scroll: useEffect → ref.current?.scrollIntoView()
+// - Leerzustand: "Warte auf erste Wortmeldung..."
 ```
 
-### 8.2 TTS-Playback im Browser
+### 15.2 MetricsPanel
 
-Der Agent injiziert Audio direkt als LiveKit-Track in den Room. Browser spielen diesen Track ab wie jeden anderen Teilnehmer-Track — kein separater TTS-Mechanismus nötig.
+```typescript
+// Datenbasis: useRealtimeMetrics() → MetricSnapshot[]
+// Neuester Snapshot anzeigen:
 
----
+// TAB 1 — Beteiligung:
+//   BarChart: volume_share (Wörter pro Sprecher)
+//   Badge: participation_risk_score (grün/gelb/orange/rot)
+//   Kennzahlen: gini_imbalance, silent_participant_ratio
 
-## 9. Modul-Konfiguration — Detailspezifikation
+// TAB 2 — Dynamik:
+//   Badge: inferred_state (farbkodiert nach Zustand)
+//   LineChart: novelty_rate über Zeit (letzte 10 Snapshots)
+//   Gauge: cluster_concentration (0-1)
+//   Badge: exploration_elaboration_ratio
 
-### 9.1 Verfügbare Module
-
-| Module Key | Name | Beschreibung | Abhängigkeiten |
-|---|---|---|---|
-| participation_metrics | Partizipations-Analyse | Gini, Silent Ratio, Dominanz | — |
-| semantic_analysis | Semantische Analyse | Novelty Rate, Cluster, Stagnation | Embeddings |
-| state_inference | Zustandsinferenz | 5-Zustands-Erkennung mit Hysterese | participation + semantic |
-| decision_engine | Entscheidungs-Engine | 4-Phasen State Machine | state_inference |
-| moderator | KI-Moderation | GPT-4o Intervention + TTS | decision_engine |
-| ally | Impuls-Teilnehmer | KI-Teilnehmer mit Impulsen | decision_engine |
-| idea_extraction | Ideen-Extraktion | LLM erkennt und verknüpft Ideen | Embeddings |
-| live_summary | Live-Zusammenfassung | Rolling Summary alle 60s | — |
-| goal_tracking | Gesprächsziele | Embedding-Heat + LLM-Assessment | Embeddings |
-| rule_check | Regel-Check | LLM-basierte Regelverletzungserkennung | — |
-
-### 9.2 Moderations-Stufen (UI-Abstraktion)
-
-Im UI werden Module nicht einzeln angezeigt — stattdessen eine klare Auswahl:
-
-```
-Keine Moderation
-  → Keine Module ausser optionalen Features
-
-Moderation
-  → participation_metrics ✅ (auto)
-  → semantic_analysis ✅ (auto)
-  → state_inference ✅ (auto)
-  → decision_engine ✅ (auto)
-  → moderator ✅ (auto)
-
-Moderation + Impuls
-  → Alles wie "Moderation"
-  → ally ✅ (zusätzlich)
+// Leerzustand: "Metriken erscheinen nach den ersten 2 Minuten..."
 ```
 
-Optionale Zusatz-Module wählt der Host separat:
-- Ideen-Extraktion
-- Live-Zusammenfassung
-- Gesprächsziele
-- Regel-Check
+### 15.3 InterventionOverlay
 
-### 9.3 Konversations-Zustände (5 States)
-
-| State | Bedeutung |
-|---|---|
-| HEALTHY_EXPLORATION | Gesunde, ausgewogene Diskussion |
-| DOMINANCE_RISK | Ein Teilnehmer dominiert stark |
-| STALLED_DISCUSSION | Diskussion stagniert, keine neuen Ideen |
-| OFF_TOPIC_DRIFT | Thematische Abweichung erkannt |
-| RECOVERY | Erholung nach Intervention |
-
-### 9.4 Engine-Phasen (4 Phases)
-
-| Phase | Beschreibung |
-|---|---|
-| MONITORING | Normalbetrieb, Metriken werden beobachtet |
-| CONFIRMING | Risiko-Zustand erkannt, 45s Bestätigung |
-| POST_CHECK | Nach Intervention, 180s Erholungs-Check |
-| COOLDOWN | 180s Pause nach Intervention |
-
----
-
-## 10. Konfigurations-Parameter (Agent)
-
-Alle Parameter sind pro Session konfigurierbar und werden in `sessions.config` (JSONB) gespeichert.
-
-| Parameter | Standard | Beschreibung |
-|---|---|---|
-| WINDOW_SECONDS | 300 | Analyse-Zeitfenster |
-| ANALYZE_EVERY_MS | 5000 | Metriken-Berechnungs-Intervall |
-| COOLDOWN_SECONDS | 180 | Pause nach Intervention |
-| POST_CHECK_SECONDS | 180 | Erholungs-Check-Dauer |
-| CONFIRMATION_SECONDS | 45 | Bestätigung Risiko-Zustand |
-| MAX_INTERVENTIONS_PER_10MIN | 3 | Rate-Limit Interventionen |
-| RECOVERY_IMPROVEMENT_THRESHOLD | 0.15 | Mindest-Verbesserung für "erholt" |
-| THRESHOLD_PARTICIPATION_RISK | 0.55 | Risiko-Schwelle Partizipation |
-| THRESHOLD_NOVELTY_RATE | 0.30 | Neuheits-Schwelle |
-| NOVELTY_COSINE_THRESHOLD | 0.45 | Cosinus-Schwelle neue Idee |
-| CLUSTER_MERGE_THRESHOLD | 0.35 | Cluster-Merge-Schwelle |
-| PARTICIPATION_RISK_WEIGHTS | [0.35, 0.25, 0.25, 0.15] | Gewichtung Gini/Silent/Dominance/TurnGini |
-
----
-
-## 11. Pricing-Modell (für späteres Billing)
-
-| Tier | Preis | Sessions | Zielgruppe |
-|---|---|---|---|
-| Trial | Gratis | 5 Sessions | Alle |
-| Starter | $49/mo | 15 Sessions | Kleine Teams |
-| Professional | $199/mo | 75 Sessions | Agenturen, Coaches |
-| Academic | $99/mo | 75 Sessions | Unis, Forschung |
-| Enterprise | ab $800/mo | Custom | Konzerne |
-
-**Credit-Packs** (Zusatz-Sessions):
-- 10 Sessions: $29
-- 50 Sessions: $119
-- 200 Sessions: $399
-
-**1 Session** = bis 8 Teilnehmer, bis 90 Minuten. Grössere Sessions = 2 Credits.
-
----
-
-## 12. Migrations-Plan (von bestehender Forschungs-App)
-
-### Phase 1 — Fundament (3-4 Tage)
-- Neues DB-Schema in Supabase erstellen
-- FastAPI Grundgerüst: Session CRUD, LiveKit Token, Auth-Middleware
-- Next.js spricht gegen FastAPI (nicht eigene API Routes)
-- Railway-Deployment einrichten
-
-### Phase 2 — Agent Grundgerüst (2-3 Tage)
-- LiveKit Agent Worker läuft auf Railway
-- Joined Session-Rooms, öffnet OpenAI Realtime WebSockets
-- Transkript-Segmente landen in Supabase
-- Browser empfängt via Realtime (read-only)
-
-### Phase 3 — Module portieren (4-5 Tage)
-- participation.ts → participation.py
-- semanticDynamics.ts → semantic.py
-- inferConversationState.ts → state_inference.py
-- interventionPolicy.ts → decision_engine.py
-- Alle 103 bestehenden Tests als Referenz nutzen
-
-### Phase 4 — Features portieren (3-4 Tage)
-- useIdeaExtraction → idea_extraction.py
-- useLiveSummary → live_summary.py
-- useGoalTracker → goal_tracker.py
-- ruleViolationChecker → rule_check.py
-- Moderator + Ally Interventionen mit TTS-Inject in LiveKit Room
-
-### Phase 5 — Browser aufräumen (2-3 Tage)
-- Alle computation Hooks entfernen
-- localStorage Cache entfernen
-- Decision-Owner-Logik entfernen
-- Nur Realtime-Empfang und UI-Rendering verbleiben
-
-### Phase 6 — Session-Flow neu (2 Tage)
-- Join-Code System implementieren
-- Kein öffentliches Room-Listing
-- Workspace-Struktur im Frontend
-- Dashboard mit Session-Verwaltung
-
-### Phase 7 — SaaS-Basics (3-4 Tage)
-- Usage Tracking in usage_events
-- Rate Limiting via Redis
-- Workspace-Isolation via RLS
-
----
-
-## Phase 2 — Später (nach produktionsreifem Fundament)
-
-- **Clerk Auth** — Login, SSO, Workspace-Invites
-- **Stripe Billing** — Usage-based Pricing, Credit-Packs, Webhook
-- **Multi-Tenancy enforcement** — RLS pro Workspace vollständig aktivieren
-- **Admin-Panel** — Workspace-Verwaltung, Usage-Übersicht
-
-**Gesamt: ~3-4 Wochen** für produktionsreifes Fundament.
-
----
-
-## 13. Umgebungsvariablen
-
-### Frontend (.env.local)
-```env
-NEXT_PUBLIC_API_URL=https://api.yourapp.com
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-NEXT_PUBLIC_LIVEKIT_URL=wss://xxx.livekit.cloud
-# Clerk wird in Phase 2 ergänzt
+```typescript
+// Datenbasis: useRealtimeInterventions()
+// Toast-Overlay:
+//   - Erscheint wenn neue Intervention via Realtime ankommt
+//   - 8s anzeigen, dann fade-out
+//   - Intent-basiertes Styling:
+//     PARTICIPATION_REBALANCING → blau
+//     PERSPECTIVE_BROADENING → violett
+//     REACTIVATION → orange
+//     ALLY_IMPULSE → grün
+//     NORM_REINFORCEMENT → gelb
+//   - Großer Text, gut lesbar während Gespräch
 ```
+
+### 15.4 IdeaBoard
+
+```typescript
+// Datenbasis: useRealtimeIdeas() + useRealtimeConnections()
+// @xyflow/react Knoten-Graph:
+//   - Sticky-Note-artige Knoten
+//   - Farb-Kodierung nach idea_type
+//   - Gerichtete Kanten (builds_on/contrasts/supports/refines)
+//   - Drag-and-Drop → PATCH /api/ideas (position_x/y)
+//   - Auto-Layout-Button (@dagrejs/dagre)
+```
+
+### 15.5 GoalsPanel
+
+```typescript
+// Datenbasis: useRealtimeGoals() → SessionGoal[]
+// Pro Ziel:
+//   - Status-Punkt: rot (not_started) / gelb (mentioned) / blau (partially_covered) / grün (covered)
+//   - Heat-Balken: heat_score 0-1
+//   - LLM-Notizen: notes
+// Gesamt-Fortschrittsbalken oben
+```
+
+---
+
+## 16. API-Contracts
+
+### 16.1 Sessions
+
+```
+POST /api/sessions
+Body:  { title, moderator_enabled, ally_enabled, language, workspace_id? }
+Response: { id, title, join_code, livekit_room, status, moderator_enabled, ally_enabled, language, created_at }
+
+GET /api/sessions
+Response: { sessions: [...] }
+
+GET /api/sessions/{id}
+Response: { session, participants, modules }
+
+PATCH /api/sessions/{id}
+Body: { status: "ended" }
+
+POST /api/sessions/join
+Body: { code, display_name }
+Response: { session, participant, livekit_token }
+
+POST /api/livekit/token
+Body: { session_id, identity, display_name }
+Response: { token, room, url }
+
+POST /api/webhooks/livekit
+Body: LiveKit webhook payload
+```
+
+### 16.2 Ideas (vom Frontend)
+
+```
+POST /api/ideas
+Body: { session_id, title, description, author_name, idea_type }
+
+PATCH /api/ideas/{id}
+Body: { position_x?, position_y?, color?, is_deleted? }
+
+GET /api/ideas?session_id=...
+Response: { ideas: [...] }
+
+GET /api/ideas/connections?session_id=...
+Response: { connections: [...] }
+```
+
+---
+
+## 17. Umgebungsvariablen
 
 ### Backend (.env)
+
 ```env
 # OpenAI
 OPENAI_API_KEY=sk-...
 
 # LiveKit
 LIVEKIT_URL=wss://xxx.livekit.cloud
-LIVEKIT_API_KEY=API...
-LIVEKIT_API_SECRET=...
+LIVEKIT_API_KEY=APIxxx
+LIVEKIT_API_SECRET=xxx
 
-# Supabase
+# Supabase (Service Role — nie im Frontend!)
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
-# Redis
-UPSTASH_REDIS_URL=https://xxx.upstash.io
-UPSTASH_REDIS_TOKEN=...
+# Redis (Railway internal)
+REDIS_URL=redis://redis.railway.internal:6379
 
-# Railway (automatisch gesetzt)
+# API
 PORT=8000
+ALLOWED_ORIGINS=*  # → https://deine-app.vercel.app beim Launch
+
+# Railway internal
 RAILWAY_ENVIRONMENT=production
-# Sentry, Clerk + Stripe werden in Phase 2 ergänzt
+```
+
+### Frontend (.env.local)
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000  # → Railway URL beim Deploy
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...  # NICHT service_role!
+NEXT_PUBLIC_LIVEKIT_URL=wss://xxx.livekit.cloud
 ```
 
 ---
 
-## 14. Qualitäts-Anforderungen
+## 18. Pricing-Modell (Phase 3)
 
-- Alle bestehenden 103 TypeScript-Tests werden als Python-Tests portiert
-- Jedes Modul hat eigene Unit-Tests
-- Agent-Prozess überlebt Teilnehmer-Disconnects ohne Datenverlust
-- Session-State ist vollständig in Supabase — Agent-Neustart verliert nichts
-- Alle API Keys ausschliesslich server-seitig, nie im Browser
-- Row Level Security in Supabase: Kein Workspace sieht Daten eines anderen
-- Rate Limiting auf allen LLM-Endpoints via Redis Sliding Window
+| Plan | Preis | Sessions/Monat | Participants | Features |
+|------|-------|---------------|-------------|---------|
+| Trial | Kostenlos | 5 | 8 | Alle Features, 90 Min. |
+| Starter | $49/Mo | 15 | 8 | Alle Features |
+| Professional | $199/Mo | 75 | 15 | Alle Features + Analytics |
+| Academic | $99/Mo | 75 | 15 | Alle Features (Verifikation nötig) |
+| Enterprise | Ab $800/Mo | Custom | Custom | On-Premise Option |
 
----
-
-*Dieses Dokument beschreibt den vollständigen Zielzustand. Es dient als Referenz für die Implementierung und ersetzt die bestehende Forschungs-Architektur vollständig.*
+Credit-Packs: 10/$29, 50/$119, 200/$399 (1 Session = bis 8 Participants, 90 Min.)
 
 ---
 
-## 20. Implementierungs-Prompts
+## 19. Implementierungs-Prompts (Aktuell, März 2026)
 
-### Prompt A — Backend (`brainstorming-backend`)
+### 19.1 Prompt: Backend — Transkription fertigstellen (JETZT)
 
 ```
-Du baust das Backend für eine professionelle, SaaS-fähige KI-gestützte 
-Brainstorming-Plattform. Das Backend besteht aus zwei Python-Services 
-in einem einzigen GitHub Repo, deployed auf Railway.
+Lies CLAUDE.md. Aktueller Stand und sofortige Aufgaben:
 
----
+STATUS: FastAPI läuft. Agent-Grundstruktur vorhanden. Transkription wurde
+auf Raw WebSocket umgebaut — muss zurück auf offizielle SDK.
 
-STACK:
-- Python 3.12
-- FastAPI (HTTP API, Service 1)
-- LiveKit Agents SDK (Agent Worker, Service 2)
-- Supabase (PostgreSQL + pgvector, via supabase-py)
-- Redis (Railway Redis, via redis-py)
-- OpenAI SDK (GPT-4o, Embeddings, Realtime API, TTS)
-- LiveKit Server SDK (Token-Generierung)
+FIXES (in dieser Reihenfolge):
 
-DEPLOYMENT:
-- Service 1: uvicorn api.main:app --host 0.0.0.0 --port $PORT
-- Service 2: python -m agent.main
-- Beide Services laufen aus demselben Repo auf Railway
+FIX 1 — realtime_client.py: Zurück auf SDK
+  async with client.beta.realtime.connect(model="gpt-4o-transcribe") as conn:
+      await conn.session.update(session={
+          "input_audio_format": "pcm16",
+          "input_audio_transcription": {"model": "gpt-4o-transcribe", "language": "de"},
+          "turn_detection": {"type": "server_vad", "threshold": 0.5, "silence_duration_ms": 600, "prefix_padding_ms": 300},
+          "input_audio_noise_reduction": {"type": "near_field"}
+      })
+      await asyncio.gather(stream_audio(), receive_transcripts(), return_exceptions=True)
+  
+  Falls "gpt-4o-transcribe" nicht verfügbar: "gpt-4o-realtime-preview" als Fallback.
+  Retry-Loop: MAX_RETRIES=3, backoff 1s/2s/4s.
+  Audio: rtc.AudioStream(track, sample_rate=24000, num_channels=1)
+  Segment-Filter: len(text.strip()) < 2 → ignorieren
 
----
+FIX 2 — session_agent.py: Lifecycle
+  pip show livekit-agents → Version prüfen
+  ctx.wait_for_shutdown() korrekt verwenden
+  on_participant_connected: asyncio.create_task(open_transcription(...))
 
-ORDNERSTRUKTUR (exakt so aufbauen):
+FIX 3 — api/routers/livekit.py: Token-Endpoint
+  Body: { session_id, identity, display_name }
+  Backend holt livekit_room selbst aus DB anhand session_id
+  NICHT room als Parameter akzeptieren
 
-brainstorming-backend/
-  api/
-    main.py                  FastAPI App, CORS, Router-Registration
-    routers/
-      sessions.py            Session CRUD + Join via Code
-      workspaces.py          Workspace Management
-      participants.py        Teilnehmer-Lifecycle
-      modules.py             Modul-Konfiguration pro Session
-      export.py              Session-Export (JSON)
-      webhooks.py            LiveKit Webhook (room_finished)
-    middleware/
-      rate_limit.py          Redis Sliding Window Rate Limiting
-    services/
-      livekit.py             LiveKit JWT Token-Generierung
-      agent_dispatcher.py    Agent-Job erstellen und starten
-      usage_tracker.py       Usage-Events in DB schreiben
-  agent/
-    main.py                  LiveKit Worker Entrypoint
-    session_agent.py         Haupt-Agent-Klasse pro Session
-    transcription/
-      realtime_client.py     OpenAI Realtime WebSocket pro Participant
-      speaker_tracker.py     Speaker Identity + Segment-Assembly
-    modules/
-      base.py                Abstract BaseModule Class
-      participation.py       Partizipations-Metriken (Gini, Silent Ratio, Dominanz)
-      semantic.py            Semantische Dynamik (Novelty Rate, Cluster, Stagnation)
-      state_inference.py     5-Zustands-Inferenz mit Hysterese
-      decision_engine.py     4-Phasen State Machine (MONITORING/CONFIRMING/POST_CHECK/COOLDOWN)
-      idea_extraction.py     LLM-Ideen-Extraktion
-      live_summary.py        Rolling Summary alle 60s
-      goal_tracker.py        Topic Tracking + Embedding Heat
-      rule_check.py          Regel-Verletzungs-Erkennung
-    interventions/
-      moderator.py           Moderator GPT-4o + TTS in LiveKit Room injecten
-      ally.py                Impuls-Teilnehmer GPT-4o + TTS
-    sync/
-      supabase_writer.py     Alle DB-Writes aus dem Agent
-  shared/
-    config.py                Pydantic Settings, alle Env-Variablen
-    database.py              Supabase Service-Role Client
-    redis_client.py          Redis Client (Railway Redis)
-    types.py                 Alle Pydantic Models
-  tests/
-    test_participation.py
-    test_state_inference.py
-    test_decision_engine.py
-  supabase/
-    schema.sql               Vollständiges DB-Schema
-  requirements.txt
-  Procfile
-  .env.example
+FIX 4 — shared/config.py + api/main.py:
+  allowed_origins: list[str] = ["*"]  → via ENV ALLOWED_ORIGINS
 
----
+DANACH VERIFIZIEREN:
+  python -m agent.main starten
+  Session via API erstellen
+  2 Browser-Tabs joinen
+  Sprechen → Logs zeigen "[alice]: ..."?
+  SELECT text, speaker_name FROM transcript_segments ORDER BY created_at DESC LIMIT 5;
+  Frontend TranscriptFeed zeigt Segmente live?
 
-DATENBANK-SCHEMA (in supabase/schema.sql, mit pgvector):
-
--- pgvector Extension
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- Workspaces
-CREATE TABLE workspaces (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  slug TEXT UNIQUE NOT NULL,
-  plan TEXT DEFAULT 'starter',
-  settings JSONB DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Workspace Members
-CREATE TABLE workspace_members (
-  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL,
-  role TEXT DEFAULT 'member',
-  joined_at TIMESTAMPTZ DEFAULT now(),
-  PRIMARY KEY (workspace_id, user_id)
-);
-
--- Sessions
-CREATE TABLE sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  created_by TEXT,
-  title TEXT NOT NULL,
-  status TEXT DEFAULT 'scheduled',
-  join_code TEXT UNIQUE NOT NULL,
-  livekit_room TEXT UNIQUE NOT NULL,
-  moderator_enabled BOOLEAN DEFAULT false,
-  ally_enabled BOOLEAN DEFAULT false,
-  language TEXT DEFAULT 'de-CH',
-  config JSONB DEFAULT '{}',
-  agent_id UUID,
-  started_at TIMESTAMPTZ,
-  ended_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Session Participants
-CREATE TABLE session_participants (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  user_id TEXT,
-  display_name TEXT NOT NULL,
-  role TEXT DEFAULT 'participant',
-  livekit_identity TEXT NOT NULL,
-  joined_at TIMESTAMPTZ DEFAULT now(),
-  left_at TIMESTAMPTZ
-);
-
--- Session Modules
-CREATE TABLE session_modules (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  module_key TEXT NOT NULL,
-  enabled BOOLEAN DEFAULT true,
-  config JSONB DEFAULT '{}',
-  UNIQUE (session_id, module_key)
-);
-
--- Transcript Segments
-CREATE TABLE transcript_segments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  speaker_identity TEXT NOT NULL,
-  speaker_name TEXT NOT NULL,
-  text TEXT NOT NULL,
-  is_final BOOLEAN DEFAULT true,
-  language TEXT,
-  embedding vector(1536),
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Metric Snapshots
-CREATE TABLE metric_snapshots (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  computed_at TIMESTAMPTZ DEFAULT now(),
-  participation JSONB,
-  semantic JSONB,
-  state TEXT,
-  confidence FLOAT
-);
-
--- Engine State
-CREATE TABLE engine_state (
-  session_id UUID PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-  phase TEXT DEFAULT 'MONITORING',
-  current_state TEXT DEFAULT 'HEALTHY_EXPLORATION',
-  intervention_count INTEGER DEFAULT 0,
-  last_intervention_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Interventions
-CREATE TABLE interventions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  module TEXT NOT NULL,
-  trigger_state TEXT,
-  trigger_reason TEXT,
-  content TEXT NOT NULL,
-  audio_url TEXT,
-  executed_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Ideas
-CREATE TABLE ideas (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  description TEXT,
-  embedding vector(1536),
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Idea Connections
-CREATE TABLE idea_connections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_id UUID REFERENCES ideas(id) ON DELETE CASCADE,
-  target_id UUID REFERENCES ideas(id) ON DELETE CASCADE,
-  strength FLOAT DEFAULT 0.5,
-  label TEXT
-);
-
--- Session Goals
-CREATE TABLE session_goals (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  label TEXT NOT NULL,
-  description TEXT,
-  embedding vector(1536),
-  progress FLOAT DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Session Summary (rolling, wird überschrieben)
-CREATE TABLE session_summary (
-  session_id UUID PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-  content TEXT,
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Agent Jobs
-CREATE TABLE agent_jobs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  status TEXT DEFAULT 'starting',
-  worker_id TEXT,
-  error TEXT,
-  started_at TIMESTAMPTZ DEFAULT now(),
-  last_heartbeat TIMESTAMPTZ,
-  ended_at TIMESTAMPTZ
-);
-
--- Usage Events
-CREATE TABLE usage_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-  session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-  event_type TEXT NOT NULL,
-  quantity FLOAT NOT NULL,
-  cost_usd FLOAT,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Supabase Realtime aktivieren für alle relevanten Tabellen:
-ALTER PUBLICATION supabase_realtime ADD TABLE transcript_segments;
-ALTER PUBLICATION supabase_realtime ADD TABLE metric_snapshots;
-ALTER PUBLICATION supabase_realtime ADD TABLE interventions;
-ALTER PUBLICATION supabase_realtime ADD TABLE ideas;
-ALTER PUBLICATION supabase_realtime ADD TABLE idea_connections;
-ALTER PUBLICATION supabase_realtime ADD TABLE session_summary;
-ALTER PUBLICATION supabase_realtime ADD TABLE engine_state;
-
----
-
-MODUL-SYSTEM (agent/modules/base.py):
-
-Jedes Modul implementiert dieses Interface:
-
-class BaseModule:
-    key: str  # eindeutiger Schlüssel z.B. 'participation_metrics'
-    
-    def __init__(self, config: dict, writer: SupabaseWriter): ...
-    async def on_segment(self, segment: TranscriptSegment): ...
-    async def on_tick(self, interval_key: str, agent_state: AgentState): ...
-    async def on_session_end(self): ...
-
-Intervalle pro Modul:
-- participation + semantic: alle 5s (on_tick)
-- state_inference: alle 5s, nach metrics (on_tick)
-- decision_engine: alle 1s (on_tick)
-- idea_extraction: alle 4s (on_tick)
-- live_summary: alle 60s (on_tick)
-- goal_tracker: 5s heat + 90s LLM (on_tick)
-- rule_check: bei jedem Segment (on_segment)
-
----
-
-KONVERSATIONS-ZUSTÄNDE (5):
-HEALTHY_EXPLORATION, DOMINANCE_RISK, STALLED_DISCUSSION, OFF_TOPIC_DRIFT, RECOVERY
-
-ENGINE-PHASEN (4):
-MONITORING, CONFIRMING (45s), POST_CHECK (180s), COOLDOWN (180s)
-
----
-
-ENV-VARIABLEN (.env.example):
-OPENAI_API_KEY=
-LIVEKIT_URL=
-LIVEKIT_API_KEY=
-LIVEKIT_API_SECRET=
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-REDIS_URL=
-PORT=8000
-
----
-
-WICHTIGE ARCHITEKTUR-REGELN:
-1. Keine OpenAI API Keys im Browser — alles server-seitig
-2. Kein Decision-Owner-Konzept — der Agent ist immer der einzige Owner
-3. Browser schreibt nie direkt in Supabase — nur der Agent und die API schreiben
-4. Browser empfängt nur via Supabase Realtime Subscriptions
-5. Auth ist Phase 2 — keine Clerk-Integration jetzt, alle Endpoints sind offen
-6. Redis für: Agent-Heartbeat, Rate Limiting, Session-Ownership-Lock
-7. Jedes Modul ist eine eigene Datei und unabhängig testbar
-
----
-
-STARTE MIT:
-1. Ordnerstruktur anlegen
-2. shared/config.py + shared/database.py + shared/redis_client.py
-3. supabase/schema.sql vollständig
-4. api/main.py + api/routers/sessions.py (Session erstellen + joinen)
-5. api/services/livekit.py (Token-Generierung)
-6. agent/main.py + agent/session_agent.py (Agent joined Room, loggt Participants)
-7. Procfile + requirements.txt
-8. Health Check: GET /health → {"status": "ok"}
-9. Erster Test: Session erstellen → Join-Code zurückbekommen
+NÄCHSTE STUFE NACH VERIFIKATION: Stufe 4 (Embeddings als Background-Task)
 ```
 
 ---
 
-### Prompt B — Frontend (`brainstorming-frontend`)
+### 19.2 Prompt: Backend — Metriken-Engine (NACH Transkription)
 
 ```
-Du baust das Frontend für eine professionelle, SaaS-fähige KI-gestützte 
-Brainstorming-Plattform. Das Frontend ist ein reines UI — es berechnet 
-nichts, enthält keine Business-Logik und hält keinen globalen State 
-ausser dem was für die UI direkt nötig ist.
+Lies CLAUDE.md. Transkription läuft und Segmente sind in Supabase.
+Jetzt: Partizipations- und Semantik-Metriken.
 
----
+ZIEL: metric_snapshots enthält alle 30s echte Daten.
 
-STACK:
-- Next.js 14 (App Router, TypeScript)
-- React 18 (kein React 19 — zu early)
-- Tailwind CSS
-- LiveKit Client SDK + @livekit/components-react (Video-UI)
-- @supabase/supabase-js (nur Realtime Subscriptions, kein Schreiben)
-- @xyflow/react (Ideen-Graph)
-- recharts (Metriken-Visualisierung)
+STUFE 5 — participation.py implementieren:
+Alle Formeln exakt aus Abschnitt 7 der Anforderungen portieren:
+  - gini_coefficient(values)
+  - compute_volume_share(segments)
+  - compute_turn_share(segments)
+  - compute_silent_participant_ratio(volume_share, all_identities)
+  - compute_dominance_streak_score(segments)
+  - compute_participation_risk_score(gini, silent, dominance, turn_gini)
+  - compute_participation_metrics(segments, all_participant_identities)
 
-DEPLOYMENT: Vercel
+Datenbasis: Letzte 300s Segmente aus agent_state.segments
+Alle aktiven Participant-Identities aus session_participants WHERE left_at IS NULL
 
----
+on_tick("5s"):
+  segments_window = [s for s in state.segments if s["created_at"] > now - 300s]
+  participants = await writer.get_active_participants(session_id)
+  metrics = compute_participation_metrics(segments_window, [p["livekit_identity"] for p in participants])
+  state.latest_participation = metrics
 
-ORDNERSTRUKTUR:
+on_tick("30s"):
+  await writer.write_metric_snapshot(session_id, state.latest_participation, state.latest_semantic)
 
-brainstorming-frontend/
-  app/
-    page.tsx                   Landing: Session erstellen oder Code eingeben
-    dashboard/
-      page.tsx                 Sessions-Liste des Workspace
-    session/[id]/
-      page.tsx                 Aktive Session (Video + alle Panels)
-    join/[code]/
-      page.tsx                 Beitreten via Join-Code
-  components/
-    session/
-      VideoGrid.tsx            LiveKit Video-Ansicht (alle Teilnehmer)
-      TranscriptFeed.tsx       Transkript-Anzeige, read-only, Realtime
-      MetricsPanel.tsx         Metriken-Charts, read-only, Realtime
-      IdeaBoard.tsx            Ideen-Graph mit React Flow, Realtime
-      InterventionOverlay.tsx  Moderator-Meldungen, erscheint kurz
-      GoalsPanel.tsx           Gesprächsziel-Fortschritt, Realtime
-      SummaryPanel.tsx         Live-Zusammenfassung, Realtime
-    setup/
-      CreateSession.tsx        Formular: Session erstellen
-      ModuleSelector.tsx       Modul-Auswahl UI
-    shared/
-      Button.tsx
-      Panel.tsx
-      Badge.tsx
-  lib/
-    api-client.ts              Alle HTTP-Calls → FastAPI Backend
-    realtime/
-      useRealtimeSegments.ts   Supabase Realtime → Transkript
-      useRealtimeMetrics.ts    Supabase Realtime → Metriken
-      useRealtimeInterventions.ts
-      useRealtimeIdeas.ts
-      useRealtimeSummary.ts
-      useRealtimeEngineState.ts
-  types/
-    index.ts                   Alle TypeScript-Typen
+VERIFIKATION:
+SELECT participation->>'participation_risk_score' as risk,
+       participation->>'gini_imbalance' as gini
+FROM metric_snapshots ORDER BY created_at DESC LIMIT 3;
 
----
+STUFE 6 — semantic.py implementieren:
+Voraussetzung: Embeddings vorhanden (Stufe 4)
+Alle Formeln aus Abschnitt 8 portieren (numpy verwenden):
+  - cosine_similarity(a, b)
+  - compute_novelty_rate(segments_with_embeddings)
+  - compute_clusters(segments_with_embeddings)
+  - compute_cluster_concentration(clusters)
+  - compute_exploration_elaboration_ratio(segments_with_embeddings)
+  - compute_semantic_dynamics_metrics(segments_with_embeddings, previous_snapshot)
 
-API CLIENT (lib/api-client.ts):
+STUFE 7 — state_inference.py implementieren:
+Formeln exakt aus Abschnitt 9 portieren:
+  - compute_state_confidences(metrics)
+  - infer_conversation_state(metrics, previous_state, previous_confidence)
+Ergebnis → engine_state.current_state updaten via writer
 
-Alle Calls gehen gegen das FastAPI Backend (NEXT_PUBLIC_API_URL).
-Kein direktes Supabase-Schreiben aus dem Browser.
-
-Funktionen:
-- createSession(data) → POST /api/sessions
-- joinSession(code, name) → POST /api/sessions/join
-- getSession(id) → GET /api/sessions/{id}
-- getLivekitToken(room, identity) → POST /api/livekit/token
-- endSession(id) → PATCH /api/sessions/{id}
-- exportSession(id) → GET /api/sessions/{id}/export
-
----
-
-REALTIME HOOKS (alle read-only, kein Schreiben):
-
-Jeder Hook abonniert eine Supabase-Tabelle für eine Session:
-
-useRealtimeSegments(sessionId)
-  → INSERT auf transcript_segments
-  → gibt TranscriptSegment[] zurück
-
-useRealtimeMetrics(sessionId)
-  → INSERT auf metric_snapshots
-  → gibt letzten MetricSnapshot zurück
-
-useRealtimeInterventions(sessionId)
-  → INSERT auf interventions
-  → triggert Overlay-Anzeige
-
-useRealtimeIdeas(sessionId)
-  → INSERT/UPDATE auf ideas + idea_connections
-  → gibt Ideas[] + Connections[] zurück
-
-useRealtimeSummary(sessionId)
-  → UPDATE auf session_summary
-  → gibt aktuellen Summary-Text zurück
-
-useRealtimeEngineState(sessionId)
-  → UPDATE auf engine_state
-  → gibt Phase + State zurück (für Dashboard-Anzeige)
-
----
-
-SESSION-SEITE (app/session/[id]/page.tsx):
-
-Layout: Video links (60%), Sidebar rechts (40%) mit Tabs:
-- Transkript (TranscriptFeed)
-- Metriken (MetricsPanel)  
-- Ideen (IdeaBoard)
-- Ziele (GoalsPanel)
-- Zusammenfassung (SummaryPanel)
-
-InterventionOverlay erscheint als Toast oben, auto-dismiss nach 8s.
-
----
-
-LANDING PAGE (app/page.tsx):
-
-Zwei Aktionen:
-1. "Neue Session erstellen" → öffnet CreateSession Modal/Dialog
-2. "Session beitreten" → Eingabefeld für Join-Code → /join/[code]
-
-Kein Login, kein Auth (Phase 2).
-
----
-
-CREATE SESSION FORMULAR:
-
-Felder:
-- Titel (Text)
-- Sprache (de-CH / en-US, Dropdown)
-- Moderations-Stufe (Radio):
-    ○ Keine Moderation
-    ● Moderation  
-    ○ Moderation + Impuls
-- Optionale Module (Checkboxen, nur sichtbar wenn Moderation aktiv):
-    ☐ Ideen-Extraktion
-    ☐ Live-Zusammenfassung
-    ☐ Gesprächsziele (+ Ziele eingeben wenn aktiv)
-    ☐ Regel-Check
-- Erweiterte Einstellungen (Accordion, optional):
-    Schwellenwerte, Timing-Parameter
-
-Nach Submit: Session-Code prominent anzeigen (z.B. "BRN-447") 
-mit Kopier-Button und Link zum Teilen.
-
----
-
-TYPEN (types/index.ts):
-
-interface Session {
-  id: string
-  title: string
-  status: 'scheduled' | 'active' | 'ended'
-  join_code: string
-  livekit_room: string
-  moderator_enabled: boolean
-  ally_enabled: boolean
-  language: string
-  config: Record<string, unknown>
-  created_at: string
-}
-
-interface TranscriptSegment {
-  id: string
-  session_id: string
-  speaker_identity: string
-  speaker_name: string
-  text: string
-  is_final: boolean
-  created_at: string
-}
-
-interface MetricSnapshot {
-  id: string
-  session_id: string
-  computed_at: string
-  participation: {
-    gini_imbalance: number
-    silent_participant_ratio: number
-    dominance_streak_score: number
-    participation_risk_score: number
-    volume_share: Record<string, number>
-  }
-  semantic: {
-    novelty_rate: number
-    cluster_concentration: number
-    stagnation_score: number
-  }
-  state: 'HEALTHY_EXPLORATION' | 'DOMINANCE_RISK' | 'STALLED_DISCUSSION' | 'OFF_TOPIC_DRIFT' | 'RECOVERY'
-  confidence: number
-}
-
-interface Intervention {
-  id: string
-  session_id: string
-  module: 'moderator' | 'ally' | 'rule_check' | 'goal_refocus'
-  trigger_state: string
-  content: string
-  executed_at: string
-}
-
-interface Idea {
-  id: string
-  session_id: string
-  title: string
-  description: string
-  created_at: string
-}
-
----
-
-ENV-VARIABLEN (.env.local):
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_LIVEKIT_URL=
-
----
-
-WICHTIGE ARCHITEKTUR-REGELN:
-1. Browser schreibt NIE direkt in Supabase — nur Realtime lesen
-2. Alle API-Calls gehen über api-client.ts → FastAPI
-3. Keine Business-Logik im Browser — kein Metriken-Rechnen, 
-   kein State-Inferenz, keine LLM-Calls
-4. Keine OpenAI Keys im Browser
-5. localStorage nur für UI-Präferenzen (Tab-Auswahl etc.), 
-   niemals für Embeddings oder Session-State
-6. Auth ist Phase 2 — kein Clerk jetzt
-
----
-
-STARTE MIT:
-1. Next.js 16 Projekt erstellen (npx create-next-app@14)
-2. Tailwind + alle Dependencies installieren
-3. types/index.ts mit allen Typen
-4. lib/api-client.ts mit allen FastAPI-Calls
-5. lib/realtime/ alle 6 Hooks (read-only Supabase Subscriptions)
-6. app/page.tsx Landing mit CreateSession + Join-Code Input
-7. app/join/[code]/page.tsx Beitreten-Flow
-8. app/session/[id]/page.tsx Session-Layout mit LiveKit Video
-9. Alle Panel-Komponenten (Transcript, Metrics, Ideas, etc.)
+ARCHITEKTUR-REGELN:
+- Alle Schreiboperationen nur via supabase_writer.py
+- Numpy für Vektor-Operationen (bereits in requirements.txt?)
+- Fehler in Modulen loggen aber nicht re-raisen (try/except)
+- Embedding-Generierung immer asyncio.create_task, nie await
 ```
+
+---
+
+### 19.3 Prompt: Backend — Decision Engine + Interventionen
+
+```
+Lies CLAUDE.md. Metriken laufen, State Inference läuft.
+Jetzt: Decision Engine und erste echte Interventionen.
+
+STUFE 8 — decision_engine.py:
+Formeln exakt aus Abschnitt 10:
+  - check_persistence(state_history, current_state, window_seconds=45)
+  - evaluate_recovery(intent, metrics_now, metrics_at_intervention)
+  - STATE_TO_INTENT Mapping
+  - 4-Phasen-Maschine: MONITORING → CONFIRMING → POST_CHECK → COOLDOWN
+  - Rate-Limiting: MAX 3 Interventionen pro 10min (Sliding Window)
+  - Szenario-Check: session.moderator_enabled für Moderator, ally_enabled für Ally
+
+on_tick("1s"):
+  state = infer current state from latest metrics
+  evaluate phase machine
+  if shouldIntervene and within rate limit:
+    asyncio.create_task(execute_moderator_intervention(...))
+
+Erst ohne TTS testen:
+  - interventions Tabelle wird befüllt
+  - Browser zeigt Overlay (via Realtime)
+  - Dann TTS hinzufügen
+
+STUFE 9 — TTS + Audio:
+Exakt nach Abschnitt 11:
+  execute_moderator_intervention() → GPT-4o text → tts-1-hd PCM → publish_audio_to_room()
+  publish_audio_to_room(): AudioSource → LocalAudioTrack → 10ms Chunks
+
+VERIFIKATION:
+  Session starten, 1 Person dominiert ~60s
+  → interventions Tabelle: neue Row?
+  → Browser: Overlay erscheint?
+  → Audio: Alle Participants hören Moderation?
+```
+
+---
+
+### 19.4 Prompt: Frontend — Panels polieren (parallel möglich nach Stufe 5)
+
+```
+Lies CLAUDE.md. Backend schreibt Metriken und Interventionen.
+Frontend-Panels verdrahten und polieren.
+
+PRIORITÄT 1 — TranscriptFeed (bereits wartet):
+  Speaker-Name farbkodiert: hashStringToColor(identity) → Array von 6 Farben
+  Timestamp: "vor 2 min" (date-fns formatDistanceToNow)
+  Auto-Scroll: useRef + scrollIntoView({behavior: "smooth"})
+  Leerzustand mit Pulse-Animation: "Warte auf erste Wortmeldung..."
+
+PRIORITÄT 2 — MetricsPanel mit echten Daten:
+  Neuesten metric_snapshot aus useRealtimeMetrics()[0]
+  Tab 1 — Beteiligung:
+    BarChart (recharts): {speaker: name, wörter: count} Array aus volume_share
+    Badge participation_risk_score: <0.3 grün / <0.5 gelb / <0.7 orange / >0.7 rot
+  Tab 2 — Dynamik:
+    Badge inferred_state: HEALTHY_EXPLORATION=grün, DOMINANCE_RISK=orange, etc.
+    Gauge cluster_concentration (0-1 als halbkreis)
+    LineChart: novelty_rate letzte 10 Snapshots
+  Leerzustand: "Metriken erscheinen nach den ersten 2 Minuten..."
+
+PRIORITÄT 3 — InterventionOverlay polieren:
+  Toast-Overlay unten-mitte (fixed positioning)
+  Intent-Icon + Text + fade-out nach 8s
+  Styling nach intent (siehe Abschnitt 15.3)
+
+PRIORITÄT 4 — Dashboard verbessern:
+  Sessions gruppieren: active (grüner Pulse) / scheduled / ended
+  Join-Code prominent: Copy-Button
+  "Aktiv seit X Minuten" für aktive Sessions
+
+ARCHITEKTUR-REGELN:
+  Browser schreibt NIE direkt in Supabase
+  Token via URL-Parameter weitergeben (kein sessionStorage)
+  Alle API-Calls über lib/api-client.ts
+```
+
+---
+
+*Dieses Dokument ist die einzige Quelle der Wahrheit. Stand März 2026, v3.0.*
+*Beide CLAUDE.md-Dateien in den Repos referenzieren dieses Dokument und den jeweiligen Prompt aus Abschnitt 19.*

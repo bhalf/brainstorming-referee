@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
-import { SessionProvider } from "@/lib/context/SessionContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,11 +15,12 @@ const geistMono = Geist_Mono({
 
 export const viewport: Viewport = {
   viewportFit: 'cover',
+  themeColor: '#06050e',
 };
 
 export const metadata: Metadata = {
-  title: "UZH Brainstorming - AI Moderator Research",
-  description: "Research prototype for AI-assisted brainstorming with live video calls",
+  title: "Brainstorming Platform",
+  description: "KI-gestützte Moderation für bessere Brainstorming-Sessions",
 };
 
 export default function RootLayout({
@@ -29,13 +29,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="de">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <SessionProvider>
-          {children}
-        </SessionProvider>
+        {children}
         <Analytics />
       </body>
     </html>
