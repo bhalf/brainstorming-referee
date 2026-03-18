@@ -117,21 +117,25 @@ export function computeInterventionImpact(
       metric: 'Partizipationsrisiko',
       before: avg(before.map((m) => m.participation?.participation_risk_score ?? 0)),
       after: avg(after.map((m) => m.participation?.participation_risk_score ?? 0)),
+      unit: 'pct' as const,
     },
     {
       metric: 'Novelty-Rate',
       before: avg(before.map((m) => m.semantic_dynamics?.novelty_rate ?? 0)),
       after: avg(after.map((m) => m.semantic_dynamics?.novelty_rate ?? 0)),
+      unit: 'pct' as const,
     },
     {
       metric: 'Stagnation',
       before: avg(before.map((m) => m.semantic_dynamics?.stagnation_duration_seconds ?? 0)),
       after: avg(after.map((m) => m.semantic_dynamics?.stagnation_duration_seconds ?? 0)),
+      unit: 'seconds' as const,
     },
     {
       metric: 'Cluster-Konzentration',
       before: avg(before.map((m) => m.semantic_dynamics?.cluster_concentration ?? 0)),
       after: avg(after.map((m) => m.semantic_dynamics?.cluster_concentration ?? 0)),
+      unit: 'pct' as const,
     },
   ];
 
@@ -143,6 +147,11 @@ export function computeInterventionImpact(
     beforeCount: before.length,
     afterCount: after.length,
   }));
+}
+
+export function formatImpactValue(value: number, unit: 'pct' | 'seconds'): string {
+  if (unit === 'seconds') return `${Math.round(value)}s`;
+  return `${Math.round(value * 100)}`;
 }
 
 // --- Speaker Colors ---
@@ -160,4 +169,242 @@ const SPEAKER_COLORS = [
 
 export function getSpeakerColor(index: number): string {
   return SPEAKER_COLORS[index % SPEAKER_COLORS.length];
+}
+
+// --- Intent Chart Colors ---
+
+export const INTENT_CHART_COLORS: Record<string, string> = {
+  PARTICIPATION_REBALANCING: '#818cf8',  // indigo-400
+  PERSPECTIVE_BROADENING: '#a78bfa',     // violet-400
+  REACTIVATION: '#fbbf24',              // amber-400
+  ALLY_IMPULSE: '#34d399',              // emerald-400
+  NORM_REINFORCEMENT: '#fb7185',         // rose-400
+  GOAL_REFOCUS: '#2dd4bf',              // teal-400
+};
+
+// --- Speaking Time Estimation ---
+
+export const AVG_SPEAKING_RATE_WPM = 130;
+
+export function estimateSpeakingTimeMs(wordCount: number): number {
+  return Math.round((wordCount / AVG_SPEAKING_RATE_WPM) * 60 * 1000);
+}
+
+// --- Idea Velocity KPIs ---
+
+export interface IdeaVelocityKPIs {
+  timeToFirstIdeaMs: number | null;
+  avgTimeBetweenIdeasMs: number | null;
+  fastestWindowCount: number;
+  fastestWindowStartMs: number;
+  longestGapMs: number | null;
+  ideasPerMinute: number;
+}
+
+export function computeIdeaVelocityKPIs(
+  ideas: Array<{ created_at: string; is_deleted: boolean }>,
+  sessionStartedAt: string,
+  sessionEndedAt?: string | null,
+): IdeaVelocityKPIs {
+  const activeIdeas = ideas
+    .filter((i) => !i.is_deleted)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const sessionStart = new Date(sessionStartedAt).getTime();
+  const sessionEnd = sessionEndedAt ? new Date(sessionEndedAt).getTime() : sessionStart;
+  const durationMin = (sessionEnd - sessionStart) / 60000;
+
+  if (activeIdeas.length === 0) {
+    return {
+      timeToFirstIdeaMs: null,
+      avgTimeBetweenIdeasMs: null,
+      fastestWindowCount: 0,
+      fastestWindowStartMs: 0,
+      longestGapMs: null,
+      ideasPerMinute: 0,
+    };
+  }
+
+  const timestamps = activeIdeas.map((i) => new Date(i.created_at).getTime());
+  const timeToFirstIdeaMs = timestamps[0] - sessionStart;
+
+  let avgTimeBetweenIdeasMs: number | null = null;
+  let longestGapMs: number | null = null;
+  if (timestamps.length >= 2) {
+    let totalGap = 0;
+    let maxGap = 0;
+    for (let i = 1; i < timestamps.length; i++) {
+      const gap = timestamps[i] - timestamps[i - 1];
+      totalGap += gap;
+      if (gap > maxGap) maxGap = gap;
+    }
+    avgTimeBetweenIdeasMs = totalGap / (timestamps.length - 1);
+    longestGapMs = maxGap;
+  }
+
+  // Fastest 5-minute window (sliding, 30s step)
+  const windowMs = 5 * 60 * 1000;
+  const stepMs = 30 * 1000;
+  let fastestWindowCount = 0;
+  let fastestWindowStartMs = 0;
+  for (let start = sessionStart; start <= sessionEnd - windowMs + stepMs; start += stepMs) {
+    const end = start + windowMs;
+    const count = timestamps.filter((t) => t >= start && t < end).length;
+    if (count > fastestWindowCount) {
+      fastestWindowCount = count;
+      fastestWindowStartMs = start - sessionStart;
+    }
+  }
+
+  return {
+    timeToFirstIdeaMs,
+    avgTimeBetweenIdeasMs,
+    fastestWindowCount,
+    fastestWindowStartMs,
+    longestGapMs,
+    ideasPerMinute: durationMin > 0 ? activeIdeas.length / durationMin : 0,
+  };
+}
+
+// --- Traffic Light Rating ---
+
+export type TrafficLight = 'green' | 'yellow' | 'red';
+
+export function getTrafficLight(
+  value: number,
+  thresholds: { green: number; yellow: number },
+  higherIsBetter: boolean,
+): TrafficLight {
+  if (higherIsBetter) {
+    if (value >= thresholds.green) return 'green';
+    if (value >= thresholds.yellow) return 'yellow';
+    return 'red';
+  } else {
+    if (value <= thresholds.green) return 'green';
+    if (value <= thresholds.yellow) return 'yellow';
+    return 'red';
+  }
+}
+
+// --- Strengths / Weaknesses Analyzer ---
+
+export interface StrengthsWeaknesses {
+  strengths: string[];
+  weaknesses: string[];
+}
+
+export function analyzeStrengthsWeaknesses(kpis: {
+  avgBalance: number;
+  avgNovelty: number;
+  avgDiversity: number;
+  avgRisk: number;
+  avgPiggybacking: number;
+  avgGoalCoverage: number | null;
+  healthyPct: number;
+  recoveryRate: number;
+  ideaCount: number;
+  seedCount: number;
+  interventionCount: number;
+}): StrengthsWeaknesses {
+  const strengths: string[] = [];
+  const weaknesses: string[] = [];
+
+  if (kpis.avgBalance >= 0.7)
+    strengths.push('Sehr ausgewogene Beteiligung aller Teilnehmer');
+  else if (kpis.avgBalance < 0.5)
+    weaknesses.push('Ungleichmässige Beteiligung — einige Teilnehmer waren deutlich stiller');
+
+  if (kpis.avgNovelty >= 0.4)
+    strengths.push('Hohe Neuheitsrate — viele frische Ideen eingebracht');
+  else if (kpis.avgNovelty < 0.2)
+    weaknesses.push('Niedrige Neuheitsrate — Diskussion kreiste um bekannte Themen');
+
+  if (kpis.avgDiversity >= 0.6)
+    strengths.push('Breite thematische Vielfalt in der Diskussion');
+  else if (kpis.avgDiversity < 0.3)
+    weaknesses.push('Geringe thematische Breite — Fokus auf wenige Cluster');
+
+  if (kpis.healthyPct >= 70)
+    strengths.push(`${kpis.healthyPct}% der Session in gesundem Zustand`);
+  else if (kpis.healthyPct < 40)
+    weaknesses.push(`Nur ${kpis.healthyPct}% der Session in gesundem Zustand`);
+
+  if (kpis.avgRisk <= 0.2)
+    strengths.push('Niedriges Partizipationsrisiko — alle waren aktiv');
+  else if (kpis.avgRisk > 0.5)
+    weaknesses.push('Hohes Partizipationsrisiko — Beteiligung war problematisch');
+
+  if (kpis.recoveryRate >= 0.7 && kpis.interventionCount > 0)
+    strengths.push('Hohe Recovery-Rate nach Interventionen');
+  else if (kpis.recoveryRate < 0.3 && kpis.interventionCount > 1)
+    weaknesses.push('Niedrige Recovery-Rate — Interventionen zeigten wenig Wirkung');
+
+  if (kpis.seedCount >= 5)
+    strengths.push(`${kpis.seedCount} originelle neue Ideen (Seeds) generiert`);
+  else if (kpis.ideaCount > 0 && kpis.seedCount <= 1)
+    weaknesses.push('Wenige wirklich neue Ideen — viele Erweiterungen bestehender Gedanken');
+
+  if (kpis.avgGoalCoverage !== null) {
+    if (kpis.avgGoalCoverage >= 0.7)
+      strengths.push('Gute Abdeckung der definierten Ziele');
+    else if (kpis.avgGoalCoverage < 0.3)
+      weaknesses.push('Geringe Abdeckung der definierten Ziele');
+  }
+
+  if (kpis.avgPiggybacking > 0.5)
+    weaknesses.push('Hoher Piggybacking-Score — wenig eigenständiges Denken');
+
+  return {
+    strengths: strengths.slice(0, 3),
+    weaknesses: weaknesses.slice(0, 3),
+  };
+}
+
+// --- Intervention Narrative Generator ---
+
+export function generateInterventionNarrative(
+  intervention: Intervention,
+  impact: ReturnType<typeof computeInterventionImpact>,
+  triggeredIdeaCount: number,
+): string {
+  const intentLabel = INTENT_LABELS[intervention.intent] || intervention.intent;
+  const parts: string[] = [];
+
+  if (intervention.recovered === true) {
+    parts.push(`Die ${intentLabel}-Intervention war erfolgreich.`);
+  } else if (intervention.recovered === false) {
+    parts.push(`Die ${intentLabel}-Intervention zeigte begrenzte Wirkung.`);
+  } else {
+    parts.push(`${intentLabel}-Intervention wurde ausgelöst.`);
+  }
+
+  if (impact && impact.length > 0) {
+    const improved = impact.filter((r) => r.improved);
+    if (improved.length > 0) {
+      const descriptions = improved.map((r) => {
+        const delta = Math.abs(r.delta);
+        if (r.unit === 'seconds') {
+          return `${r.metric} um ${Math.round(delta)}s reduziert`;
+        }
+        return `${r.metric} um ${Math.round(delta * 100)} Pp. ${r.metric === 'Novelty-Rate' ? 'gesteigert' : 'gesenkt'}`;
+      });
+      parts.push(descriptions.join(', ') + '.');
+    } else {
+      parts.push('Keine der beobachteten Metriken hat sich verbessert.');
+    }
+  }
+
+  if (triggeredIdeaCount > 0) {
+    parts.push(
+      triggeredIdeaCount === 1
+        ? '1 neue Idee entstand innerhalb von 90 Sekunden.'
+        : `${triggeredIdeaCount} neue Ideen entstanden innerhalb von 90 Sekunden.`
+    );
+  }
+
+  if (intervention.recovery_score != null && intervention.recovery_score > 0) {
+    parts.push(`Recovery-Score: ${Math.round(intervention.recovery_score * 100)}%.`);
+  }
+
+  return parts.join(' ');
 }

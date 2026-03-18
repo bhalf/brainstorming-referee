@@ -35,7 +35,8 @@ export function useRealtimeSession(sessionId: string | null) {
   });
 
   const isIdle = session?.status === 'idle';
+  const isPaused = session?.status === 'paused';
   const isEnded = session?.status === 'ended';
 
-  return { session, isIdle, isEnded };
+  return { session, isIdle, isPaused, isEnded };
 }

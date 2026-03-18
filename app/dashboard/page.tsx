@@ -31,6 +31,11 @@ const STATUS_CONFIG: Record<string, { dot: string; label: string; badge: string 
     label: 'Pausiert',
     badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   },
+  paused: {
+    dot: 'bg-indigo-400',
+    label: 'Pausiert (Host)',
+    badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+  },
   ended: {
     dot: 'bg-white/20',
     label: 'Beendet',
@@ -85,11 +90,11 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Group sessions by status (idle groups with active)
+  // Group sessions by status (idle/paused groups with active)
   const grouped = sessions.reduce<Record<StatusGroup, Session[]>>(
     (acc, s) => {
       const group: StatusGroup =
-        s.status === 'active' || s.status === 'idle' ? 'active'
+        s.status === 'active' || s.status === 'idle' || s.status === 'paused' ? 'active'
         : s.status === 'scheduled' ? 'scheduled'
         : 'ended';
       acc[group].push(s);
@@ -99,7 +104,7 @@ export default function DashboardPage() {
   );
 
   const handleSessionClick = (session: Session) => {
-    if (session.status === 'active' || session.status === 'idle') {
+    if (session.status === 'active' || session.status === 'idle' || session.status === 'paused') {
       router.push(`/session/${session.id}`);
     } else if (session.status === 'ended') {
       router.push(`/review/${session.id}`);
@@ -195,8 +200,9 @@ export default function DashboardPage() {
                       const status = STATUS_CONFIG[session.status] || STATUS_CONFIG.ended;
                       const isActive = session.status === 'active';
                       const isIdle = session.status === 'idle';
+                      const isPaused = session.status === 'paused';
                       const isEnded = session.status === 'ended';
-                      const isClickable = isActive || isIdle || isEnded;
+                      const isClickable = isActive || isIdle || isPaused || isEnded;
 
                       return (
                         <div

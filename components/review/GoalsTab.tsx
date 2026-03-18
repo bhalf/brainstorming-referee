@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import type { SessionExport, SessionGoal } from '@/types';
 
 interface Props {
@@ -11,6 +12,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   mentioned: { label: 'Erwähnt', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
   partially_covered: { label: 'Teilweise', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' },
   covered: { label: 'Abgedeckt', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+};
+
+const RELEVANCE_LABELS: Record<string, string> = {
+  direct_answer: 'Direkt',
+  partial: 'Teilweise',
+  tangential: 'Tangential',
 };
 
 function buildGoalHierarchy(goals: SessionGoal[]) {
@@ -67,7 +74,7 @@ function GoalMetricBars({ goal }: { goal: SessionGoal }) {
 }
 
 export default function GoalsTab({ data }: Props) {
-  const { goals } = data;
+  const { goals, ideas } = data;
 
   if (goals.length === 0) {
     return (
@@ -79,12 +86,27 @@ export default function GoalsTab({ data }: Props) {
 
   const { parents, childrenMap } = buildGoalHierarchy(goals);
 
-  // Coverage stats from leaf goals only
+  // Coverage stats from leaf goals only — use continuous coverage_score average
   const leafGoals = goals.filter(
     (g) => g.parent_id !== null || !childrenMap.has(g.id)
   );
-  const coveredCount = leafGoals.filter((g) => g.status === 'covered' || g.status === 'partially_covered').length;
-  const overallCoverage = leafGoals.length > 0 ? Math.round((coveredCount / leafGoals.length) * 100) : 0;
+  const avgCoverageScore = leafGoals.length > 0
+    ? leafGoals.reduce((sum, g) => sum + g.coverage_score, 0) / leafGoals.length
+    : 0;
+  const overallCoverage = Math.round(avgCoverageScore * 100);
+  const coveredCount = leafGoals.filter((g) => g.coverage_score >= 0.5).length;
+
+  // Ideas linked to goals
+  const ideasByGoal = useMemo(() => {
+    const map = new Map<string, typeof ideas>();
+    for (const idea of ideas) {
+      if (idea.is_deleted || !idea.linked_goal_id) continue;
+      const existing = map.get(idea.linked_goal_id) || [];
+      existing.push(idea);
+      map.set(idea.linked_goal_id, existing);
+    }
+    return map;
+  }, [ideas]);
 
   return (
     <div className="space-y-5">
@@ -97,9 +119,10 @@ export default function GoalsTab({ data }: Props) {
               {overallCoverage}%
             </span>
           </div>
-          <p className="text-xs text-[var(--text-tertiary)]">
-            {coveredCount} von {leafGoals.length} Zielen mindestens teilweise abgedeckt
-          </p>
+          <div className="text-xs text-[var(--text-tertiary)]">
+            <p>Durchschnittliche Abdeckung (gewichtet)</p>
+            <p>{coveredCount} von {leafGoals.length} Zielen &ge;50% abgedeckt</p>
+          </div>
         </div>
       </div>
 
@@ -109,6 +132,7 @@ export default function GoalsTab({ data }: Props) {
           const statusCfg = STATUS_CONFIG[goal.status] || STATUS_CONFIG.not_started;
           const children = childrenMap.get(goal.id) || [];
           const hasChildren = children.length > 0;
+          const linkedIdeas = ideasByGoal.get(goal.id) || [];
 
           return (
             <div key={goal.id} className="glass-sm p-4 space-y-2.5">
@@ -134,6 +158,11 @@ export default function GoalsTab({ data }: Props) {
               {/* Parent metrics (always shown) */}
               <GoalMetricBars goal={goal} />
 
+              {/* Linked ideas for parent goal */}
+              {!hasChildren && linkedIdeas.length > 0 && (
+                <GoalLinkedIdeas ideas={linkedIdeas} />
+              )}
+
               {goal.notes && !hasChildren && (
                 <p className="text-xs text-[var(--text-tertiary)] bg-white/[0.03] p-2.5 rounded-lg">
                   {goal.notes}
@@ -145,6 +174,7 @@ export default function GoalsTab({ data }: Props) {
                 <div className="border-t border-white/[0.05] pt-2.5 mt-2.5 space-y-2.5">
                   {children.map((sub) => {
                     const subCfg = STATUS_CONFIG[sub.status] || STATUS_CONFIG.not_started;
+                    const subLinkedIdeas = ideasByGoal.get(sub.id) || [];
                     return (
                       <div key={sub.id} className="pl-3 border-l-2 border-indigo-500/20">
                         <div className="flex items-start justify-between gap-3 mb-1.5">
@@ -159,6 +189,9 @@ export default function GoalsTab({ data }: Props) {
                           </span>
                         </div>
                         <GoalMetricBars goal={sub} />
+                        {subLinkedIdeas.length > 0 && (
+                          <GoalLinkedIdeas ideas={subLinkedIdeas} />
+                        )}
                         {sub.notes && (
                           <p className="text-[11px] text-[var(--text-tertiary)] bg-white/[0.03] p-2 rounded-lg mt-1.5">
                             {sub.notes}
@@ -172,6 +205,38 @@ export default function GoalsTab({ data }: Props) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function GoalLinkedIdeas({ ideas }: { ideas: SessionExport['ideas'] }) {
+  const ROLE_ICONS: Record<string, string> = { seed: '✦', extension: '↗', variant: '≈', tangent: '↯' };
+
+  return (
+    <div className="space-y-1 mt-1.5">
+      <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider">
+        Verknüpfte Ideen ({ideas.length})
+      </span>
+      <div className="space-y-1">
+        {ideas.map((idea) => (
+          <div key={idea.id} className="text-xs flex items-center gap-2 bg-white/[0.03] rounded-lg px-2 py-1">
+            {idea.novelty_role && (
+              <span className="text-[var(--text-tertiary)]">{ROLE_ICONS[idea.novelty_role] || ''}</span>
+            )}
+            <span className="text-[var(--text-primary)] flex-1 min-w-0 truncate">{idea.title}</span>
+            {idea.goal_relevance && (
+              <span className="text-[10px] text-[var(--text-tertiary)]">
+                {RELEVANCE_LABELS[idea.goal_relevance] || idea.goal_relevance}
+              </span>
+            )}
+            {idea.goal_quality != null && (
+              <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
+                {Math.round(idea.goal_quality * 100)}%
+              </span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

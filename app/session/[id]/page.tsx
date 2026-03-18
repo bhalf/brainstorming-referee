@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { getSession, getLivekitToken, endSession, promoteToCoHost, transferHost } from '@/lib/api-client';
+import { getSession, getLivekitToken, endSession, pauseSession, resumeSession, promoteToCoHost, transferHost } from '@/lib/api-client';
 import { useSessionData } from '@/lib/hooks/useSessionData';
 import type { Session, FeatureKey, SessionParticipant } from '@/types';
 
@@ -65,6 +65,33 @@ function useIdleCountdown(idleSinceAt: string | null, timeoutMinutes = 5) {
   const min = Math.floor(remaining / 60);
   const sec = remaining % 60;
   return `${min}:${sec.toString().padStart(2, '0')}`;
+}
+
+// --- Planned Duration Hook ---
+function usePlannedDuration(startedAt: string | undefined, plannedMinutes: number | null) {
+  const [remaining, setRemaining] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!startedAt || !plannedMinutes) { setRemaining(null); return; }
+
+    const totalMs = plannedMinutes * 60 * 1000;
+    const endTime = new Date(startedAt).getTime() + totalMs;
+
+    const tick = () => {
+      const left = Math.max(0, endTime - Date.now());
+      const elapsed = totalMs - left;
+      setProgress(Math.min(1, elapsed / totalMs));
+      const min = Math.floor(left / 60000);
+      const sec = Math.floor((left % 60000) / 1000);
+      setRemaining(left > 0 ? `${min}:${sec.toString().padStart(2, '0')}` : '0:00');
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startedAt, plannedMinutes]);
+
+  return { remaining, progress };
 }
 
 // --- Participant Avatar ---
@@ -184,6 +211,7 @@ export default function SessionPage() {
   const visibleTabs = ALL_TABS.filter((t) => !t.feature || hasFeature(t.feature));
 
   const idleCountdown = useIdleCountdown(data.isIdle ? (liveSession?.idle_since_at ?? null) : null);
+  const plannedDuration = usePlannedDuration(liveSession?.started_at, liveSession?.planned_duration_minutes ?? null);
 
   // Auto-redirect on ended
   useEffect(() => {
@@ -306,6 +334,28 @@ export default function SessionPage() {
         </div>
       )}
 
+      {/* Paused Banner (host-initiated) */}
+      {data.isPaused && !data.isEnded && (
+        <div className="shrink-0 bg-indigo-500/10 border-b border-indigo-500/20 px-4 py-2.5 flex items-center justify-between animate-fade-in">
+          <div className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400">
+              <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
+            </svg>
+            <span className="text-sm text-indigo-300">
+              Session pausiert vom Host — Moderation und Analyse sind angehalten.
+            </span>
+          </div>
+          {(data.isHost || data.isCoHost) && myIdentity && (
+            <button
+              onClick={async () => { try { await resumeSession(sessionId, myIdentity); } catch { /* best effort */ } }}
+              className="btn-glass text-xs px-4 py-1.5 shrink-0 ml-3"
+            >
+              Fortsetzen
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <header className="h-13 shrink-0 bg-white/[0.03] backdrop-blur-xl border-b border-[var(--border-glass)] flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
@@ -366,6 +416,25 @@ export default function SessionPage() {
           </div>
           {data.isConnected && (
             <span className="text-xs text-[var(--text-tertiary)] bg-white/[0.04] px-2 py-1 rounded-md">Realtime</span>
+          )}
+          {/* Planned Duration */}
+          {plannedDuration.remaining && (
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
+              </svg>
+              <span className={`font-mono ${plannedDuration.progress > 0.9 ? 'text-rose-400' : plannedDuration.progress > 0.75 ? 'text-amber-400' : ''}`}>
+                {plannedDuration.remaining}
+              </span>
+            </div>
+          )}
+          {(data.isHost || data.isCoHost) && myIdentity && !data.isPaused && !data.isIdle && !data.isEnded && (
+            <button
+              onClick={async () => { try { await pauseSession(sessionId, myIdentity); } catch { /* best effort */ } }}
+              className="px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-xs font-medium border border-indigo-500/20 transition-all"
+            >
+              Pausieren
+            </button>
           )}
           {(data.isHost || data.isCoHost) && (
             <button

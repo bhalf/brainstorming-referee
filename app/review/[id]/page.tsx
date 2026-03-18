@@ -17,6 +17,7 @@ const TranscriptTab = dynamic(() => import('@/components/review/TranscriptTab'),
 const IdeasTab = dynamic(() => import('@/components/review/IdeasTab'), { ssr: false });
 const GoalsTab = dynamic(() => import('@/components/review/GoalsTab'), { ssr: false });
 const TopicsTab = dynamic(() => import('@/components/review/TopicsTab'), { ssr: false });
+const IdeasTimelineChart = dynamic(() => import('@/components/review/IdeasTimelineChart'), { ssr: false });
 
 type Tab = 'overview' | 'metrics' | 'interventions' | 'participants' | 'transcript' | 'ideas' | 'goals' | 'topics';
 
@@ -167,7 +168,12 @@ export default function ReviewPage() {
           {activeTab === 'interventions' && <InterventionPanel data={data} />}
           {activeTab === 'participants' && <ParticipantBreakdown data={data} />}
           {activeTab === 'transcript' && <TranscriptTab data={data} />}
-          {activeTab === 'ideas' && <IdeasTab data={data} />}
+          {activeTab === 'ideas' && (
+            <div className="space-y-5">
+              <IdeasTimelineChart data={data} />
+              <IdeasTab data={data} />
+            </div>
+          )}
           {activeTab === 'goals' && <GoalsTab data={data} />}
           {activeTab === 'topics' && <TopicsTab data={data} />}
         </div>

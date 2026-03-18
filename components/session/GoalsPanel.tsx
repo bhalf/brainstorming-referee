@@ -60,6 +60,21 @@ function buildGoalHierarchy(goals: SessionGoal[]) {
   return { parents, childrenMap };
 }
 
+function getGoalHint(goal: SessionGoal): string | null {
+  if (goal.status === 'covered') return null;
+  if (goal.status === 'not_started' && goal.heat_score < 0.1)
+    return 'Noch nicht angesprochen — sollte thematisiert werden.';
+  if (goal.status === 'not_started')
+    return 'Kaum besprochen — mehr Aufmerksamkeit nötig.';
+  if (goal.status === 'mentioned' && goal.heat_score < 0.3)
+    return 'Nur kurz erwähnt — vertiefen!';
+  if (goal.status === 'partially_covered' && goal.heat_score < 0.5)
+    return 'Teilweise besprochen — noch Lücken.';
+  if (goal.heat_score > 0.7)
+    return 'Wird gerade aktiv besprochen.';
+  return null;
+}
+
 function GoalMetrics({ goal, indent = false }: { goal: SessionGoal; indent?: boolean }) {
   const ml = indent ? 'ml-3' : 'ml-5';
   return (
@@ -157,6 +172,14 @@ export default function GoalsPanel({ goals }: GoalsPanelProps) {
           <span className="text-[10px] text-[var(--text-tertiary)]">Durchschnittliche Wärme</span>
           <span className="text-xs font-mono text-[var(--text-secondary)]">{(avgHeat * 100).toFixed(0)}%</span>
         </div>
+        <p className="text-[11px] mt-2 text-[var(--text-secondary)]">
+          {coveredCount === leafGoals.length
+            ? 'Alle Ziele wurden abgedeckt!'
+            : coveredCount === 0 && avgHeat < 0.2
+              ? 'Noch kein Ziel richtig angesprochen.'
+              : `Noch ${leafGoals.length - coveredCount} ${leafGoals.length - coveredCount === 1 ? 'Ziel' : 'Ziele'} offen.`
+          }
+        </p>
       </div>
 
       {/* Hierarchical Goals */}
@@ -214,6 +237,11 @@ export default function GoalsPanel({ goals }: GoalsPanelProps) {
                 {/* Show aggregated metrics for parents */}
                 {hasChildren && !isExpanded && <GoalMetrics goal={goal} />}
 
+                {/* Natural language hint */}
+                {getGoalHint(goal) && (
+                  <p className="text-[11px] text-amber-400/80 mt-2 ml-5">{getGoalHint(goal)}</p>
+                )}
+
                 {goal.notes && !hasChildren && (
                   <p className="text-[11px] text-[var(--text-secondary)] mt-2 ml-5 italic">{goal.notes}</p>
                 )}
@@ -235,6 +263,9 @@ export default function GoalsPanel({ goals }: GoalsPanelProps) {
                           <p className="text-[11px] text-[var(--text-tertiary)] mb-1.5 ml-4">{sub.description}</p>
                         )}
                         <GoalMetrics goal={sub} indent />
+                        {getGoalHint(sub) && (
+                          <p className="text-[11px] text-amber-400/80 mt-1.5 ml-3">{getGoalHint(sub)}</p>
+                        )}
                         {sub.notes && (
                           <p className="text-[11px] text-[var(--text-secondary)] mt-1.5 ml-3 italic">{sub.notes}</p>
                         )}

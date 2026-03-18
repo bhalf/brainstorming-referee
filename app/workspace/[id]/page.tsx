@@ -20,6 +20,10 @@ const ROLE_LABELS: Record<WorkspaceMemberRole, string> = {
   member: 'Mitglied',
 };
 
+function memberDisplayName(member: WorkspaceMember): string {
+  return member.display_name || member.email?.split('@')[0] || member.user_id;
+}
+
 const PLAN_LABELS: Record<string, string> = {
   trial: 'Trial',
   starter: 'Starter',
@@ -186,7 +190,7 @@ export default function WorkspaceDashboardPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   // Group sessions by status
-  const activeSessions = sessions.filter((s) => s.status === 'active' || s.status === 'idle');
+  const activeSessions = sessions.filter((s) => s.status === 'active' || s.status === 'idle' || s.status === 'paused');
   const scheduledSessions = sessions.filter((s) => s.status === 'scheduled');
   const endedSessions = sessions.filter((s) => s.status === 'ended');
 
@@ -204,7 +208,7 @@ export default function WorkspaceDashboardPage() {
   const handleRemoveMember = (member: WorkspaceMember) => {
     setConfirmAction({
       title: 'Mitglied entfernen',
-      message: `Sind Sie sicher, dass Sie ${member.display_name} aus dem Workspace entfernen möchten?`,
+      message: `Sind Sie sicher, dass Sie ${memberDisplayName(member)} aus dem Workspace entfernen möchten?`,
       destructive: true,
       action: async () => {
         await removeMember(workspaceId, member.user_id);
@@ -216,7 +220,7 @@ export default function WorkspaceDashboardPage() {
   const handleTransferOwnership = (member: WorkspaceMember) => {
     setConfirmAction({
       title: 'Ownership übertragen',
-      message: `Sind Sie sicher? ${member.display_name} wird Owner und Sie werden zum Admin heruntergestuft.`,
+      message: `Sind Sie sicher? ${memberDisplayName(member)} wird Owner und Sie werden zum Admin heruntergestuft.`,
       destructive: false,
       action: async () => {
         await transferOwnership(workspaceId, member.user_id);
@@ -402,11 +406,11 @@ export default function WorkspaceDashboardPage() {
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full bg-indigo-500/20 flex items-center justify-center text-sm font-bold text-indigo-400">
-                          {member.display_name.charAt(0).toUpperCase()}
+                          {memberDisplayName(member).charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-[var(--text-primary)]">{member.display_name}</p>
-                          <p className="text-xs text-[var(--text-tertiary)]">{member.email}</p>
+                          <p className="text-sm font-medium text-[var(--text-primary)]">{memberDisplayName(member)}</p>
+                          <p className="text-xs text-[var(--text-tertiary)]">{member.email || member.user_id}</p>
                         </div>
                       </div>
 

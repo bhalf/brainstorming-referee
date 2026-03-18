@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import type { SessionExport } from '@/types';
-import { formatTimestamp } from './utils';
+import { formatTimestamp, formatDuration, computeIdeaVelocityKPIs } from './utils';
 
 interface Props {
   data: SessionExport;
@@ -23,14 +23,25 @@ const SOURCE_CONTEXT_CONFIG: Record<string, { label: string; badge: string }> = 
   ally_triggered: { label: 'Nach Ally', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
 };
 
+const RELEVANCE_CONFIG: Record<string, { label: string; badge: string }> = {
+  direct_answer: { label: 'Direkt', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  partial: { label: 'Teilweise', badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+  tangential: { label: 'Tangential', badge: 'bg-white/5 text-white/40 border-white/10' },
+};
+
 const ROLE_ORDER: Record<string, number> = { seed: 0, tangent: 1, extension: 2, variant: 3 };
 
 export default function IdeasTab({ data }: Props) {
-  const { session, ideas, connections } = data;
+  const { session, ideas, connections, goals } = data;
   const sessionStart = session.started_at || session.created_at;
   const [sortBy, setSortBy] = useState<SortKey>('created_at');
 
   const activeIdeas = useMemo(() => ideas.filter((i) => !i.is_deleted), [ideas]);
+
+  const ideaVelocity = useMemo(
+    () => computeIdeaVelocityKPIs(ideas, sessionStart, session.ended_at),
+    [ideas, sessionStart, session.ended_at]
+  );
 
   const sorted = useMemo(() => {
     return [...activeIdeas].sort((a, b) => {
@@ -60,6 +71,15 @@ export default function IdeasTab({ data }: Props) {
     }
     return counts;
   }, [connections]);
+
+  // Goal lookup map
+  const goalMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const g of goals) {
+      map.set(g.id, g.label);
+    }
+    return map;
+  }, [goals]);
 
   if (activeIdeas.length === 0) {
     return (
@@ -94,6 +114,45 @@ export default function IdeasTab({ data }: Props) {
         })}
       </div>
 
+      {/* Idea Velocity KPIs */}
+      {ideaVelocity.timeToFirstIdeaMs !== null && (
+        <div className="glass p-4 space-y-2">
+          <h3 className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">Ideen-Timing</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div>
+              <div className="text-lg font-bold text-[var(--text-primary)]">
+                {formatDuration(ideaVelocity.timeToFirstIdeaMs)}
+              </div>
+              <p className="text-[10px] text-[var(--text-tertiary)]">Erste Idee nach</p>
+            </div>
+            {ideaVelocity.avgTimeBetweenIdeasMs !== null && (
+              <div>
+                <div className="text-lg font-bold text-[var(--text-primary)]">
+                  {formatDuration(ideaVelocity.avgTimeBetweenIdeasMs)}
+                </div>
+                <p className="text-[10px] text-[var(--text-tertiary)]">Avg. Abstand</p>
+              </div>
+            )}
+            {ideaVelocity.fastestWindowCount > 0 && (
+              <div>
+                <div className="text-lg font-bold text-[var(--text-primary)]">
+                  {ideaVelocity.fastestWindowCount}
+                </div>
+                <p className="text-[10px] text-[var(--text-tertiary)]">Beste 5min Phase</p>
+              </div>
+            )}
+            {ideaVelocity.longestGapMs !== null && (
+              <div>
+                <div className="text-lg font-bold text-[var(--text-primary)]">
+                  {formatDuration(ideaVelocity.longestGapMs)}
+                </div>
+                <p className="text-[10px] text-[var(--text-tertiary)]">Längste Pause</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Sort Controls */}
       <div className="flex gap-1.5">
         {([
@@ -120,6 +179,7 @@ export default function IdeasTab({ data }: Props) {
       <div className="space-y-2">
         {sorted.map((idea) => {
           const connCount = ideaConnectionCounts[idea.id] || 0;
+          const linkedGoalLabel = idea.linked_goal_id ? goalMap.get(idea.linked_goal_id) : null;
           return (
             <div key={idea.id} className="glass-sm p-4 space-y-1.5">
               <div className="flex items-start justify-between gap-3">
@@ -154,6 +214,22 @@ export default function IdeasTab({ data }: Props) {
                   ) : null;
                 })()}
               </div>
+              {/* Goal linking */}
+              {linkedGoalLabel && (
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="text-[var(--text-tertiary)]">Ziel:</span>
+                  <span className="text-[var(--text-secondary)]">{linkedGoalLabel}</span>
+                  {idea.goal_relevance && (() => {
+                    const cfg = RELEVANCE_CONFIG[idea.goal_relevance];
+                    return cfg ? (
+                      <span className={`px-1.5 py-0.5 rounded border ${cfg.badge}`}>{cfg.label}</span>
+                    ) : null;
+                  })()}
+                  {idea.goal_quality != null && (
+                    <span className="font-mono text-[var(--text-tertiary)]">{Math.round(idea.goal_quality * 100)}%</span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

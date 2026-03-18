@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { SessionExport } from '@/types';
 
 interface Props {
@@ -21,7 +22,8 @@ function getCoverageLabel(coverage: number): string {
 }
 
 export default function TopicsTab({ data }: Props) {
-  const { topics } = data;
+  const { topics, segments } = data;
+  const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
 
   if (topics.length === 0) {
     return (
@@ -36,6 +38,7 @@ export default function TopicsTab({ data }: Props) {
   const coveredCount = topics.filter((t) => t.coverage >= 0.5).length;
   const totalSegments = topics.reduce((sum, t) => sum + t.segment_count, 0);
   const maxSegments = Math.max(...topics.map((t) => t.segment_count), 1);
+  const finalSegments = segments.filter((s) => s.is_final);
 
   return (
     <div className="space-y-5">
@@ -105,52 +108,113 @@ export default function TopicsTab({ data }: Props) {
           .map((topic) => {
             const covPct = Math.round(topic.coverage * 100);
             const segBarPct = Math.round((topic.segment_count / maxSegments) * 100);
+            const isExpanded = expandedTopic === topic.id;
+
             return (
-              <div key={topic.id} className="glass-sm p-4 space-y-2.5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h4 className="text-sm font-medium text-[var(--text-primary)]">{topic.subdimension}</h4>
-                    {topic.description && (
-                      <p className="text-xs text-[var(--text-secondary)] mt-0.5">{topic.description}</p>
-                    )}
+              <div key={topic.id} className="glass-sm overflow-hidden">
+                <button
+                  className="w-full text-left p-4 space-y-2.5 hover:bg-white/[0.02] transition-colors"
+                  onClick={() => setExpandedTopic(isExpanded ? null : topic.id)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-medium text-[var(--text-primary)]">{topic.subdimension}</h4>
+                      {topic.description && (
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">{topic.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                        covPct >= 80 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                        covPct >= 50 ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                        covPct >= 20 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                        'bg-white/5 text-white/40 border-white/10'
+                      }`}>
+                        {getCoverageLabel(topic.coverage)}
+                      </span>
+                      <svg
+                        width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                        className={`text-[var(--text-tertiary)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
                   </div>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${
-                    covPct >= 80 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                    covPct >= 50 ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                    covPct >= 20 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                    'bg-white/5 text-white/40 border-white/10'
-                  }`}>
-                    {getCoverageLabel(topic.coverage)}
-                  </span>
-                </div>
 
-                {/* Coverage bar */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[var(--text-tertiary)]">Abdeckung</span>
-                    <span className="font-mono text-[var(--text-secondary)]">{covPct}%</span>
+                  {/* Coverage bar */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[var(--text-tertiary)]">Abdeckung</span>
+                      <span className="font-mono text-[var(--text-secondary)]">{covPct}%</span>
+                    </div>
+                    <div className="w-full bg-white/[0.06] rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${getCoverageColor(topic.coverage)}`}
+                        style={{ width: `${Math.min(100, covPct)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full bg-white/[0.06] rounded-full h-1.5">
-                    <div
-                      className={`h-1.5 rounded-full transition-all ${getCoverageColor(topic.coverage)}`}
-                      style={{ width: `${Math.min(100, covPct)}%` }}
-                    />
-                  </div>
-                </div>
 
-                {/* Segment count bar */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[var(--text-tertiary)]">Segmente</span>
-                    <span className="font-mono text-[var(--text-secondary)]">{topic.segment_count}</span>
+                  {/* Segment count bar */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[var(--text-tertiary)]">Segmente</span>
+                      <span className="font-mono text-[var(--text-secondary)]">{topic.segment_count}</span>
+                    </div>
+                    <div className="w-full bg-white/[0.06] rounded-full h-1.5">
+                      <div
+                        className="h-1.5 rounded-full transition-all bg-indigo-400"
+                        style={{ width: `${segBarPct}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full bg-white/[0.06] rounded-full h-1.5">
-                    <div
-                      className="h-1.5 rounded-full transition-all bg-indigo-400"
-                      style={{ width: `${segBarPct}%` }}
-                    />
+                </button>
+
+                {/* Expanded: show sample segments that match this subdimension by keyword */}
+                {isExpanded && topic.segment_count > 0 && (
+                  <div className="px-4 pb-4 border-t border-white/[0.06] pt-3 animate-fade-in">
+                    <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider mb-2">
+                      Relevante Segmente (Stichwort-basiert)
+                    </p>
+                    <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                      {(() => {
+                        // Simple keyword matching: search segments for subdimension keywords
+                        const keywords = topic.subdimension.toLowerCase().split(/[\s,/]+/).filter((w) => w.length > 3);
+                        const matching = finalSegments
+                          .filter((s) => {
+                            const text = s.text.toLowerCase();
+                            return keywords.some((kw) => text.includes(kw));
+                          })
+                          .slice(0, 10);
+
+                        if (matching.length === 0) {
+                          return (
+                            <p className="text-xs text-[var(--text-tertiary)]">
+                              Keine Segmente per Stichwortsuche gefunden. Die Zuordnung basiert auf semantischer Embedding-Ähnlichkeit.
+                            </p>
+                          );
+                        }
+
+                        return matching.map((seg) => (
+                          <div key={seg.id} className="text-xs flex gap-2 bg-white/[0.02] rounded-lg px-2 py-1.5">
+                            <span className="text-[var(--text-tertiary)] font-mono shrink-0 w-8 text-right">
+                              {(() => {
+                                const sessionStart = data.session.started_at || data.session.created_at;
+                                const elapsed = new Date(seg.created_at).getTime() - new Date(sessionStart).getTime();
+                                const mins = Math.floor(elapsed / 60000);
+                                const secs = Math.floor((elapsed % 60000) / 1000);
+                                return `${mins}:${String(secs).padStart(2, '0')}`;
+                              })()}
+                            </span>
+                            <span className="text-indigo-400 shrink-0">{seg.speaker_name}</span>
+                            <span className="text-[var(--text-primary)] line-clamp-2">{seg.text}</span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             );
           })}

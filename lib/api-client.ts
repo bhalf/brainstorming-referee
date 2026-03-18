@@ -82,6 +82,20 @@ export async function endSession(id: string): Promise<void> {
   });
 }
 
+export async function pauseSession(id: string, identity: string): Promise<Session> {
+  return request<Session>(`/api/sessions/${id}/pause`, {
+    method: 'POST',
+    headers: { 'X-Livekit-Identity': identity },
+  });
+}
+
+export async function resumeSession(id: string, identity: string): Promise<Session> {
+  return request<Session>(`/api/sessions/${id}/resume`, {
+    method: 'POST',
+    headers: { 'X-Livekit-Identity': identity },
+  });
+}
+
 // --- Session Management ---
 
 export async function promoteToCoHost(sessionId: string, targetIdentity: string): Promise<SessionParticipant> {

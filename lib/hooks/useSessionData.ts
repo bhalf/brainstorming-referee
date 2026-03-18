@@ -27,7 +27,7 @@ export function useSessionData(sessionId: string | null, myIdentity: string | nu
   const { engineState } = useRealtimeEngineState(sessionId);
   const { goals } = useRealtimeGoals(sessionId);
   const { participants, allParticipants, hostIdentity, myRole, isHost, isCoHost } = useRealtimeParticipants(sessionId, myIdentity);
-  const { session: realtimeSession, isIdle, isEnded } = useRealtimeSession(sessionId);
+  const { session: realtimeSession, isIdle, isPaused, isEnded } = useRealtimeSession(sessionId);
 
   const isConnected = segmentsConnected || metricsConnected || interventionsConnected;
 
@@ -69,6 +69,7 @@ export function useSessionData(sessionId: string | null, myIdentity: string | nu
     // Session state (realtime)
     realtimeSession,
     isIdle,
+    isPaused,
     isEnded,
 
     // Connection status

@@ -156,9 +156,121 @@ const GAUGE_COLORS: Record<StatusType, string> = {
   bad: 'bg-rose-500',
 };
 
+// ─── Insight generation ──────────────────────────────────────────────────────
+
+interface Insight {
+  id: string;
+  severity: 'warn' | 'bad';
+  title: string;
+  action: string;
+  icon: string; // SVG path
+}
+
+const ICON_PATHS = {
+  dominance: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z',
+  stagnation: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+  convergence: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4',
+  silent: 'M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2',
+  balance: 'M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3',
+  novelty: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z',
+};
+
+function generateInsights(
+  p: MetricSnapshot['participation'],
+  sd: MetricSnapshot['semantic_dynamics'],
+  inf: MetricSnapshot['inferred_state'],
+  identityToName: Record<string, string>,
+): Insight[] {
+  const insights: Insight[] = [];
+  const speakerCount = Object.keys(p.volume_share).length;
+
+  // 1. Dominance / high participation risk
+  if (speakerCount > 1 && (p.participation_risk_score > 0.35 || inf.state === 'DOMINANCE_RISK')) {
+    const sorted = Object.entries(p.volume_share).sort(([, a], [, b]) => b - a);
+    const [topId, topShare] = sorted[0];
+    const topName = identityToName[topId] || topId;
+    const others = sorted.slice(1).map(([id]) => identityToName[id] || id);
+    const othersStr = others.length === 1 ? others[0] : 'andere';
+    insights.push({
+      id: 'dominance',
+      severity: topShare > 0.7 ? 'bad' : 'warn',
+      title: `${topName} redet ${(topShare * 100).toFixed(0)}% der Zeit`,
+      action: `${othersStr} einbeziehen`,
+      icon: ICON_PATHS.dominance,
+    });
+  }
+
+  // 2. Stagnation
+  if (sd.stagnation_duration_seconds > 90 || inf.state === 'STALLED_DISCUSSION') {
+    const mins = Math.floor(sd.stagnation_duration_seconds / 60);
+    const secs = Math.round(sd.stagnation_duration_seconds % 60);
+    const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    insights.push({
+      id: 'stagnation',
+      severity: sd.stagnation_duration_seconds > 150 ? 'bad' : 'warn',
+      title: `Seit ${timeStr} keine neuen Ideen`,
+      action: 'Neues Unterthema einbringen?',
+      icon: ICON_PATHS.stagnation,
+    });
+  }
+
+  // 3. Convergence
+  if (sd.cluster_concentration > 0.6 || inf.state === 'CONVERGENCE_RISK') {
+    insights.push({
+      id: 'convergence',
+      severity: sd.cluster_concentration > 0.8 ? 'bad' : 'warn',
+      title: 'Diskussion dreht sich im Kreis',
+      action: 'Neue Perspektive einbringen?',
+      icon: ICON_PATHS.convergence,
+    });
+  }
+
+  // 4. Silent participant
+  if (speakerCount > 1 && p.silent_participant_ratio > 0) {
+    const fair = 1 / speakerCount;
+    const silentNames = Object.entries(p.volume_share)
+      .filter(([, share]) => share < fair * 0.4)
+      .map(([id]) => identityToName[id] || id);
+    if (silentNames.length > 0) {
+      insights.push({
+        id: 'silent',
+        severity: 'warn',
+        title: `${silentNames.join(', ')} schweigt`,
+        action: 'Direkt ansprechen?',
+        icon: ICON_PATHS.silent,
+      });
+    }
+  }
+
+  // 5. Balance warning (only if not already showing dominance)
+  if (speakerCount > 1 && p.balance < 0.35 && !insights.some(i => i.id === 'dominance')) {
+    insights.push({
+      id: 'balance',
+      severity: p.balance < 0.2 ? 'bad' : 'warn',
+      title: 'Beteiligung stark ungleich',
+      action: 'Balance beachten',
+      icon: ICON_PATHS.balance,
+    });
+  }
+
+  // 6. Low novelty (only if not already showing stagnation)
+  if (sd.novelty_rate < 0.15 && sd.stagnation_duration_seconds <= 90 && !insights.some(i => i.id === 'stagnation')) {
+    insights.push({
+      id: 'novelty',
+      severity: 'warn',
+      title: 'Wenig neue Ideen',
+      action: 'Thema wechseln?',
+      icon: ICON_PATHS.novelty,
+    });
+  }
+
+  // Sort by severity (bad first), take max 3
+  insights.sort((a, b) => (a.severity === 'bad' ? 0 : 1) - (b.severity === 'bad' ? 0 : 1));
+  return insights.slice(0, 3);
+}
+
 // ─── Micro-components ─────────────────────────────────────────────────────────
 
-/** Sparkline for trend display in expanded details */
 function Sparkline({ data, color = '#8b5cf6' }: { data: number[]; color?: string }) {
   const w = 64, h = 20;
   if (data.length < 2) return <div className="w-16 h-5 bg-white/[0.04] rounded" />;
@@ -190,17 +302,12 @@ function InfoTip({ tipKey }: { tipKey: string }) {
     const rect = ref.current.getBoundingClientRect();
     const tipW = 280;
     const gap = 8;
-
-    // Prefer right of icon, fallback left
     let left = rect.right + gap;
     if (left + tipW > window.innerWidth - 16) left = rect.left - tipW - gap;
     if (left < 16) left = 16;
-
-    // Vertically near the icon, clamped to viewport
     let top = rect.top - 20;
     if (top < 16) top = 16;
     if (top + 140 > window.innerHeight) top = window.innerHeight - 150;
-
     return { position: 'fixed', left, top, width: tipW, zIndex: 9999 };
   };
 
@@ -233,23 +340,6 @@ function InfoTip({ tipKey }: { tipKey: string }) {
   );
 }
 
-function ShowMore({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors mt-1"
-      >
-        <span className={`transition-transform duration-200 ${open ? 'rotate-90' : ''}`}>▸</span>
-        {open ? 'Weniger' : 'Mehr anzeigen'}
-      </button>
-      {open && <div className="space-y-3 mt-3 animate-fade-in">{children}</div>}
-    </>
-  );
-}
-
-/** Inline section divider — compact, no card wrapper */
 function SectionDivider({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-center gap-2 pt-2 first:pt-0">
@@ -261,7 +351,6 @@ function SectionDivider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Clean metric row: label + value + thin gauge + conditional status badge */
 function MetricRow({ label, tipKey, displayValue, status, gaugeFill, gaugeThreshold }: {
   label: string;
   tipKey: string;
@@ -304,7 +393,6 @@ function MetricRow({ label, tipKey, displayValue, status, gaugeFill, gaugeThresh
   );
 }
 
-/** Simple gauge row for "show more" details */
 function DetailGauge({ label, value, tipKey }: { label: string; value: number; tipKey?: string }) {
   const pct = Math.min(value, 1) * 100;
   const color = value >= 0.7 ? 'bg-rose-500' : value >= 0.4 ? 'bg-amber-500' : 'bg-emerald-500';
@@ -324,61 +412,75 @@ function DetailGauge({ label, value, tipKey }: { label: string; value: number; t
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Insight Card ────────────────────────────────────────────────────────────
 
-export default function MetricsPanel({ latest, history, engineState, participants, interventions = [] }: MetricsPanelProps) {
-  const identityToName = useMemo(() => {
-    const map: Record<string, string> = {};
-    if (participants) {
-      for (const p of participants) map[p.livekit_identity] = p.display_name;
-    }
-    return map;
-  }, [participants]);
+function InsightCard({ insight }: { insight: Insight }) {
+  const colors = insight.severity === 'bad'
+    ? { bg: 'bg-rose-500/8 border-rose-500/20', icon: 'text-rose-400', title: 'text-rose-300', action: 'text-rose-400/70' }
+    : { bg: 'bg-amber-500/8 border-amber-500/20', icon: 'text-amber-400', title: 'text-amber-300', action: 'text-amber-400/70' };
 
-  const [view, setView] = useState<'metrics' | 'interventions'>('metrics');
+  return (
+    <div className={`flex items-start gap-3 p-3 rounded-xl border ${colors.bg} animate-fade-in`}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${colors.icon} shrink-0 mt-0.5`}>
+        <path d={insight.icon} />
+      </svg>
+      <div className="min-w-0">
+        <p className={`text-xs font-medium ${colors.title} leading-snug`}>{insight.title}</p>
+        <p className={`text-[11px] ${colors.action} mt-0.5`}>{insight.action}</p>
+      </div>
+    </div>
+  );
+}
 
-  // ── Staleness tracking ───────────────────────────────────────────────────
-  const [now, setNow] = useState(() => Date.now());
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+// ─── Collapsible Section ─────────────────────────────────────────────────────
 
-  useEffect(() => {
-    intervalRef.current = setInterval(() => setNow(Date.now()), 5_000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, []);
+function CollapsibleSection({ title, badge, defaultOpen = false, children }: {
+  title: string;
+  badge?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border-t border-[var(--border-glass)]">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className={`transition-transform duration-200 text-[10px] ${open ? 'rotate-90' : ''}`}>&#9656;</span>
+          <span className="font-medium">{title}</span>
+          {badge && (
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-white/[0.06]">{badge}</span>
+          )}
+        </div>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
+          <path d="M19 9l-7 7-7-7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-3 animate-fade-in">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
-  const computedAt = latest?.computed_at ? new Date(latest.computed_at).getTime() : null;
-  const stalenessSeconds = computedAt ? Math.round((now - computedAt) / 1000) : null;
+// ─── Raw Metrics (Details) ───────────────────────────────────────────────────
 
-  // Extract sparkline data from history
-  const spark = useMemo(() => {
-    const recent = history.slice(-30);
-    return {
-      risk: recent.map(s => s.participation?.participation_risk_score ?? 0),
-      balance: recent.map(s => s.participation?.balance ?? (1 - (s.participation?.gini_imbalance ?? 1))),
-    };
-  }, [history]);
-
-  const p = latest?.participation ?? {
-    volume_share: {}, turn_share: {}, gini_imbalance: 1, turn_share_gini: 0,
-    hoover_imbalance: 0, turn_hoover: 0, balance: 0, silent_participant_ratio: 0,
-    dominance_streak_score: 0, participation_risk_score: 0, long_term_balance: 0,
-    cumulative_imbalance: 0, ideational_fluency_rate: 0,
-  };
-  const sd = latest?.semantic_dynamics ?? {
-    novelty_rate: 0, cluster_concentration: 0, exploration_elaboration_ratio: 1,
-    semantic_expansion_score: 0, cluster_count: 0, has_embeddings: false,
-    stagnation_duration_seconds: 0, diversity: 0, piggybacking_score: 0,
-  };
-  const inf = latest?.inferred_state ?? {
-    state: 'HEALTHY_EXPLORATION' as const, confidence: 0,
-    secondary_state: null, secondary_confidence: 0, criteria_snapshot: {},
-  };
-
-  const stateConfig = STATE_CONFIG[inf.state] || STATE_CONFIG.HEALTHY_EXPLORATION;
-  const phaseConfig = engineState ? (PHASE_CONFIG[engineState.phase] || PHASE_CONFIG.MONITORING) : null;
+function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeakers, spark, identityToName, history }: {
+  p: MetricSnapshot['participation'];
+  sd: MetricSnapshot['semantic_dynamics'];
+  inf: MetricSnapshot['inferred_state'];
+  engineState: EngineState | null;
+  speakers: { name: string; share: number }[];
+  cumulativeSpeakers: { name: string; share: number }[];
+  spark: { risk: number[]; balance: number[] };
+  identityToName: Record<string, string>;
+  history: MetricSnapshot[];
+}) {
   const speakerCount = Object.keys(p.volume_share).length;
-
-  // Derived statuses
   const riskStatus = getStatus('risk', p.participation_risk_score);
   const balanceStatus = speakerCount <= 1
     ? { text: 'Nur 1 Sprecher', type: 'bad' as StatusType }
@@ -388,284 +490,146 @@ export default function MetricsPanel({ latest, history, engineState, participant
   const ideaRateStatus = getStatus('ideaRate', p.ideational_fluency_rate);
   const stagnationStatus = getStatus('stagnation', sd.stagnation_duration_seconds);
 
-  // Speaker bars sorted by share
-  const speakers = useMemo(() =>
-    Object.entries(p.volume_share)
-      .sort(([, a], [, b]) => b - a)
-      .map(([id, share]) => ({
-        name: identityToName[id] || id,
-        share,
-      })),
-    [p.volume_share, identityToName],
-  );
-
-  // Cumulative session-wide data
-  const cum = p.cumulative;
-  const cumulativeSpeakers = useMemo(() => {
-    if (!cum) return [];
-    return Object.entries(cum.volume_share)
-      .sort(([, a], [, b]) => b - a)
-      .map(([id, share]) => ({
-        name: identityToName[id] || id,
-        share,
-      }));
-  }, [cum, identityToName]);
-
-  // Exploration/Elaboration ratio
   const ratio = sd.exploration_elaboration_ratio;
   const explorationPct = (ratio / (1 + ratio)) * 100;
 
-  if (!latest) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
-          <path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-        <p className="text-sm">Erste Metriken erscheinen nach ~30 Sekunden...</p>
-        <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">Danach live via Realtime</p>
-      </div>
-    );
-  }
+  const stateConfig = STATE_CONFIG[inf.state] || STATE_CONFIG.HEALTHY_EXPLORATION;
+  const phaseConfig = engineState ? (PHASE_CONFIG[engineState.phase] || PHASE_CONFIG.MONITORING) : null;
+  const cum = p.cumulative;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* State Header — compact single-line */}
-      <div className={`shrink-0 px-4 py-2.5 bg-gradient-to-br ${stateConfig.gradient} border-b border-[var(--border-glass)]`}>
+    <>
+      {/* Engine State Details */}
+      <div className="glass-sm p-2.5 space-y-1.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${stateConfig.color.replace('text-', 'bg-')}`} />
-            <span className={`text-sm font-semibold ${stateConfig.color}`}>{stateConfig.label}</span>
-            <span className="text-[10px] font-mono text-[var(--text-tertiary)]">{(inf.confidence * 100).toFixed(0)}%</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {stalenessSeconds != null && stalenessSeconds > 30 && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${
-                stalenessSeconds > 120 ? 'bg-rose-500/15 text-rose-400' : 'bg-amber-500/15 text-amber-400'
-              }`}>
-                {stalenessSeconds > 120 ? 'Keine Daten' : `${stalenessSeconds}s`}
-              </span>
-            )}
-            {phaseConfig && (
-              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${phaseConfig.bg}`}>
-                {phaseConfig.label}
-              </span>
-            )}
-          </div>
+          <span className="text-[10px] text-[var(--text-tertiary)]">Zustand</span>
+          <span className={`text-[11px] font-medium ${stateConfig.color}`}>{stateConfig.label}</span>
         </div>
-      </div>
-
-      {/* View Switcher */}
-      <div className="shrink-0 flex border-b border-[var(--border-glass)]">
-        <button
-          onClick={() => setView('metrics')}
-          className={`flex-1 py-2.5 text-xs font-medium relative transition-colors ${
-            view === 'metrics' ? 'text-indigo-400' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
-          }`}
-        >
-          Metriken
-          {view === 'metrics' && <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full" />}
-        </button>
-        <button
-          onClick={() => setView('interventions')}
-          className={`flex-1 py-2.5 text-xs font-medium relative transition-colors ${
-            view === 'interventions' ? 'text-indigo-400' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
-          }`}
-        >
-          Eingriffe{interventions.length > 0 ? ` (${interventions.length})` : ''}
-          {view === 'interventions' && <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full" />}
-        </button>
-      </div>
-
-      {/* Scrollable Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
-        {view === 'metrics' ? (
-          <>
-            {/* ── BETEILIGUNG ── */}
-            <SectionDivider>Beteiligung</SectionDivider>
-
-            {/* Compact speaker bars */}
-            {speakers.length > 0 && (
-              <div className="space-y-0.5">
-                {speakers.map(({ name, share }) => (
-                  <div key={name} className="flex items-center gap-2 py-0.5">
-                    <span className="text-[11px] text-[var(--text-secondary)] w-20 truncate shrink-0">{name}</span>
-                    <div className="flex-1 h-1 bg-white/[0.06] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          share > 0.5 && speakerCount > 1
-                            ? 'bg-gradient-to-r from-orange-500 to-rose-500'
-                            : 'bg-gradient-to-r from-indigo-500 to-violet-500'
-                        }`}
-                        style={{ width: `${share * 100}%` }}
-                      />
-                    </div>
-                    <span className={`text-[11px] font-mono tabular-nums w-8 text-right ${
-                      share > 0.5 && speakerCount > 1 ? 'text-orange-400' : 'text-[var(--text-secondary)]'
-                    }`}>
-                      {(share * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="space-y-2.5 mt-1">
-              <MetricRow
-                label="Risiko"
-                tipKey="risk"
-                displayValue={`${(p.participation_risk_score * 100).toFixed(0)}%`}
-                status={speakerCount <= 1 ? { text: 'Nur 1 Sprecher', type: 'bad' } : riskStatus}
-                gaugeFill={p.participation_risk_score}
-                gaugeThreshold={0.5}
-              />
-              <MetricRow
-                label="Balance"
-                tipKey="balance"
-                displayValue={`${(p.balance * 100).toFixed(0)}%`}
-                status={balanceStatus}
-                gaugeFill={p.balance}
-                gaugeThreshold={0.5}
-              />
-            </div>
-
-            <ShowMore>
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--text-tertiary)]">Trends</span>
-                  <Sparkline data={spark.risk} color={riskStatus.type === 'good' ? '#22c55e' : '#f43f5e'} />
-                  <Sparkline data={spark.balance} color={balanceStatus.type === 'good' ? '#22c55e' : '#f43f5e'} />
-                </div>
-                <DetailGauge label="Gini (Volumen)" value={p.gini_imbalance} tipKey="gini" />
-                <DetailGauge label="Gini (Turns)" value={p.turn_share_gini} tipKey="turnGini" />
-                <DetailGauge label="Hoover (Volumen)" value={p.hoover_imbalance} tipKey="hoover" />
-                <DetailGauge label="Stille-Quote" value={p.silent_participant_ratio} tipKey="silentRatio" />
-                <DetailGauge label="Dominanz-Streak" value={p.dominance_streak_score} tipKey="dominanceStreak" />
-                <DetailGauge label="Langzeit-Balance" value={p.long_term_balance} tipKey="longTermBalance" />
-
-                {/* Cumulative session-wide metrics */}
-                {cum && (
-                  <>
-                    <div className="flex items-center gap-2 pt-1">
-                      <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider whitespace-nowrap">
-                        Gesamt-Session
-                      </span>
-                      <div className="flex-1 h-px bg-white/[0.06]" />
-                      <span className="text-[9px] font-mono text-[var(--text-tertiary)]">
-                        {cum.total_words} Wörter · {cum.total_turns} Turns
-                      </span>
-                    </div>
-                    {cumulativeSpeakers.map(({ name, share }) => (
-                      <div key={name} className="flex items-center gap-2 py-0.5">
-                        <span className="text-[10px] text-[var(--text-tertiary)] w-20 truncate shrink-0">{name}</span>
-                        <div className="flex-1 h-1 bg-white/[0.06] rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-cyan-500 to-blue-500"
-                            style={{ width: `${share * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] font-mono tabular-nums w-8 text-right text-[var(--text-tertiary)]">
-                          {(share * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                    ))}
-                    <DetailGauge label="Session-Balance" value={cum.balance} tipKey="cumulativeBalance" />
-                  </>
-                )}
-              </div>
-            </ShowMore>
-
-            {/* ── IDEENQUALITÄT ── */}
-            <SectionDivider>Ideenqualität</SectionDivider>
-
-            <div className="space-y-2.5">
-              <MetricRow
-                label="Neuheit"
-                tipKey="novelty"
-                displayValue={`${(sd.novelty_rate * 100).toFixed(0)}%`}
-                status={noveltyStatus}
-                gaugeFill={sd.novelty_rate}
-                gaugeThreshold={0.35}
-              />
-              <MetricRow
-                label="Verteilung"
-                tipKey="spread"
-                displayValue={`${(sd.diversity * 100).toFixed(0)}%`}
-                status={spreadStatus}
-                gaugeFill={sd.diversity}
-                gaugeThreshold={0.4}
-              />
-            </div>
-
-            <ShowMore>
-              <div className="space-y-3">
-                {/* Exploration vs Vertiefung */}
-                <div>
-                  <div className="flex items-center gap-1 mb-1.5">
-                    <span className="text-[10px] text-[var(--text-tertiary)]">Exploration vs. Vertiefung</span>
-                    <InfoTip tipKey="exploration" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] text-violet-400 w-8 shrink-0">Expl.</span>
-                    <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden flex">
-                      <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-l-full transition-all duration-500" style={{ width: `${explorationPct}%` }} />
-                      <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-r-full transition-all duration-500" style={{ width: `${100 - explorationPct}%` }} />
-                    </div>
-                    <span className="text-[9px] text-teal-400 w-8 shrink-0 text-right">Vert.</span>
-                  </div>
-                  <p className="text-center text-[9px] font-mono text-[var(--text-tertiary)] mt-0.5">
-                    {explorationPct.toFixed(0)}% / {(100 - explorationPct).toFixed(0)}%
-                  </p>
-                </div>
-
-                <DetailGauge label="Cluster-Anzahl" value={Math.min(sd.cluster_count / 10, 1)} tipKey="clusterCount" />
-                <DetailGauge label="Konzentration" value={sd.cluster_concentration} tipKey="concentration" />
-                <DetailGauge label="Expansion" value={Math.min(Math.max(sd.semantic_expansion_score + 0.5, 0), 1)} tipKey="expansion" />
-                <DetailGauge label="Piggybacking" value={sd.piggybacking_score} tipKey="piggybacking" />
-
-                {!sd.has_embeddings && (
-                  <div className="p-2 rounded-lg border border-amber-500/20 bg-amber-500/5">
-                    <p className="text-[10px] text-amber-400">Jaccard-Fallback — Embeddings werden generiert</p>
-                  </div>
-                )}
-              </div>
-            </ShowMore>
-
-            {/* ── AKTIVITÄT ── */}
-            <SectionDivider>Aktivität</SectionDivider>
-
-            <div className="space-y-2.5">
-              <MetricRow
-                label="Ideenrate"
-                tipKey="ideaRate"
-                displayValue={`${p.ideational_fluency_rate.toFixed(1)}/m`}
-                status={ideaRateStatus}
-                gaugeFill={Math.min(p.ideational_fluency_rate / 10, 1)}
-                gaugeThreshold={0.3}
-              />
-              <MetricRow
-                label="Stagnation"
-                tipKey="stagnation"
-                displayValue={`${Math.round(sd.stagnation_duration_seconds)}s`}
-                status={stagnationStatus}
-                gaugeFill={Math.min(sd.stagnation_duration_seconds / 180, 1)}
-                gaugeThreshold={0.5}
-              />
-            </div>
-
-            {/* Measurement count */}
-            <p className="text-[9px] text-[var(--text-tertiary)] text-center font-mono pt-1">
-              {history.length} Messpunkte
-            </p>
-          </>
-        ) : (
-          <InterventionsTab interventions={interventions} />
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-[var(--text-tertiary)]">Konfidenz</span>
+          <span className="text-[11px] font-mono text-[var(--text-secondary)]">{(inf.confidence * 100).toFixed(0)}%</span>
+        </div>
+        {inf.secondary_state && (
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-[var(--text-tertiary)]">Sekundär</span>
+            <span className="text-[11px] font-mono text-[var(--text-secondary)]">
+              {STATE_CONFIG[inf.secondary_state]?.label ?? inf.secondary_state} ({(inf.secondary_confidence * 100).toFixed(0)}%)
+            </span>
+          </div>
+        )}
+        {phaseConfig && (
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-[var(--text-tertiary)]">Phase</span>
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${phaseConfig.bg}`}>{phaseConfig.label}</span>
+          </div>
         )}
       </div>
-    </div>
+
+      {/* Beteiligung */}
+      <SectionDivider>Beteiligung</SectionDivider>
+
+      <div className="space-y-2.5">
+        <MetricRow label="Risiko" tipKey="risk" displayValue={`${(p.participation_risk_score * 100).toFixed(0)}%`} status={speakerCount <= 1 ? { text: 'Nur 1 Sprecher', type: 'bad' } : riskStatus} gaugeFill={p.participation_risk_score} gaugeThreshold={0.5} />
+        <MetricRow label="Balance" tipKey="balance" displayValue={`${(p.balance * 100).toFixed(0)}%`} status={balanceStatus} gaugeFill={p.balance} gaugeThreshold={0.5} />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-[var(--text-tertiary)]">Trends</span>
+        <Sparkline data={spark.risk} color={riskStatus.type === 'good' ? '#22c55e' : '#f43f5e'} />
+        <Sparkline data={spark.balance} color={balanceStatus.type === 'good' ? '#22c55e' : '#f43f5e'} />
+      </div>
+
+      <div className="space-y-3">
+        <DetailGauge label="Gini (Volumen)" value={p.gini_imbalance} tipKey="gini" />
+        <DetailGauge label="Gini (Turns)" value={p.turn_share_gini} tipKey="turnGini" />
+        <DetailGauge label="Hoover (Volumen)" value={p.hoover_imbalance} tipKey="hoover" />
+        <DetailGauge label="Stille-Quote" value={p.silent_participant_ratio} tipKey="silentRatio" />
+        <DetailGauge label="Dominanz-Streak" value={p.dominance_streak_score} tipKey="dominanceStreak" />
+        <DetailGauge label="Langzeit-Balance" value={p.long_term_balance} tipKey="longTermBalance" />
+      </div>
+
+      {cum && (
+        <>
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider whitespace-nowrap">
+              Gesamt-Session
+            </span>
+            <div className="flex-1 h-px bg-white/[0.06]" />
+            <span className="text-[9px] font-mono text-[var(--text-tertiary)]">
+              {cum.total_words} Wörter · {cum.total_turns} Turns
+            </span>
+          </div>
+          {cumulativeSpeakers.map(({ name, share }) => (
+            <div key={name} className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] text-[var(--text-tertiary)] w-20 truncate shrink-0">{name}</span>
+              <div className="flex-1 h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-cyan-500 to-blue-500"
+                  style={{ width: `${share * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-mono tabular-nums w-8 text-right text-[var(--text-tertiary)]">
+                {(share * 100).toFixed(0)}%
+              </span>
+            </div>
+          ))}
+          <DetailGauge label="Session-Balance" value={cum.balance} tipKey="cumulativeBalance" />
+        </>
+      )}
+
+      {/* Ideenqualität */}
+      <SectionDivider>Ideenqualität</SectionDivider>
+
+      <div className="space-y-2.5">
+        <MetricRow label="Neuheit" tipKey="novelty" displayValue={`${(sd.novelty_rate * 100).toFixed(0)}%`} status={noveltyStatus} gaugeFill={sd.novelty_rate} gaugeThreshold={0.35} />
+        <MetricRow label="Verteilung" tipKey="spread" displayValue={`${(sd.diversity * 100).toFixed(0)}%`} status={spreadStatus} gaugeFill={sd.diversity} gaugeThreshold={0.4} />
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <div className="flex items-center gap-1 mb-1.5">
+            <span className="text-[10px] text-[var(--text-tertiary)]">Exploration vs. Vertiefung</span>
+            <InfoTip tipKey="exploration" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-violet-400 w-8 shrink-0">Expl.</span>
+            <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden flex">
+              <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-l-full transition-all duration-500" style={{ width: `${explorationPct}%` }} />
+              <div className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-r-full transition-all duration-500" style={{ width: `${100 - explorationPct}%` }} />
+            </div>
+            <span className="text-[9px] text-teal-400 w-8 shrink-0 text-right">Vert.</span>
+          </div>
+          <p className="text-center text-[9px] font-mono text-[var(--text-tertiary)] mt-0.5">
+            {explorationPct.toFixed(0)}% / {(100 - explorationPct).toFixed(0)}%
+          </p>
+        </div>
+        <DetailGauge label="Cluster-Anzahl" value={Math.min(sd.cluster_count / 10, 1)} tipKey="clusterCount" />
+        <DetailGauge label="Konzentration" value={sd.cluster_concentration} tipKey="concentration" />
+        <DetailGauge label="Expansion" value={Math.min(Math.max(sd.semantic_expansion_score + 0.5, 0), 1)} tipKey="expansion" />
+        <DetailGauge label="Piggybacking" value={sd.piggybacking_score} tipKey="piggybacking" />
+        {!sd.has_embeddings && (
+          <div className="p-2 rounded-lg border border-amber-500/20 bg-amber-500/5">
+            <p className="text-[10px] text-amber-400">Jaccard-Fallback — Embeddings werden generiert</p>
+          </div>
+        )}
+      </div>
+
+      {/* Aktivität */}
+      <SectionDivider>Aktivität</SectionDivider>
+
+      <div className="space-y-2.5">
+        <MetricRow label="Ideenrate" tipKey="ideaRate" displayValue={`${p.ideational_fluency_rate.toFixed(1)}/m`} status={ideaRateStatus} gaugeFill={Math.min(p.ideational_fluency_rate / 10, 1)} gaugeThreshold={0.3} />
+        <MetricRow label="Stagnation" tipKey="stagnation" displayValue={`${Math.round(sd.stagnation_duration_seconds)}s`} status={stagnationStatus} gaugeFill={Math.min(sd.stagnation_duration_seconds / 180, 1)} gaugeThreshold={0.5} />
+      </div>
+
+      <p className="text-[9px] text-[var(--text-tertiary)] text-center font-mono pt-1">
+        {history.length} Messpunkte
+      </p>
+    </>
   );
 }
 
-// ─── Interventions Tab ────────────────────────────────────────────────────────
+// ─── Interventions Tab (kept as-is) ──────────────────────────────────────────
 
 const INTENT_COLORS: Record<InterventionIntent, { bg: string; text: string; dot: string }> = {
   PARTICIPATION_REBALANCING: { bg: 'bg-blue-500/10 border-blue-500/20', text: 'text-blue-400', dot: 'bg-blue-400' },
@@ -701,11 +665,10 @@ const METRIC_DISPLAY_LABELS: Record<string, string> = {
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return '—';
+  if (isNaN(d.getTime())) return '\u2014';
   return d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-/** Flatten nested metrics object into key-value pairs for display */
 function flattenMetrics(obj: Record<string, unknown>, prefix = ''): [string, string][] {
   const result: [string, string][] = [];
   for (const [key, val] of Object.entries(obj)) {
@@ -736,33 +699,34 @@ function InterventionCard({ iv }: { iv: Intervention }) {
 
   return (
     <div className={`glass-sm p-3 border ${colors.bg}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`w-1.5 h-1.5 rounded-full ${colors.dot} shrink-0`} />
-        <span className={`text-[10px] font-semibold uppercase tracking-wider ${colors.text}`}>{intentInfo.label}</span>
-        <span className="text-[10px] text-[var(--text-tertiary)] ml-auto font-mono">{formatTime(iv.created_at)}</span>
-      </div>
-      <p className="text-[10px] text-[var(--text-tertiary)] mb-1.5 italic">{intentInfo.reason}</p>
-      <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{iv.text}</p>
-      {iv.recovered !== undefined && (
-        <p className="text-[10px] mt-1.5 font-mono text-[var(--text-tertiary)]">
-          Erholung: {iv.recovered ? (
-            <span className="text-emerald-400">Ja{iv.recovery_score != null ? ` (${(iv.recovery_score * 100).toFixed(0)}%)` : ''}</span>
-          ) : (
-            <span className="text-rose-400">Nein</span>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] text-[var(--text-tertiary)] font-mono">{formatTime(iv.created_at)}</span>
+        <div className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${colors.dot} shrink-0`} />
+          <span className={`text-[10px] font-medium ${colors.text}`}>{intentInfo.label}</span>
+          {iv.recovered !== undefined && (
+            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-md ${
+              iv.recovered ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+            }`}>
+              {iv.recovered ? `Erholt${iv.recovery_score != null ? ` ${(iv.recovery_score * 100).toFixed(0)}%` : ''}` : 'Nicht erholt'}
+            </span>
           )}
-        </p>
-      )}
-      {flatMetrics.length > 0 && (
-        <>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors mt-2"
-          >
-            <span className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}>▸</span>
-            Metriken zum Zeitpunkt ({flatMetrics.length})
-          </button>
-          {expanded && (
-            <div className="mt-2 space-y-1 animate-fade-in">
+        </div>
+      </div>
+      <p className="text-xs text-[var(--text-primary)] leading-relaxed">{iv.text}</p>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors mt-2"
+      >
+        <span className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
+        Details
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2 animate-fade-in">
+          <p className="text-[10px] text-[var(--text-tertiary)] italic">{intentInfo.reason}</p>
+          {flatMetrics.length > 0 && (
+            <div className="space-y-1 pt-1 border-t border-white/[0.06]">
+              <span className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-wider">Metriken</span>
               {flatMetrics.map(([key, val]) => {
                 const leafKey = key.split('.').pop() || key;
                 const displayLabel = METRIC_DISPLAY_LABELS[leafKey] || key;
@@ -775,7 +739,7 @@ function InterventionCard({ iv }: { iv: Intervention }) {
               })}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -784,11 +748,11 @@ function InterventionCard({ iv }: { iv: Intervention }) {
 function InterventionsTab({ interventions }: { interventions: Intervention[] }) {
   if (interventions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-[var(--text-tertiary)]">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
+      <div className="flex flex-col items-center justify-center py-8 text-[var(--text-tertiary)]">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-50">
           <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
         </svg>
-        <p className="text-sm">Noch keine Eingriffe</p>
+        <p className="text-xs">Noch keine Eingriffe</p>
       </div>
     );
   }
@@ -800,4 +764,265 @@ function InterventionsTab({ interventions }: { interventions: Intervention[] }) 
       {sorted.map((iv) => <InterventionCard key={iv.id} iv={iv} />)}
     </div>
   );
+}
+
+// ─── Main Component: Coach Mode ──────────────────────────────────────────────
+
+export default function MetricsPanel({ latest, history, engineState, participants, interventions = [] }: MetricsPanelProps) {
+  const identityToName = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (participants) {
+      for (const p of participants) map[p.livekit_identity] = p.display_name;
+    }
+    return map;
+  }, [participants]);
+
+  // Staleness tracking
+  const [now, setNow] = useState(() => Date.now());
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    intervalRef.current = setInterval(() => setNow(Date.now()), 5_000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, []);
+
+  const computedAt = latest?.computed_at ? new Date(latest.computed_at).getTime() : null;
+  const stalenessSeconds = computedAt ? Math.round((now - computedAt) / 1000) : null;
+
+  // Sparkline data
+  const spark = useMemo(() => {
+    const recent = history.slice(-30);
+    return {
+      risk: recent.map(s => s.participation?.participation_risk_score ?? 0),
+      balance: recent.map(s => s.participation?.balance ?? (1 - (s.participation?.gini_imbalance ?? 1))),
+    };
+  }, [history]);
+
+  const p = latest?.participation ?? {
+    volume_share: {}, turn_share: {}, gini_imbalance: 1, turn_share_gini: 0,
+    hoover_imbalance: 0, turn_hoover: 0, balance: 0, silent_participant_ratio: 0,
+    dominance_streak_score: 0, participation_risk_score: 0, long_term_balance: 0,
+    cumulative_imbalance: 0, ideational_fluency_rate: 0,
+  };
+  const sd = latest?.semantic_dynamics ?? {
+    novelty_rate: 0, cluster_concentration: 0, exploration_elaboration_ratio: 1,
+    semantic_expansion_score: 0, cluster_count: 0, has_embeddings: false,
+    stagnation_duration_seconds: 0, diversity: 0, piggybacking_score: 0,
+  };
+  const inf = latest?.inferred_state ?? {
+    state: 'HEALTHY_EXPLORATION' as const, confidence: 0,
+    secondary_state: null, secondary_confidence: 0, criteria_snapshot: {},
+  };
+
+  const speakerCount = Object.keys(p.volume_share).length;
+
+  // Generate actionable insights
+  const insights = useMemo(
+    () => generateInsights(p, sd, inf, identityToName),
+    [p, sd, inf, identityToName],
+  );
+
+  // Speaker bars
+  const speakers = useMemo(() =>
+    Object.entries(p.volume_share)
+      .sort(([, a], [, b]) => b - a)
+      .map(([id, share]) => ({
+        name: identityToName[id] || id,
+        share,
+      })),
+    [p.volume_share, identityToName],
+  );
+
+  const cumulativeSpeakers = useMemo(() => {
+    if (!p.cumulative) return [];
+    return Object.entries(p.cumulative.volume_share)
+      .sort(([, a], [, b]) => b - a)
+      .map(([id, share]) => ({
+        name: identityToName[id] || id,
+        share,
+      }));
+  }, [p.cumulative, identityToName]);
+
+  // Determine header state
+  const isHealthy = insights.length === 0;
+  const hasProblems = insights.some(i => i.severity === 'bad');
+
+  const headerConfig = isHealthy
+    ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+            <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+        ),
+        title: inf.state === 'HEALTHY_ELABORATION' ? 'Ideen werden vertieft' : 'Session läuft gut',
+        subtitle: inf.state === 'HEALTHY_ELABORATION'
+          ? 'Bestehende Ideen werden produktiv ausgebaut.'
+          : 'Neue Themen werden erkundet — gute Dynamik.',
+        bg: 'from-emerald-500/15 to-emerald-500/5',
+        titleColor: 'text-emerald-400',
+        subtitleColor: 'text-emerald-400/60',
+      }
+    : hasProblems
+    ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-rose-400">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        ),
+        title: STATE_CONFIG[inf.state]?.label ?? 'Problem erkannt',
+        subtitle: getStateSummaryCoach(inf.state),
+        bg: 'from-rose-500/15 to-rose-500/5',
+        titleColor: 'text-rose-400',
+        subtitleColor: 'text-rose-400/60',
+      }
+    : {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        ),
+        title: STATE_CONFIG[inf.state]?.label ?? 'Achtung',
+        subtitle: getStateSummaryCoach(inf.state),
+        bg: 'from-amber-500/15 to-amber-500/5',
+        titleColor: 'text-amber-400',
+        subtitleColor: 'text-amber-400/60',
+      };
+
+  // Empty state
+  if (!latest) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
+          <path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        <p className="text-sm">Erste Metriken erscheinen nach ~30 Sekunden...</p>
+        <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5">Danach live via Realtime</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* ── Coach Header ── */}
+      <div className={`shrink-0 px-4 py-3.5 bg-gradient-to-br ${headerConfig.bg} border-b border-[var(--border-glass)]`}>
+        <div className="flex items-center gap-2.5">
+          {headerConfig.icon}
+          <div className="min-w-0">
+            <h3 className={`text-sm font-semibold ${headerConfig.titleColor} leading-tight`}>
+              {headerConfig.title}
+            </h3>
+            <p className={`text-[11px] ${headerConfig.subtitleColor} mt-0.5 leading-snug`}>
+              {headerConfig.subtitle}
+            </p>
+          </div>
+          {stalenessSeconds != null && stalenessSeconds > 30 && (
+            <span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded-md font-semibold shrink-0 ${
+              stalenessSeconds > 120 ? 'bg-rose-500/15 text-rose-400' : 'bg-amber-500/15 text-amber-400'
+            }`}>
+              {stalenessSeconds > 120 ? 'Keine Daten' : `${stalenessSeconds}s`}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Scrollable Coach Content ── */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+        <div className="px-4 py-3 space-y-3">
+          {/* Insight Cards */}
+          {insights.length > 0 && (
+            <div className="space-y-2">
+              {insights.map(insight => (
+                <InsightCard key={insight.id} insight={insight} />
+              ))}
+            </div>
+          )}
+
+          {/* Speaker Bars */}
+          {speakers.length > 0 && speakerCount > 1 && (
+            <div className="space-y-1">
+              <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
+                Beteiligung
+              </span>
+              {speakers.map(({ name, share }) => (
+                <div key={name} className="flex items-center gap-2 py-0.5">
+                  <span className="text-[11px] text-[var(--text-secondary)] w-20 truncate shrink-0">{name}</span>
+                  <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        share > 0.6 && speakerCount > 1
+                          ? 'bg-gradient-to-r from-orange-500 to-rose-500'
+                          : 'bg-gradient-to-r from-indigo-500 to-violet-500'
+                      }`}
+                      style={{ width: `${share * 100}%` }}
+                    />
+                  </div>
+                  <span className={`text-[11px] font-mono tabular-nums w-8 text-right ${
+                    share > 0.6 && speakerCount > 1 ? 'text-orange-400' : 'text-[var(--text-secondary)]'
+                  }`}>
+                    {(share * 100).toFixed(0)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Mini Stats */}
+          <div className="flex items-center justify-center gap-3 text-[10px] text-[var(--text-tertiary)] font-mono py-1">
+            <span>{p.ideational_fluency_rate.toFixed(1)} Ideen/min</span>
+            <span className="w-px h-3 bg-white/[0.08]" />
+            <span>{history.length} Snapshots</span>
+            {p.cumulative && (
+              <>
+                <span className="w-px h-3 bg-white/[0.08]" />
+                <span>{p.cumulative.total_words} Wörter</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ── Expandable: Raw Metrics ── */}
+        <CollapsibleSection title="Rohdaten" badge={`${history.length}`}>
+          <RawMetricsDetails
+            p={p}
+            sd={sd}
+            inf={inf}
+            engineState={engineState}
+            speakers={speakers}
+            cumulativeSpeakers={cumulativeSpeakers}
+            spark={spark}
+            identityToName={identityToName}
+            history={history}
+          />
+        </CollapsibleSection>
+
+        {/* ── Expandable: Interventions ── */}
+        <CollapsibleSection title="Eingriffe" badge={interventions.length > 0 ? `${interventions.length}` : undefined}>
+          <InterventionsTab interventions={interventions} />
+        </CollapsibleSection>
+      </div>
+    </div>
+  );
+}
+
+// ─── Helper ──────────────────────────────────────────────────────────────────
+
+function getStateSummaryCoach(state: string): string {
+  switch (state) {
+    case 'HEALTHY_EXPLORATION':
+      return 'Neue Themen werden erkundet — gute Dynamik.';
+    case 'HEALTHY_ELABORATION':
+      return 'Bestehende Ideen werden produktiv vertieft.';
+    case 'DOMINANCE_RISK':
+      return 'Beteiligung ist unausgewogen — einzelne dominieren.';
+    case 'CONVERGENCE_RISK':
+      return 'Diskussion verengt sich — wenig neue Perspektiven.';
+    case 'STALLED_DISCUSSION':
+      return 'Diskussion stockt — keine frischen Ideen.';
+    default:
+      return '';
+  }
 }

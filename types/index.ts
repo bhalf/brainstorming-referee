@@ -17,7 +17,7 @@ export interface Session {
   workspace_id?: string;
   created_by?: string;
   title: string;
-  status: 'scheduled' | 'active' | 'idle' | 'ended';
+  status: 'scheduled' | 'active' | 'idle' | 'paused' | 'ended';
   join_code: string;
   livekit_room: string;
   moderation_level: ModerationLevel;
@@ -263,19 +263,20 @@ export interface Workspace {
   name: string;
   slug: string;
   plan: 'trial' | 'starter' | 'professional' | 'academic' | 'enterprise';
-  owner_id: string;
+  owner_id: string | null;
   max_sessions_per_month: number;
   sessions_this_month: number;
   max_participants_per_session: number;
   billing_email: string | null;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface WorkspaceMember {
   workspace_id: string;
   user_id: string;
-  display_name: string;
-  email: string;
+  display_name: string | null;
+  email: string | null;
   role: WorkspaceMemberRole;
   joined_at: string;
 }
@@ -289,6 +290,14 @@ export interface WorkspaceInvite {
   expires_at: string;
   accepted_at: string | null;
   created_at: string;
+}
+
+// --- Module Config ---
+
+export interface ModuleConfig {
+  module_key: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
 }
 
 // --- Session Export (full post-session data) ---
@@ -305,6 +314,7 @@ export interface SessionExport {
   topics: SessionTopic[];
   engine_state: EngineState | null;
   summary: SessionSummary | null;
+  modules: ModuleConfig[];
 }
 
 // --- Create Session Request ---

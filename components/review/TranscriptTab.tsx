@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import type { SessionExport, ConversationState } from '@/types';
-import { formatTimestamp, getSpeakerColor, STATE_LABELS } from './utils';
+import { formatTimestamp, getSpeakerColor, STATE_LABELS, INTENT_LABELS } from './utils';
 
 interface Props {
   data: SessionExport;
@@ -13,7 +13,23 @@ interface TimelineEvent {
   timestamp: string;
   segment?: SessionExport['segments'][0];
   intervention?: SessionExport['interventions'][0];
-  stateChange?: { state: ConversationState; confidence: number };
+  stateChange?: { state: ConversationState; confidence: number; criteria?: Record<string, number> };
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={i} className="bg-amber-400/30 text-[var(--text-primary)] rounded px-0.5">{part}</mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
 }
 
 export default function TranscriptTab({ data }: Props) {
@@ -60,7 +76,7 @@ export default function TranscriptTab({ data }: Props) {
       events.push({ type: 'intervention', timestamp: iv.created_at, intervention: iv });
     }
 
-    // Add state changes (deduplicated)
+    // Add state changes (deduplicated) with criteria_snapshot (#14)
     let lastState: ConversationState | null = null;
     for (const m of metrics) {
       const state = m.inferred_state?.state;
@@ -68,7 +84,11 @@ export default function TranscriptTab({ data }: Props) {
         events.push({
           type: 'state_change',
           timestamp: m.computed_at,
-          stateChange: { state, confidence: m.inferred_state!.confidence },
+          stateChange: {
+            state,
+            confidence: m.inferred_state!.confidence,
+            criteria: m.inferred_state!.criteria_snapshot,
+          },
         });
         lastState = state;
       }
@@ -98,6 +118,15 @@ export default function TranscriptTab({ data }: Props) {
       return true;
     });
   }, [timeline, selectedSpeaker, searchQuery]);
+
+  // State color mapping for badges
+  const stateColors: Record<string, string> = {
+    HEALTHY_EXPLORATION: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    HEALTHY_ELABORATION: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
+    DOMINANCE_RISK: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+    CONVERGENCE_RISK: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    STALLED_DISCUSSION: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  };
 
   return (
     <div className="space-y-4">
@@ -154,9 +183,11 @@ export default function TranscriptTab({ data }: Props) {
                   </span>
                   <div className="flex-1 min-w-0">
                     <span className="text-xs font-medium mr-2" style={{ color }}>
-                      {seg.speaker_name}
+                      {searchQuery ? <HighlightedText text={seg.speaker_name} query={searchQuery} /> : seg.speaker_name}
                     </span>
-                    <span className="text-sm text-[var(--text-primary)]">{seg.text}</span>
+                    <span className="text-sm text-[var(--text-primary)]">
+                      {searchQuery ? <HighlightedText text={seg.text} query={searchQuery} /> : seg.text}
+                    </span>
                   </div>
                 </div>
               );
@@ -164,7 +195,7 @@ export default function TranscriptTab({ data }: Props) {
 
             if (ev.type === 'state_change') {
               const sc = ev.stateChange!;
-              const isHealthy = sc.state.startsWith('HEALTHY');
+              const badgeColor = stateColors[sc.state] || 'bg-white/5 text-white/40 border-white/10';
               return (
                 <div key={`state-${i}`} className="flex items-center gap-3 py-2 px-2 -mx-2">
                   <span className="text-[10px] font-mono text-[var(--text-tertiary)] w-12 shrink-0 text-right">
@@ -172,11 +203,9 @@ export default function TranscriptTab({ data }: Props) {
                   </span>
                   <div className="flex-1 flex items-center gap-2">
                     <div className="flex-1 border-t border-dashed border-white/[0.08]" />
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      isHealthy
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                        : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                    }`}>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${badgeColor}`} title={
+                      sc.criteria ? Object.entries(sc.criteria).map(([k, v]) => `${k}: ${Math.round(v * 100)}%`).join(', ') : undefined
+                    }>
                       {STATE_LABELS[sc.state]} ({Math.round(sc.confidence * 100)}%)
                     </span>
                     <div className="flex-1 border-t border-dashed border-white/[0.08]" />
@@ -196,7 +225,12 @@ export default function TranscriptTab({ data }: Props) {
                     <span className="text-xs font-medium text-indigo-400 mr-2">
                       KI-Moderator
                     </span>
-                    <span className="text-sm text-[var(--text-primary)]">{iv.text}</span>
+                    <span className="text-[10px] text-[var(--text-tertiary)] mr-2">
+                      [{INTENT_LABELS[iv.intent] || iv.intent}]
+                    </span>
+                    <span className="text-sm text-[var(--text-primary)]">
+                      {searchQuery ? <HighlightedText text={iv.text} query={searchQuery} /> : iv.text}
+                    </span>
                   </div>
                 </div>
               );
