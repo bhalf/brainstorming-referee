@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useSupabaseChannel } from '@/lib/hooks/sync/useSupabaseChannel';
+import { useSupabaseChannel, type RealtimeEventType } from '@/lib/hooks/sync/useSupabaseChannel';
 import { supabase } from '@/lib/supabase/client';
 import type { Intervention } from '@/types';
 
@@ -10,18 +10,23 @@ const MAX_AGE_MS = 30_000; // Only show overlay for interventions newer than 30s
 /**
  * Subscribes to new interventions via Supabase Realtime AND loads initial data.
  *
- * Initial fetch populates the interventions list (for the tab) and marks IDs as
- * seen so that Realtime re-broadcasts don't cause duplicate overlays.
+ * Listens for both INSERT and UPDATE events so that:
+ * - INSERT with empty text (from decision engine) is tracked but not shown as overlay
+ * - UPDATE with text (from moderator/ally after LLM) triggers the overlay
+ * This ensures the overlay text and TTS audio arrive close together.
  */
 export function useRealtimeInterventions(sessionId: string | null) {
   const [interventions, setInterventions] = useState<Intervention[]>([]);
   const [latestIntervention, setLatestIntervention] = useState<Intervention | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
+  /** IDs that were inserted with empty text — waiting for UPDATE with content */
+  const pendingIdsRef = useRef<Set<string>>(new Set());
 
   // ── Initial data load ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
     seenIdsRef.current.clear();
+    pendingIdsRef.current.clear();
 
     supabase
       .from('interventions')
@@ -48,20 +53,46 @@ export function useRealtimeInterventions(sessionId: string | null) {
       });
   }, [sessionId]);
 
-  // ── Realtime subscription callback ─────────────────────────────────────────
-  const onPayload = useCallback((row: Intervention) => {
+  // ── Realtime subscription callback (INSERT + UPDATE) ──────────────────────
+  const onPayload = useCallback((row: Intervention, eventType: RealtimeEventType) => {
+    const hasText = !!row.text?.trim();
+
+    if (eventType === 'UPDATE') {
+      // UPDATE: refresh existing intervention with new data (text, audio_duration)
+      setInterventions((prev) =>
+        prev.map((iv) => (iv.id === row.id ? row : iv))
+      );
+
+      // If this was pending (empty-text INSERT) and now has text → show overlay
+      if (hasText && pendingIdsRef.current.has(row.id)) {
+        pendingIdsRef.current.delete(row.id);
+        const age = Date.now() - new Date(row.created_at).getTime();
+        if (age < MAX_AGE_MS) {
+          console.log('[rt-interventions] UPDATE with text → showing overlay:', row.id);
+          setLatestIntervention(row);
+        }
+      }
+      return;
+    }
+
+    // INSERT: new intervention
     if (seenIdsRef.current.has(row.id)) return;
     seenIdsRef.current.add(row.id);
 
-    console.log('[rt-interventions] Realtime INSERT received:', row.id);
-
-    // Only show overlay for recent interventions (guards against stale re-broadcasts)
-    const age = Date.now() - new Date(row.created_at).getTime();
-    if (age < MAX_AGE_MS) {
-      setLatestIntervention(row);
+    if (hasText) {
+      // INSERT already has text → show overlay immediately
+      console.log('[rt-interventions] INSERT with text:', row.id);
+      const age = Date.now() - new Date(row.created_at).getTime();
+      if (age < MAX_AGE_MS) {
+        setLatestIntervention(row);
+      }
+      setInterventions((prev) => [...prev, row]);
+    } else {
+      // INSERT with empty text → track as pending, wait for UPDATE
+      console.log('[rt-interventions] INSERT pending (no text yet):', row.id);
+      pendingIdsRef.current.add(row.id);
+      setInterventions((prev) => [...prev, row]);
     }
-
-    setInterventions((prev) => [...prev, row]);
   }, []);
 
   const { isSubscribed } = useSupabaseChannel<Intervention>({
@@ -69,7 +100,7 @@ export function useRealtimeInterventions(sessionId: string | null) {
     table: 'interventions',
     sessionId,
     isActive: !!sessionId,
-    event: 'INSERT',
+    event: '*',
     onPayload,
   });
 
