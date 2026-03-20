@@ -18,6 +18,7 @@ const IdeasTab = dynamic(() => import('@/components/review/IdeasTab'), { ssr: fa
 const GoalsTab = dynamic(() => import('@/components/review/GoalsTab'), { ssr: false });
 const TopicsTab = dynamic(() => import('@/components/review/TopicsTab'), { ssr: false });
 const IdeasTimelineChart = dynamic(() => import('@/components/review/IdeasTimelineChart'), { ssr: false });
+const IdeaBoard = dynamic(() => import('@/components/session/IdeaBoard'), { ssr: false });
 
 type Tab = 'overview' | 'metrics' | 'interventions' | 'participants' | 'transcript' | 'ideas' | 'goals' | 'topics';
 
@@ -170,6 +171,15 @@ export default function ReviewPage() {
           {activeTab === 'transcript' && <TranscriptTab data={data} />}
           {activeTab === 'ideas' && (
             <div className="space-y-5">
+              <div className="glass overflow-hidden h-[500px]">
+                <IdeaBoard
+                  ideas={data.ideas}
+                  connections={data.connections}
+                  sessionId={sessionId}
+                  language={session.language}
+                  readOnly
+                />
+              </div>
               <IdeasTimelineChart data={data} />
               <IdeasTab data={data} />
             </div>

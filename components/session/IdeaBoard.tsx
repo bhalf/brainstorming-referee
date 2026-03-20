@@ -25,6 +25,8 @@ interface IdeaBoardProps {
   sessionId: string;
   /** Session language for i18n (e.g. 'de-CH', 'en-US') */
   language?: string;
+  /** Hide create/edit/delete UI for review mode */
+  readOnly?: boolean;
 }
 
 // ============================================================
@@ -238,6 +240,7 @@ type StickyNodeData = {
   noveltyRole?: NoveltyRole;
   noveltyRoleLabel?: string;
   color?: string;
+  readOnly?: boolean;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 };
@@ -269,24 +272,26 @@ const StickyNode = memo(function StickyNode({ id, data }: NodeProps<Node<StickyN
           </div>
           <h4 className="text-sm font-medium text-[var(--text-primary)] leading-tight">{data.label}</h4>
         </div>
-        <div className="flex gap-0.5 shrink-0">
-          <button
-            onClick={() => data.onEdit(id)}
-            className="text-[var(--text-tertiary)] hover:text-indigo-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-          </button>
-          <button
-            onClick={() => data.onDelete(id)}
-            className="text-[var(--text-tertiary)] hover:text-rose-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
+        {!data.readOnly && (
+          <div className="flex gap-0.5 shrink-0">
+            <button
+              onClick={() => data.onEdit(id)}
+              className="text-[var(--text-tertiary)] hover:text-indigo-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => data.onDelete(id)}
+              className="text-[var(--text-tertiary)] hover:text-rose-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       {data.description && (
@@ -353,7 +358,7 @@ function ConnectionLegend({ t }: { t: typeof I18N['de'] }) {
 // Main Component
 // ============================================================
 
-export default function IdeaBoard({ ideas, connections, sessionId, language }: IdeaBoardProps) {
+export default function IdeaBoard({ ideas, connections, sessionId, language, readOnly }: IdeaBoardProps) {
   const t = I18N[resolveLang(language)];
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -433,6 +438,7 @@ export default function IdeaBoard({ ideas, connections, sessionId, language }: I
         noveltyRole: idea.novelty_role,
         noveltyRoleLabel: idea.novelty_role ? NOVELTY_ROLE_LABELS[langKey][idea.novelty_role] : undefined,
         color: idea.color,
+        readOnly,
         onEdit: handleEdit,
         onDelete: handleDelete,
       },
@@ -507,29 +513,31 @@ export default function IdeaBoard({ ideas, connections, sessionId, language }: I
       )}
 
       {/* Create idea input */}
-      <div className="shrink-0 p-3 border-b border-[var(--border-glass)] flex gap-2">
-        <input
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-          placeholder={t.newIdea}
-          className="input-glass flex-1 text-sm py-2"
-        />
-        <button
-          onClick={handleCreate}
-          disabled={!newTitle.trim() || isCreating}
-          className="btn-primary px-3.5 py-2 text-sm disabled:opacity-30 flex items-center gap-1.5"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span className="hidden sm:inline text-xs">{t.addIdea}</span>
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="shrink-0 p-3 border-b border-[var(--border-glass)] flex gap-2">
+          <input
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            placeholder={t.newIdea}
+            className="input-glass flex-1 text-sm py-2"
+          />
+          <button
+            onClick={handleCreate}
+            disabled={!newTitle.trim() || isCreating}
+            className="btn-primary px-3.5 py-2 text-sm disabled:opacity-30 flex items-center gap-1.5"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span className="hidden sm:inline text-xs">{t.addIdea}</span>
+          </button>
+        </div>
+      )}
 
       {/* Edit modal */}
-      {editingId && (
+      {!readOnly && editingId && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in-scale">
           <div className="glass p-5 w-full max-w-sm space-y-4">
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t.editIdea}</h3>
