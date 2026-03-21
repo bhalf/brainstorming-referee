@@ -18,6 +18,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { Idea, IdeaConnection, IdeaType, ConnectionType, NoveltyRole } from '@/types';
 import { createIdea, updateIdea as updateIdeaApi, deleteIdea } from '@/lib/api-client';
+import { computeIdeaLayout } from '@/lib/utils/ideaAutoLayout';
 
 interface IdeaBoardProps {
   ideas: Idea[];
@@ -422,12 +423,14 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
   const langKey = resolveLang(language);
 
   const nodes = useMemo((): Node<StickyNodeData>[] => {
+    const layoutPositions = computeIdeaLayout(visibleIdeas, connections);
+
     return visibleIdeas.map((idea, index) => ({
       id: idea.id,
       type: 'sticky',
-      position: {
-        x: idea.position_x ?? (index % 4) * 220 + 40,
-        y: idea.position_y ?? Math.floor(index / 4) * 160 + 40,
+      position: layoutPositions.get(idea.id) ?? {
+        x: (index % 4) * 260 + 40,
+        y: Math.floor(index / 4) * 200 + 40,
       },
       data: {
         label: idea.title,
@@ -443,7 +446,7 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
         onDelete: handleDelete,
       },
     }));
-  }, [visibleIdeas, handleEdit, handleDelete, ideaTypeLabel, langKey]);
+  }, [visibleIdeas, connections, handleEdit, handleDelete, ideaTypeLabel, langKey, readOnly]);
 
   const edges = useMemo((): Edge[] => {
     return connections.map((conn) => {
