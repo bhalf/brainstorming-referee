@@ -180,24 +180,28 @@ function generateInsights(
   sd: MetricSnapshot['semantic_dynamics'],
   inf: MetricSnapshot['inferred_state'],
   identityToName: Record<string, string>,
+  totalParticipants: number,
 ): Insight[] {
   const insights: Insight[] = [];
   const speakerCount = Object.keys(p.volume_share).length;
+  // Use actual participant count (includes non-speakers) for fair share
+  const participantCount = Math.max(totalParticipants, speakerCount);
 
   // 1. Dominance / high participation risk
-  if (speakerCount > 1 && (p.participation_risk_score > 0.35 || inf.state === 'DOMINANCE_RISK')) {
+  if (participantCount > 1 && (p.participation_risk_score > 0.35 || inf.state === 'DOMINANCE_RISK')) {
     const sorted = Object.entries(p.volume_share).sort(([, a], [, b]) => b - a);
-    const [topId, topShare] = sorted[0];
-    const topName = identityToName[topId] || topId;
-    const others = sorted.slice(1).map(([id]) => identityToName[id] || id);
-    const othersStr = others.length === 1 ? others[0] : 'andere';
-    insights.push({
-      id: 'dominance',
-      severity: topShare > 0.7 ? 'bad' : 'warn',
-      title: `${topName} redet ${(topShare * 100).toFixed(0)}% der Zeit`,
-      action: `${othersStr} einbeziehen`,
-      icon: ICON_PATHS.dominance,
-    });
+    if (sorted.length > 0) {
+      const [topName, topShare] = sorted[0];
+      const others = sorted.slice(1).map(([name]) => name);
+      const othersStr = others.length === 1 ? others[0] : 'andere';
+      insights.push({
+        id: 'dominance',
+        severity: topShare > 0.7 ? 'bad' : 'warn',
+        title: `${topName} redet ${(topShare * 100).toFixed(0)}% der Zeit`,
+        action: `${othersStr} einbeziehen`,
+        icon: ICON_PATHS.dominance,
+      });
+    }
   }
 
   // 2. Stagnation
@@ -225,17 +229,26 @@ function generateInsights(
     });
   }
 
-  // 4. Silent participant
-  if (speakerCount > 1 && p.silent_participant_ratio > 0) {
-    const fair = 1 / speakerCount;
-    const silentNames = Object.entries(p.volume_share)
+  // 4. Silent participant — use totalParticipants to detect truly silent people
+  if (participantCount > 1 && p.silent_participant_ratio > 0) {
+    const fair = 1 / participantCount;
+    // Find speakers with very low share
+    const quietSpeakers = Object.entries(p.volume_share)
       .filter(([, share]) => share < fair * 0.4)
-      .map(([id]) => identityToName[id] || id);
-    if (silentNames.length > 0) {
+      .map(([name]) => name);
+    // Find participants who haven't spoken at all (not in volume_share)
+    const spokenNames = new Set(Object.keys(p.volume_share));
+    const silentParticipants = Object.values(identityToName)
+      .filter(name => !spokenNames.has(name));
+    const allQuiet = [...silentParticipants, ...quietSpeakers];
+    if (allQuiet.length > 0) {
+      const label = allQuiet.length === 1
+        ? `${allQuiet[0]} schweigt`
+        : `${allQuiet.join(', ')} schweigen`;
       insights.push({
         id: 'silent',
         severity: 'warn',
-        title: `${silentNames.join(', ')} schweigt`,
+        title: label,
         action: 'Direkt ansprechen?',
         icon: ICON_PATHS.silent,
       });
@@ -243,7 +256,7 @@ function generateInsights(
   }
 
   // 5. Balance warning (only if not already showing dominance)
-  if (speakerCount > 1 && p.balance < 0.35 && !insights.some(i => i.id === 'dominance')) {
+  if (participantCount > 1 && p.balance < 0.35 && !insights.some(i => i.id === 'dominance')) {
     insights.push({
       id: 'balance',
       severity: p.balance < 0.2 ? 'bad' : 'warn',
@@ -815,10 +828,13 @@ export default function MetricsPanel({ latest, history, engineState, participant
 
   const speakerCount = Object.keys(p.volume_share).length;
 
+  // Total participant count (includes non-speakers) for correct fair-share calculation
+  const totalParticipants = participants?.length ?? Object.keys(p.volume_share).length;
+
   // Generate actionable insights
   const insights = useMemo(
-    () => generateInsights(p, sd, inf, identityToName),
-    [p, sd, inf, identityToName],
+    () => generateInsights(p, sd, inf, identityToName, totalParticipants),
+    [p, sd, inf, identityToName, totalParticipants],
   );
 
   // Speaker bars
@@ -846,6 +862,28 @@ export default function MetricsPanel({ latest, history, engineState, participant
   const isHealthy = insights.length === 0;
   const hasProblems = insights.some(i => i.severity === 'bad');
 
+  // When insights disagree with inf.state, use the primary insight to determine
+  // the displayed title — prevents confusing combos like red header + "Session läuft gut".
+  const isStateHealthy = inf.state === 'HEALTHY_EXPLORATION' || inf.state === 'HEALTHY_ELABORATION';
+  const primaryInsight = insights[0]; // sorted by severity (bad first)
+
+  const INSIGHT_TITLES: Record<string, { title: string; subtitle: string }> = {
+    dominance: { title: 'Dominanz-Risiko', subtitle: 'Beteiligung ist unausgewogen — einzelne dominieren.' },
+    stagnation: { title: 'Stagnation', subtitle: 'Diskussion stockt — keine frischen Ideen.' },
+    convergence: { title: 'Konvergenz-Risiko', subtitle: 'Diskussion verengt sich — wenig neue Perspektiven.' },
+    silent: { title: 'Stille Teilnehmer', subtitle: 'Einige Teilnehmer haben sich noch nicht eingebracht.' },
+    balance: { title: 'Unausgewogene Beteiligung', subtitle: 'Beteiligung ist unausgewogen — einzelne dominieren.' },
+    novelty: { title: 'Wenig neue Ideen', subtitle: 'Ideenfluss verlangsamt sich.' },
+  };
+
+  // Use insight-based title when state says healthy but metrics say otherwise
+  const problemTitle = (isStateHealthy && primaryInsight)
+    ? INSIGHT_TITLES[primaryInsight.id]?.title ?? 'Problem erkannt'
+    : STATE_CONFIG[inf.state]?.label ?? 'Problem erkannt';
+  const problemSubtitle = (isStateHealthy && primaryInsight)
+    ? INSIGHT_TITLES[primaryInsight.id]?.subtitle ?? ''
+    : getStateSummaryCoach(inf.state);
+
   const headerConfig = isHealthy
     ? {
         icon: (
@@ -871,8 +909,8 @@ export default function MetricsPanel({ latest, history, engineState, participant
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
         ),
-        title: STATE_CONFIG[inf.state]?.label ?? 'Problem erkannt',
-        subtitle: getStateSummaryCoach(inf.state),
+        title: problemTitle,
+        subtitle: problemSubtitle,
         bg: 'from-rose-500/15 to-rose-500/5',
         titleColor: 'text-rose-400',
         subtitleColor: 'text-rose-400/60',
@@ -885,8 +923,8 @@ export default function MetricsPanel({ latest, history, engineState, participant
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
         ),
-        title: STATE_CONFIG[inf.state]?.label ?? 'Achtung',
-        subtitle: getStateSummaryCoach(inf.state),
+        title: problemTitle,
+        subtitle: problemSubtitle,
         bg: 'from-amber-500/15 to-amber-500/5',
         titleColor: 'text-amber-400',
         subtitleColor: 'text-amber-400/60',
