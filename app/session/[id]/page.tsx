@@ -174,6 +174,53 @@ function ParticipantAvatar({ participant, showControls, isHost: viewerIsHost, se
   );
 }
 
+// --- Overflow Participant Dropdown ---
+function OverflowParticipants({ participants, count }: { participants: SessionParticipant[]; count: number }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-[10px] font-medium text-[var(--text-tertiary)] border-2 border-[var(--bg-base)] transition-colors cursor-pointer"
+      >
+        +{count}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-1.5 z-50 w-52 glass-sm p-2 rounded-xl border border-[var(--border-glass)] shadow-xl animate-fade-in">
+          <p className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-2 py-1">
+            Weitere Teilnehmer
+          </p>
+          {participants.map((p) => {
+            const color = getAvatarColor(p.livekit_identity);
+            return (
+              <div key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04]">
+                <div className={`w-6 h-6 rounded-full ${color} flex items-center justify-center text-[10px] font-bold text-white`}>
+                  {p.display_name.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-xs text-[var(--text-secondary)] truncate flex-1">{p.display_name}</span>
+                {!p.is_active && (
+                  <span className="text-[9px] text-[var(--text-tertiary)] opacity-60">offline</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SessionPage() {
   const params = useParams();
   const router = useRouter();
@@ -407,24 +454,24 @@ export default function SessionPage() {
                 />
               ))}
               {overflowCount > 0 && (
-                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-medium text-[var(--text-tertiary)] border-2 border-[var(--bg-base)]">
-                  +{overflowCount}
-                </div>
+                <OverflowParticipants
+                  participants={data.participants.slice(MAX_VISIBLE_AVATARS)}
+                  count={overflowCount}
+                />
               )}
             </div>
           )}
 
-          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
-            isConnected
-              ? 'bg-emerald-500/10 text-emerald-400'
-              : 'bg-amber-500/10 text-amber-400'
+          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border ${
+            isConnected && data.isConnected
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              : isConnected
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
           }`}>
             <span className={isConnected ? 'status-dot status-dot-live' : 'status-dot status-dot-connecting'} />
-            {isConnected ? 'Verbunden' : 'Verbinde...'}
+            {isConnected && data.isConnected ? 'Live' : isConnected ? 'Verbunden' : 'Verbinde...'}
           </div>
-          {data.isConnected && (
-            <span className="text-xs text-[var(--text-tertiary)] bg-white/[0.04] px-2 py-1 rounded-md">Realtime</span>
-          )}
           {/* Planned Duration */}
           {plannedDuration.remaining && (
             <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
@@ -444,6 +491,13 @@ export default function SessionPage() {
               Pausieren
             </button>
           )}
+          {/* Leave button for all participants */}
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-[var(--text-secondary)] rounded-lg text-xs font-medium border border-[var(--border-glass)] transition-all"
+          >
+            Verlassen
+          </button>
           {(data.isHost || data.isCoHost) && (
             <button
               onClick={handleEndSession}
@@ -454,6 +508,22 @@ export default function SessionPage() {
           )}
         </div>
       </header>
+
+      {/* Session Progress Bar */}
+      {plannedDuration.remaining && plannedDuration.progress > 0 && (
+        <div className="shrink-0 h-1 bg-white/[0.04]">
+          <div
+            className={`h-full transition-all duration-1000 ease-linear rounded-r-full ${
+              plannedDuration.progress > 0.9
+                ? 'bg-gradient-to-r from-rose-500 to-rose-400'
+                : plannedDuration.progress > 0.75
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-400'
+                  : 'bg-gradient-to-r from-indigo-500 to-violet-500'
+            }`}
+            style={{ width: `${plannedDuration.progress * 100}%` }}
+          />
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -626,7 +696,7 @@ export default function SessionPage() {
               {[
                 { id: 'video' as const, label: 'Video', icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z', show: true },
                 { id: 'ideas' as const, label: 'Ideen', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', show: hasFeature('ideas') },
-                { id: 'panel' as const, label: 'Panel', icon: 'M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z', show: true },
+                { id: 'panel' as const, label: 'Übersicht', icon: 'M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z', show: true },
               ].filter((t) => t.show).map((tab) => (
                 <button
                   key={tab.id}

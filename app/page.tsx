@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import CreateSession from '@/components/setup/CreateSession';
+import CreateSessionWizard from '@/components/setup/CreateSessionWizard';
 
 export default function LandingPage() {
   const router = useRouter();
@@ -35,7 +35,7 @@ export default function LandingPage() {
 
         {showCreate ? (
           <div className="animate-fade-in-scale">
-            <CreateSession />
+            <CreateSessionWizard />
             <button
               onClick={() => setShowCreate(false)}
               className="block mx-auto mt-6 text-sm text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"

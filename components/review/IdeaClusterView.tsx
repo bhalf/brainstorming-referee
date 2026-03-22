@@ -139,9 +139,14 @@ export default function IdeaClusterView({ sessionId, data }: Props) {
       )}
 
       {/* Theme Clusters */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${
+        clusters.clusters.length === 1 && clusters.unclustered.length === 0
+          ? 'grid-cols-1'
+          : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+      }`}>
         {clusters.clusters.map((cluster, ci) => {
           const color = THEME_COLORS[ci % THEME_COLORS.length];
+          const isSingleLargeCluster = clusters.clusters.length === 1 && clusters.unclustered.length === 0;
           return (
             <div key={ci} className={`glass overflow-hidden border ${color.border}`}>
               {/* Theme Header */}
@@ -152,8 +157,11 @@ export default function IdeaClusterView({ sessionId, data }: Props) {
                 </span>
               </div>
 
-              {/* Ideas in cluster */}
-              <div className="p-3 space-y-2">
+              {/* Ideas in cluster — use grid for large single clusters */}
+              <div className={isSingleLargeCluster && cluster.ideas.length > 3
+                ? 'p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2'
+                : 'p-3 space-y-2'
+              }>
                 {cluster.ideas.map((idea) => {
                   const isSelected = selectedIdeaId === idea.id;
                   const isConnected = connectedIds.has(idea.id);

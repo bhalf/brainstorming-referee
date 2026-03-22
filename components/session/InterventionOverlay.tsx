@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Intervention, InterventionIntent } from '@/types';
 
 interface InterventionOverlayProps {
@@ -76,8 +76,28 @@ const AUTO_DISMISS_MS = 12_000;
 
 export default function InterventionOverlay({ intervention, onDismiss, isTTSPlaying = false, children }: InterventionOverlayProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dismissFeedback, setDismissFeedback] = useState(false);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevInterventionId = useRef<string | null>(null);
 
   const hasText = !!intervention?.text?.trim();
+
+  // Track when intervention is dismissed to show feedback
+  useEffect(() => {
+    if (intervention) {
+      prevInterventionId.current = intervention.id;
+    } else if (prevInterventionId.current) {
+      // Intervention just disappeared — show brief feedback
+      setDismissFeedback(true);
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => setDismissFeedback(false), 2000);
+      prevInterventionId.current = null;
+    }
+  }, [intervention]);
+
+  useEffect(() => {
+    return () => { if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current); };
+  }, []);
 
   useEffect(() => {
     if (!intervention) return;
@@ -105,6 +125,16 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
       }`}>
         {children}
       </div>
+
+      {/* Dismiss confirmation toast */}
+      {dismissFeedback && !intervention && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/90 text-white text-xs font-medium shadow-lg animate-fade-in">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          Eingriff zugestellt
+        </div>
+      )}
 
       {/* Toast overlay */}
       {intervention && style && (

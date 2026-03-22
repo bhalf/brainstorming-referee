@@ -349,9 +349,10 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
               const color = GROUP_COLORS[gi % GROUP_COLORS.length];
 
               if (isSingleFlat) {
-                // All ideas are isolated — render as flat list without group header
+                // All ideas are isolated — render in a compact grid instead of
+                // a single long vertical list
                 return (
-                  <div key="flat" className="lg:col-span-2 space-y-2">
+                  <div key="flat" className="col-span-full grid grid-cols-2 gap-2">
                     {group.ideas.map((idea) => (
                       <IdeaCard
                         key={idea.id}
