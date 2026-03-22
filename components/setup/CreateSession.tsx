@@ -32,6 +32,7 @@ interface GoalFormData {
 export default function CreateSession() {
   const router = useRouter();
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('de-CH');
   const [moderationLevel, setModerationLevel] = useState<ModerationLevel>('moderation');
   const [selectedFeatures, setSelectedFeatures] = useState<FeatureKey[]>([]);
@@ -120,6 +121,7 @@ export default function CreateSession() {
     try {
       const session = await createSession({
         title: title.trim(),
+        description: description.trim() || undefined,
         language,
         moderation_level: moderationLevel,
         features: selectedFeatures,
@@ -256,6 +258,18 @@ export default function CreateSession() {
           placeholder="z.B. Produktideen Q2"
           className="input-glass"
           required
+        />
+      </div>
+
+      {/* Description */}
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Beschreibung (optional)</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Worum geht es in dieser Session? Kontext hilft der KI, relevantere Themen zu erkennen."
+          className="input-glass w-full resize-none"
+          rows={2}
         />
       </div>
 

@@ -1,24 +1,8 @@
 'use client';
 
-import { memo, useCallback, useMemo, useState } from 'react';
-import {
-  ReactFlow,
-  MiniMap,
-  Controls,
-  Background,
-  BackgroundVariant,
-  Handle,
-  Position,
-  type Node,
-  type Edge,
-  type NodeChange,
-  type NodeTypes,
-  type NodeProps,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import type { Idea, IdeaConnection, IdeaType, ConnectionType, NoveltyRole } from '@/types';
+import { useCallback, useMemo, useState } from 'react';
+import type { Idea, IdeaConnection, IdeaType, NoveltyRole } from '@/types';
 import { createIdea, updateIdea as updateIdeaApi, deleteIdea } from '@/lib/api-client';
-import { computeIdeaLayout } from '@/lib/utils/ideaAutoLayout';
 
 interface IdeaBoardProps {
   ideas: Idea[];
@@ -47,9 +31,6 @@ const I18N: Record<LangKey, {
   ideaBoard: string;
   ideas: string;
   idea: string;
-  connections: string;
-  connection: string;
-  legend: string;
   addIdea: string;
   newIdea: string;
   noIdeas: string;
@@ -57,31 +38,12 @@ const I18N: Record<LangKey, {
   descriptionOptional: string;
   cancel: string;
   save: string;
-  ideaType: string;
-  impulseType: string;
-  actionType: string;
-  builds_on: string;
-  builds_on_desc: string;
-  supports: string;
-  supports_desc: string;
-  leads_to: string;
-  leads_to_desc: string;
-  contrasts: string;
-  contrasts_desc: string;
-  related: string;
-  related_desc: string;
-  contains: string;
-  contains_desc: string;
-  refines: string;
-  refines_desc: string;
+  ungrouped: string;
 }> = {
   de: {
     ideaBoard: 'Idea Board',
     ideas: 'Ideen',
     idea: 'Idee',
-    connections: 'Verbindungen',
-    connection: 'Verbindung',
-    legend: 'Legende',
     addIdea: 'Idee hinzufügen',
     newIdea: 'Neue Idee...',
     noIdeas: 'Noch keine Ideen',
@@ -89,31 +51,12 @@ const I18N: Record<LangKey, {
     descriptionOptional: 'Beschreibung (optional)',
     cancel: 'Abbrechen',
     save: 'Speichern',
-    ideaType: 'Idee',
-    impulseType: 'Impuls',
-    actionType: 'Aktion',
-    builds_on: 'Baut auf',
-    builds_on_desc: 'erweitert eine Idee',
-    supports: 'Unterstützt',
-    supports_desc: 'bestätigt eine Idee',
-    leads_to: 'Führt zu',
-    leads_to_desc: 'folgt logisch draus',
-    contrasts: 'Kontrastiert',
-    contrasts_desc: 'Alternative / Gegensatz',
-    related: 'Verwandt',
-    related_desc: 'thematisch ähnlich',
-    contains: 'Enthält',
-    contains_desc: 'Kategorie-Unteridee',
-    refines: 'Verfeinert',
-    refines_desc: 'präzisiert eine Idee',
+    ungrouped: 'Neue Ideen',
   },
   en: {
     ideaBoard: 'Idea Board',
     ideas: 'Ideas',
     idea: 'Idea',
-    connections: 'Connections',
-    connection: 'Connection',
-    legend: 'Legend',
     addIdea: 'Add idea',
     newIdea: 'New idea...',
     noIdeas: 'No ideas yet',
@@ -121,31 +64,12 @@ const I18N: Record<LangKey, {
     descriptionOptional: 'Description (optional)',
     cancel: 'Cancel',
     save: 'Save',
-    ideaType: 'Idea',
-    impulseType: 'Impulse',
-    actionType: 'Action',
-    builds_on: 'Builds on',
-    builds_on_desc: 'extends an idea',
-    supports: 'Supports',
-    supports_desc: 'confirms an idea',
-    leads_to: 'Leads to',
-    leads_to_desc: 'logical consequence',
-    contrasts: 'Contrasts',
-    contrasts_desc: 'alternative / opposite',
-    related: 'Related',
-    related_desc: 'thematically similar',
-    contains: 'Contains',
-    contains_desc: 'category sub-idea',
-    refines: 'Refines',
-    refines_desc: 'makes more precise',
+    ungrouped: 'New ideas',
   },
   fr: {
     ideaBoard: 'Tableau d\'idées',
     ideas: 'Idées',
     idea: 'Idée',
-    connections: 'Connexions',
-    connection: 'Connexion',
-    legend: 'Légende',
     addIdea: 'Ajouter une idée',
     newIdea: 'Nouvelle idée...',
     noIdeas: 'Pas encore d\'idées',
@@ -153,23 +77,7 @@ const I18N: Record<LangKey, {
     descriptionOptional: 'Description (facultatif)',
     cancel: 'Annuler',
     save: 'Enregistrer',
-    ideaType: 'Idée',
-    impulseType: 'Impulsion',
-    actionType: 'Action',
-    builds_on: 'S\'appuie sur',
-    builds_on_desc: 'développe une idée',
-    supports: 'Soutient',
-    supports_desc: 'confirme une idée',
-    leads_to: 'Mène à',
-    leads_to_desc: 'conséquence logique',
-    contrasts: 'Contraste',
-    contrasts_desc: 'alternative / opposé',
-    related: 'Lié',
-    related_desc: 'thématiquement similaire',
-    contains: 'Contient',
-    contains_desc: 'sous-idée de catégorie',
-    refines: 'Affine',
-    refines_desc: 'précise une idée',
+    ungrouped: 'Nouvelles idées',
   },
 };
 
@@ -177,182 +85,110 @@ const I18N: Record<LangKey, {
 // Styling
 // ============================================================
 
-const IDEA_TYPE_STYLES: Record<IdeaType, { gradient: string; border: string; badge: string; miniMapColor: string }> = {
-  brainstorming_idea: {
-    gradient: 'from-indigo-500/15 to-violet-500/10',
-    border: 'border-indigo-400/20 hover:border-indigo-400/35',
-    badge: 'bg-indigo-500/20 text-indigo-300',
-    miniMapColor: 'rgba(99, 102, 241, 0.4)',
-  },
-  ally_intervention: {
-    gradient: 'from-emerald-500/15 to-green-500/10',
-    border: 'border-emerald-400/20 hover:border-emerald-400/35',
-    badge: 'bg-emerald-500/20 text-emerald-300',
-    miniMapColor: 'rgba(52, 211, 153, 0.4)',
-  },
-  action_item: {
-    gradient: 'from-amber-500/15 to-orange-500/10',
-    border: 'border-amber-400/20 hover:border-amber-400/35',
-    badge: 'bg-amber-500/20 text-amber-300',
-    miniMapColor: 'rgba(251, 191, 36, 0.4)',
-  },
+const NOVELTY_STYLES: Record<NoveltyRole, { badge: string; icon: string; label: Record<LangKey, string> }> = {
+  seed: { badge: 'bg-green-500/15 text-green-400 border-green-500/25', icon: '✦', label: { de: 'Neu', en: 'Seed', fr: 'Graine' } },
+  extension: { badge: 'bg-blue-500/15 text-blue-400 border-blue-500/25', icon: '↗', label: { de: 'Erweiterung', en: 'Extension', fr: 'Extension' } },
+  variant: { badge: 'bg-purple-500/15 text-purple-400 border-purple-500/25', icon: '≈', label: { de: 'Variante', en: 'Variant', fr: 'Variante' } },
+  tangent: { badge: 'bg-orange-500/15 text-orange-400 border-orange-500/25', icon: '↯', label: { de: 'Tangente', en: 'Tangent', fr: 'Tangente' } },
 };
 
-const NOVELTY_ROLE_STYLES: Record<NoveltyRole, { badge: string; icon: string }> = {
-  seed: { badge: 'bg-green-500/20 text-green-300', icon: '✦' },
-  extension: { badge: 'bg-blue-500/20 text-blue-300', icon: '↗' },
-  variant: { badge: 'bg-purple-500/20 text-purple-300', icon: '≈' },
-  tangent: { badge: 'bg-orange-500/20 text-orange-300', icon: '↯' },
+const TYPE_BORDER: Record<IdeaType, string> = {
+  brainstorming_idea: 'border-l-indigo-500/40',
+  ally_intervention: 'border-l-emerald-500/40',
+  action_item: 'border-l-amber-500/40',
 };
 
-const NOVELTY_ROLE_LABELS: Record<LangKey, Record<NoveltyRole, string>> = {
-  de: { seed: 'Neu', extension: 'Erweiterung', variant: 'Variante', tangent: 'Tangente' },
-  en: { seed: 'Seed', extension: 'Extension', variant: 'Variant', tangent: 'Tangent' },
-  fr: { seed: 'Graine', extension: 'Extension', variant: 'Variante', tangent: 'Tangente' },
-};
+const GROUP_COLORS = [
+  { header: 'from-indigo-500/15 to-violet-500/10', border: 'border-indigo-500/20', text: 'text-indigo-400', count: 'bg-indigo-500/15 text-indigo-300' },
+  { header: 'from-emerald-500/15 to-teal-500/10', border: 'border-emerald-500/20', text: 'text-emerald-400', count: 'bg-emerald-500/15 text-emerald-300' },
+  { header: 'from-amber-500/15 to-orange-500/10', border: 'border-amber-500/20', text: 'text-amber-400', count: 'bg-amber-500/15 text-amber-300' },
+  { header: 'from-rose-500/15 to-pink-500/10', border: 'border-rose-500/20', text: 'text-rose-400', count: 'bg-rose-500/15 text-rose-300' },
+  { header: 'from-cyan-500/15 to-blue-500/10', border: 'border-cyan-500/20', text: 'text-cyan-400', count: 'bg-cyan-500/15 text-cyan-300' },
+];
 
-interface ConnectionStyleDef {
-  stroke: string;
-  animated: boolean;
-  strokeDash?: string;
-  strokeWidth: number;
+// ============================================================
+// Grouping by connected components
+// ============================================================
+
+interface IdeaGroup {
+  label: string;
+  ideas: Idea[];
 }
 
-const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyleDef> = {
-  builds_on: { stroke: '#22c55e', animated: true, strokeWidth: 2.5 },
-  supports: { stroke: '#3b82f6', animated: true, strokeWidth: 2.5 },
-  leads_to: { stroke: '#a855f7', animated: true, strokeWidth: 2.5 },
-  contrasts: { stroke: '#f97316', animated: false, strokeDash: '8 4', strokeWidth: 2 },
-  related: { stroke: '#64748b', animated: false, strokeDash: '4 4', strokeWidth: 1.5 },
-  contains: { stroke: '#334155', animated: false, strokeDash: '6 3', strokeWidth: 1.5 },
-  refines: { stroke: '#a78bfa', animated: true, strokeWidth: 2 },
-};
+function groupByConnections(ideas: Idea[], connections: IdeaConnection[]): IdeaGroup[] {
+  if (ideas.length === 0) return [];
 
-// ============================================================
-// Node Component
-// ============================================================
+  const idSet = new Set(ideas.map((i) => i.id));
 
-type StickyNodeData = {
-  label: string;
-  description?: string;
-  authorName?: string;
-  ideaType: IdeaType;
-  ideaTypeLabel: string;
-  noveltyRole?: NoveltyRole;
-  noveltyRoleLabel?: string;
-  color?: string;
-  readOnly?: boolean;
-  onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
-};
+  // Build adjacency list
+  const adj = new Map<string, Set<string>>();
+  for (const id of idSet) adj.set(id, new Set());
+  for (const conn of connections) {
+    if (idSet.has(conn.source_idea_id) && idSet.has(conn.target_idea_id)) {
+      adj.get(conn.source_idea_id)!.add(conn.target_idea_id);
+      adj.get(conn.target_idea_id)!.add(conn.source_idea_id);
+    }
+  }
 
-const StickyNode = memo(function StickyNode({ id, data }: NodeProps<Node<StickyNodeData>>) {
-  const typeStyle = IDEA_TYPE_STYLES[data.ideaType] || IDEA_TYPE_STYLES.brainstorming_idea;
+  // BFS to find connected components
+  const visited = new Set<string>();
+  const components: string[][] = [];
 
-  return (
-    <div
-      className={`bg-gradient-to-br ${typeStyle.gradient} backdrop-blur-sm border ${typeStyle.border} rounded-2xl p-3.5 shadow-lg shadow-black/20 min-w-[140px] max-w-[200px] transition-all hover:shadow-xl`}
-      style={data.color ? { borderColor: `${data.color}40` } : undefined}
-    >
-      <Handle type="target" position={Position.Top} className="!bg-indigo-400 !border-none !w-2 !h-2" />
+  for (const id of idSet) {
+    if (visited.has(id)) continue;
+    const component: string[] = [];
+    const queue = [id];
+    visited.add(id);
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      component.push(current);
+      for (const neighbor of adj.get(current) || []) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+    components.push(component);
+  }
 
-      <div className="flex items-start justify-between gap-1">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 mb-1 flex-wrap">
-            <span className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-md ${typeStyle.badge}`}>
-              {data.ideaTypeLabel}
-            </span>
-            {data.noveltyRole && (() => {
-              const roleStyle = NOVELTY_ROLE_STYLES[data.noveltyRole];
-              return (
-                <span className={`text-[8px] font-semibold px-1.5 py-0.5 rounded-md ${roleStyle.badge}`}>
-                  {roleStyle.icon} {data.noveltyRoleLabel}
-                </span>
-              );
-            })()}
-          </div>
-          <h4 className="text-sm font-medium text-[var(--text-primary)] leading-tight">{data.label}</h4>
-        </div>
-        {!data.readOnly && (
-          <div className="flex gap-0.5 shrink-0">
-            <button
-              onClick={() => data.onEdit(id)}
-              className="text-[var(--text-tertiary)] hover:text-indigo-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-            </button>
-            <button
-              onClick={() => data.onDelete(id)}
-              className="text-[var(--text-tertiary)] hover:text-rose-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
+  // Sort components: larger groups first, then by earliest idea
+  const ideaMap = new Map(ideas.map((i) => [i.id, i]));
+  components.sort((a, b) => {
+    if (a.length !== b.length) return b.length - a.length;
+    const aTime = Math.min(...a.map((id) => new Date(ideaMap.get(id)!.created_at).getTime()));
+    const bTime = Math.min(...b.map((id) => new Date(ideaMap.get(id)!.created_at).getTime()));
+    return aTime - bTime;
+  });
 
-      {data.description && (
-        <p className="text-xs text-[var(--text-tertiary)] mt-1.5 line-clamp-3 leading-relaxed">{data.description}</p>
-      )}
-      {data.authorName && (
-        <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5 font-mono opacity-60">— {data.authorName}</p>
-      )}
+  // Build groups
+  const groups: IdeaGroup[] = [];
+  const ungrouped: Idea[] = [];
 
-      <Handle type="source" position={Position.Bottom} className="!bg-violet-400 !border-none !w-2 !h-2" />
-    </div>
-  );
-});
+  for (const component of components) {
+    const groupIdeas = component
+      .map((id) => ideaMap.get(id)!)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-const nodeTypes: NodeTypes = {
-  sticky: StickyNode as unknown as NodeTypes['sticky'],
-};
+    if (component.length === 1) {
+      ungrouped.push(groupIdeas[0]);
+    } else {
+      // Use the seed idea (or first idea) as group label
+      const seedIdea = groupIdeas.find((i) => i.novelty_role === 'seed') || groupIdeas[0];
+      groups.push({ label: seedIdea.title, ideas: groupIdeas });
+    }
+  }
 
-// ============================================================
-// Legend Component
-// ============================================================
+  if (ungrouped.length > 0) {
+    // Don't create an "ungrouped" section if there are no groups — just show all as one flat list
+    if (groups.length === 0) {
+      groups.push({ label: '', ideas: ungrouped });
+    } else {
+      groups.push({ label: '__ungrouped__', ideas: ungrouped });
+    }
+  }
 
-const LEGEND_CONNECTIONS: ConnectionType[] = ['builds_on', 'supports', 'leads_to', 'contrasts', 'related', 'contains'];
-
-function ConnectionLegend({ t }: { t: typeof I18N['de'] }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 p-2.5">
-      {LEGEND_CONNECTIONS.map((key) => {
-        const style = CONNECTION_STYLES[key];
-        const label = t[key as keyof typeof t] as string;
-        const desc = t[`${key}_desc` as keyof typeof t] as string;
-        return (
-          <div
-            key={key}
-            className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
-            style={{
-              backgroundColor: 'rgba(15,23,42,0.7)',
-              border: `1px solid ${style.stroke}44`,
-            }}
-          >
-            <svg width="18" height="10" viewBox="0 0 18 10">
-              <line
-                x1="0" y1="5" x2="18" y2="5"
-                stroke={style.stroke}
-                strokeWidth={style.strokeWidth}
-                strokeDasharray={style.strokeDash || 'none'}
-              />
-              {style.animated && (
-                <polygon points="14,2 18,5 14,8" fill={style.stroke} />
-              )}
-            </svg>
-            <span className="text-[10px] font-semibold" style={{ color: style.stroke }}>
-              {label}
-            </span>
-            <span className="text-[9px] text-[var(--text-tertiary)]">— {desc}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
+  return groups;
 }
 
 // ============================================================
@@ -360,22 +196,29 @@ function ConnectionLegend({ t }: { t: typeof I18N['de'] }) {
 // ============================================================
 
 export default function IdeaBoard({ ideas, connections, sessionId, language, readOnly }: IdeaBoardProps) {
-  const t = I18N[resolveLang(language)];
+  const langKey = resolveLang(language);
+  const t = I18N[langKey];
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  const [showLegend, setShowLegend] = useState(false);
+  const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);
 
   const visibleIdeas = useMemo(() => ideas.filter((i) => !i.is_deleted), [ideas]);
+  const groups = useMemo(() => groupByConnections(visibleIdeas, connections), [visibleIdeas, connections]);
 
-  const ideaTypeLabel = useCallback((type: IdeaType) => {
-    if (type === 'ally_intervention') return t.impulseType;
-    if (type === 'action_item') return t.actionType;
-    return t.ideaType;
-  }, [t]);
+  // Connection lookup for highlight
+  const connectedIds = useMemo(() => {
+    if (!selectedIdeaId) return new Set<string>();
+    const set = new Set<string>();
+    for (const conn of connections) {
+      if (conn.source_idea_id === selectedIdeaId) set.add(conn.target_idea_id);
+      if (conn.target_idea_id === selectedIdeaId) set.add(conn.source_idea_id);
+    }
+    return set;
+  }, [selectedIdeaId, connections]);
 
   const handleEdit = useCallback((id: string) => {
     const idea = visibleIdeas.find((i) => i.id === id);
@@ -420,62 +263,6 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
     }
   }, [sessionId, newTitle, isCreating]);
 
-  const langKey = resolveLang(language);
-
-  const nodes = useMemo((): Node<StickyNodeData>[] => {
-    const layoutPositions = computeIdeaLayout(visibleIdeas, connections);
-
-    return visibleIdeas.map((idea, index) => ({
-      id: idea.id,
-      type: 'sticky',
-      position: layoutPositions.get(idea.id) ?? {
-        x: (index % 4) * 260 + 40,
-        y: Math.floor(index / 4) * 200 + 40,
-      },
-      data: {
-        label: idea.title,
-        description: idea.description,
-        authorName: idea.author_name,
-        ideaType: idea.idea_type,
-        ideaTypeLabel: ideaTypeLabel(idea.idea_type),
-        noveltyRole: idea.novelty_role,
-        noveltyRoleLabel: idea.novelty_role ? NOVELTY_ROLE_LABELS[langKey][idea.novelty_role] : undefined,
-        color: idea.color,
-        readOnly,
-        onEdit: handleEdit,
-        onDelete: handleDelete,
-      },
-    }));
-  }, [visibleIdeas, connections, handleEdit, handleDelete, ideaTypeLabel, langKey, readOnly]);
-
-  const edges = useMemo((): Edge[] => {
-    return connections.map((conn) => {
-      const style = CONNECTION_STYLES[conn.connection_type] || CONNECTION_STYLES.builds_on;
-      const label = t[conn.connection_type as keyof typeof t] as string || conn.connection_type;
-      return {
-        id: conn.id,
-        source: conn.source_idea_id,
-        target: conn.target_idea_id,
-        animated: style.animated,
-        type: 'smoothstep',
-        style: {
-          stroke: style.stroke,
-          strokeWidth: style.strokeWidth,
-          strokeDasharray: style.strokeDash || undefined,
-        },
-        label,
-        labelStyle: { fontSize: 10, fontWeight: 700, fill: style.stroke },
-        labelBgStyle: { fill: '#0f172a', fillOpacity: 0.92 },
-        labelBgPadding: [5, 4] as [number, number],
-        labelBgBorderRadius: 6,
-      };
-    });
-  }, [connections, t]);
-
-  const onNodesChange = useCallback((_changes: NodeChange[]) => {
-    // Read-only — positions come from backend
-  }, []);
-
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
@@ -486,34 +273,10 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
           </svg>
           <span className="text-sm font-medium text-[var(--text-primary)]">{t.ideaBoard}</span>
           <span className="text-xs text-[var(--text-tertiary)]">
-            ({visibleIdeas.length} {visibleIdeas.length !== 1 ? t.ideas : t.idea}
-            {connections.length > 0 ? `, ${connections.length} ${connections.length !== 1 ? t.connections : t.connection}` : ''})
+            ({visibleIdeas.length} {visibleIdeas.length !== 1 ? t.ideas : t.idea})
           </span>
         </div>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setShowLegend((v) => !v)}
-            className={`text-xs px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
-              showLegend
-                ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
-                : 'border-[var(--border-glass)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--border-glass-hover)]'
-            }`}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {t.legend}
-          </button>
-        </div>
       </div>
-
-      {/* Legend (collapsible) */}
-      {showLegend && (
-        <div className="shrink-0 border-b border-[var(--border-glass)] bg-white/[0.01] animate-fade-in overflow-x-auto">
-          <ConnectionLegend t={t} />
-        </div>
-      )}
 
       {/* Create idea input */}
       {!readOnly && (
@@ -569,8 +332,8 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
         </div>
       )}
 
-      {/* React Flow canvas */}
-      <div className="flex-1 min-h-0">
+      {/* Idea clusters */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3">
         {visibleIdeas.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
@@ -579,26 +342,141 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
             <p className="text-sm">{t.noIdeas}</p>
           </div>
         ) : (
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            nodeTypes={nodeTypes}
-            fitView
-            defaultEdgeOptions={{ type: 'smoothstep' }}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Controls className="!bg-white/[0.05] !border-white/10 !rounded-xl [&>button]:!bg-white/[0.05] [&>button]:!border-white/10 [&>button]:!text-white/60 [&>button:hover]:!bg-white/10" />
-            <MiniMap
-              nodeColor={(node) => {
-                const data = node.data as StickyNodeData;
-                return IDEA_TYPE_STYLES[data.ideaType]?.miniMapColor || 'rgba(99, 102, 241, 0.4)';
-              }}
-              maskColor="rgba(6, 5, 14, 0.8)"
-              style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}
-            />
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.04)" />
-          </ReactFlow>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {groups.map((group, gi) => {
+              const isUngrouped = group.label === '__ungrouped__';
+              const isSingleFlat = group.label === '';
+              const color = GROUP_COLORS[gi % GROUP_COLORS.length];
+
+              if (isSingleFlat) {
+                // All ideas are isolated — render as flat list without group header
+                return (
+                  <div key="flat" className="lg:col-span-2 space-y-2">
+                    {group.ideas.map((idea) => (
+                      <IdeaCard
+                        key={idea.id}
+                        idea={idea}
+                        langKey={langKey}
+                        readOnly={readOnly}
+                        selected={selectedIdeaId === idea.id}
+                        highlighted={connectedIds.has(idea.id)}
+                        dimmed={selectedIdeaId !== null && selectedIdeaId !== idea.id && !connectedIds.has(idea.id)}
+                        onClick={() => setSelectedIdeaId((prev) => (prev === idea.id ? null : idea.id))}
+                        onEdit={handleEdit}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={gi} className={`rounded-xl overflow-hidden border ${isUngrouped ? 'border-white/10' : color.border}`}>
+                  {/* Group header */}
+                  <div className={`px-3 py-2 flex items-center justify-between ${isUngrouped ? 'bg-gradient-to-r from-white/[0.04] to-white/[0.02]' : `bg-gradient-to-r ${color.header}`}`}>
+                    <h4 className={`text-xs font-semibold truncate ${isUngrouped ? 'text-[var(--text-tertiary)]' : color.text}`}>
+                      {isUngrouped ? t.ungrouped : group.label}
+                    </h4>
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${isUngrouped ? 'bg-white/[0.06] text-[var(--text-tertiary)]' : color.count}`}>
+                      {group.ideas.length}
+                    </span>
+                  </div>
+
+                  {/* Ideas */}
+                  <div className="p-2 space-y-1.5">
+                    {group.ideas.map((idea) => (
+                      <IdeaCard
+                        key={idea.id}
+                        idea={idea}
+                        langKey={langKey}
+                        readOnly={readOnly}
+                        selected={selectedIdeaId === idea.id}
+                        highlighted={connectedIds.has(idea.id)}
+                        dimmed={selectedIdeaId !== null && selectedIdeaId !== idea.id && !connectedIds.has(idea.id)}
+                        onClick={() => setSelectedIdeaId((prev) => (prev === idea.id ? null : idea.id))}
+                        onEdit={handleEdit}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Idea Card
+// ============================================================
+
+interface IdeaCardProps {
+  idea: Idea;
+  langKey: LangKey;
+  readOnly?: boolean;
+  selected: boolean;
+  highlighted: boolean;
+  dimmed: boolean;
+  onClick: () => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+}
+
+function IdeaCard({ idea, langKey, readOnly, selected, highlighted, dimmed, onClick, onEdit, onDelete }: IdeaCardProps) {
+  const typeColor = TYPE_BORDER[idea.idea_type] || TYPE_BORDER.brainstorming_idea;
+  const novelty = idea.novelty_role ? NOVELTY_STYLES[idea.novelty_role] : null;
+
+  return (
+    <div
+      onClick={onClick}
+      className={`
+        border-l-[3px] ${typeColor} rounded-lg px-2.5 py-2 cursor-pointer transition-all duration-200
+        ${selected
+          ? 'bg-indigo-500/10 ring-1 ring-indigo-500/30'
+          : highlighted
+            ? 'bg-white/[0.08] ring-1 ring-amber-400/30'
+            : 'bg-white/[0.03] hover:bg-white/[0.06]'
+        }
+        ${dimmed ? 'opacity-30' : 'opacity-100'}
+      `}
+    >
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="flex-1 min-w-0">
+          {novelty && (
+            <span className={`text-[8px] font-semibold px-1.5 py-0.5 rounded border inline-block mb-0.5 ${novelty.badge}`}>
+              {novelty.icon} {novelty.label[langKey]}
+            </span>
+          )}
+          <h5 className="text-[12px] font-medium text-[var(--text-primary)] leading-snug">{idea.title}</h5>
+          {idea.description && (
+            <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 line-clamp-2 leading-relaxed">{idea.description}</p>
+          )}
+          {idea.author_name && (
+            <p className="text-[9px] text-[var(--text-tertiary)] mt-1 font-mono opacity-60">— {idea.author_name}</p>
+          )}
+        </div>
+        {!readOnly && (
+          <div className="flex gap-0.5 shrink-0">
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(idea.id); }}
+              className="text-[var(--text-tertiary)] hover:text-indigo-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(idea.id); }}
+              className="text-[var(--text-tertiary)] hover:text-rose-400 text-xs p-1 rounded-md hover:bg-white/[0.06] transition-all"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
         )}
       </div>
     </div>

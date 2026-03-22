@@ -171,27 +171,22 @@ export default function TopicsTab({ data }: Props) {
                   </div>
                 </button>
 
-                {/* Expanded: show sample segments that match this subdimension by keyword */}
+                {/* Expanded: show segments classified to this subdimension */}
                 {isExpanded && topic.segment_count > 0 && (
                   <div className="px-4 pb-4 border-t border-white/[0.06] pt-3 animate-fade-in">
                     <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider mb-2">
-                      Relevante Segmente (Stichwort-basiert)
+                      Zugeordnete Segmente
                     </p>
                     <div className="space-y-1 max-h-[200px] overflow-y-auto">
                       {(() => {
-                        // Simple keyword matching: search segments for subdimension keywords
-                        const keywords = topic.subdimension.toLowerCase().split(/[\s,/]+/).filter((w) => w.length > 3);
                         const matching = finalSegments
-                          .filter((s) => {
-                            const text = s.text.toLowerCase();
-                            return keywords.some((kw) => text.includes(kw));
-                          })
-                          .slice(0, 10);
+                          .filter((s) => s.topic_subdimension === topic.subdimension)
+                          .slice(0, 15);
 
                         if (matching.length === 0) {
                           return (
                             <p className="text-xs text-[var(--text-tertiary)]">
-                              Keine Segmente per Stichwortsuche gefunden. Die Zuordnung basiert auf semantischer Embedding-Ähnlichkeit.
+                              Keine zugeordneten Segmente verfügbar.
                             </p>
                           );
                         }

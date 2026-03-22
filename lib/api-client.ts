@@ -14,6 +14,7 @@ import type {
   Workspace,
   WorkspaceMember,
   WorkspaceMemberRole,
+  ClusteredIdeasResponse,
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -54,6 +55,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export async function createSession(data: CreateSessionFormData): Promise<Session> {
   const payload = {
     title: data.title,
+    description: data.description ?? '',
     language: data.language,
     moderation_level: data.moderation_level,
     features: data.features,
@@ -160,6 +162,10 @@ export async function deleteIdea(sessionId: string, ideaId: string): Promise<voi
   return request<void>(`/api/sessions/${sessionId}/ideas/${ideaId}`, {
     method: 'DELETE',
   });
+}
+
+export async function getIdeaClusters(sessionId: string): Promise<ClusteredIdeasResponse> {
+  return request<ClusteredIdeasResponse>(`/api/sessions/${sessionId}/ideas/clusters`);
 }
 
 // --- Workspaces ---

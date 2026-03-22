@@ -17,6 +17,7 @@ export interface Session {
   workspace_id?: string;
   created_by?: string;
   title: string;
+  description?: string;
   status: 'scheduled' | 'active' | 'idle' | 'paused' | 'ended';
   join_code: string;
   livekit_room: string;
@@ -61,6 +62,7 @@ export interface TranscriptSegment {
   text: string;
   is_final: boolean;
   language?: string;
+  topic_subdimension?: string;
   created_at: string;
 }
 
@@ -215,6 +217,19 @@ export interface IdeaConnection {
   created_at: string;
 }
 
+// --- Idea Clusters (review page) ---
+
+export interface IdeaCluster {
+  theme: string;
+  ideas: Idea[];
+}
+
+export interface ClusteredIdeasResponse {
+  clusters: IdeaCluster[];
+  summary: string;
+  unclustered: Idea[];
+}
+
 // --- Goals (bigpicture.md §4) ---
 
 export type GoalStatus = 'not_started' | 'mentioned' | 'partially_covered' | 'covered';
@@ -322,6 +337,7 @@ export interface SessionExport {
 /** What the UI form produces — sent directly to backend */
 export interface CreateSessionFormData {
   title: string;
+  description?: string;
   language: string;
   moderation_level: ModerationLevel;
   features: FeatureKey[];
