@@ -81,7 +81,14 @@ export function useRealtimeMetrics(sessionId: string | null) {
         // Mark all as seen to prevent duplicates from Realtime
         for (const row of rows) seenIdsRef.current.add(row.id);
 
-        setHistory(normalized);
+        // Use functional updates to merge with any realtime data that
+        // arrived while the fetch was in flight (prevents overwriting)
+        setHistory((prev) => {
+          // Merge: fetched as base, append any realtime entries not in fetched set
+          const fetchedIds = new Set(normalized.map((r) => r.id));
+          const realtimeOnly = prev.filter((r) => !fetchedIds.has(r.id));
+          return [...normalized, ...realtimeOnly];
+        });
         // Merge all into latest (newest wins per field)
         const merged = normalized.reduce<MetricSnapshot>((acc, row) => ({
           ...acc,
@@ -94,7 +101,12 @@ export function useRealtimeMetrics(sessionId: string | null) {
           inferred_state: row.inferred_state ?? acc.inferred_state,
         }), normalized[0]);
 
-        setLatest(merged);
+        setLatest((prev) => {
+          if (!prev) return merged;
+          // If a realtime snapshot is newer, keep it
+          if (prev.computed_at > merged.computed_at) return prev;
+          return merged;
+        });
         initialFetchDone.current = true;
       });
   }, [sessionId]);

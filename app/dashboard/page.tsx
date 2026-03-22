@@ -201,6 +201,7 @@ export default function DashboardPage() {
                       const isActive = session.status === 'active';
                       const isIdle = session.status === 'idle';
                       const isPaused = session.status === 'paused';
+                      const isScheduled = session.status === 'scheduled';
                       const isEnded = session.status === 'ended';
                       const isClickable = isActive || isIdle || isPaused || isEnded;
 
@@ -231,6 +232,9 @@ export default function DashboardPage() {
                                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
                                 )}
                               </div>
+                              {session.description && (
+                                <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-1">{session.description}</p>
+                              )}
                               <div className="flex items-center gap-3 mt-1.5">
                                 <span className="text-xs text-[var(--text-tertiary)]">
                                   {new Date(session.created_at).toLocaleDateString('de-CH', {
@@ -251,7 +255,19 @@ export default function DashboardPage() {
                             </div>
                             <div className="flex items-center gap-3 shrink-0 ml-4">
                               {session.status !== 'ended' && (
-                                <CopyButton text={session.join_code} />
+                                <>
+                                  <CopyButton text={session.join_code} />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(`${window.location.origin}/join/${session.join_code}`);
+                                    }}
+                                    className="text-xs text-indigo-400/70 hover:text-indigo-300 transition-colors whitespace-nowrap"
+                                    title="Join-Link kopieren"
+                                  >
+                                    Link
+                                  </button>
+                                </>
                               )}
                               {isEnded && (
                                 <span className="text-xs text-indigo-400 font-medium">Review</span>

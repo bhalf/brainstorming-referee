@@ -22,7 +22,8 @@ export function useRealtimeInterventions(sessionId: string | null) {
   // ── Initial data load ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
-    seenIdsRef.current.clear();
+    // Don't clear seenIdsRef here — realtime events may have arrived already.
+    // Instead, merge fetched data with any realtime arrivals.
 
     supabase
       .from('interventions')
@@ -40,9 +41,14 @@ export function useRealtimeInterventions(sessionId: string | null) {
         // Mark all as seen to prevent Realtime duplicates
         for (const row of data) seenIdsRef.current.add(row.id);
 
-        // Reverse to chronological order for the list
+        // Use functional update to merge with any realtime arrivals
+        const fetchedIds = new Set(data.map((d) => d.id));
         const sorted = [...(data as Intervention[])].reverse();
-        setInterventions(sorted);
+
+        setInterventions((prev) => {
+          const realtimeOnly = prev.filter((iv) => !fetchedIds.has(iv.id));
+          return [...sorted, ...realtimeOnly];
+        });
         // Don't set latestIntervention — old interventions shouldn't trigger overlay
       });
   }, [sessionId]);

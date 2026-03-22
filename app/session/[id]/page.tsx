@@ -206,9 +206,16 @@ export default function SessionPage() {
   // Use realtime session state for idle/ended detection
   const liveSession = data.realtimeSession ?? session;
   const enabledFeatures = liveSession?.enabled_features ?? [];
+  const sessionConfig = (liveSession?.config ?? {}) as Record<string, unknown>;
   const hasModeration = liveSession ? liveSession.moderation_level !== 'none' : false;
   const hasFeature = (f: FeatureKey) => enabledFeatures.includes(f);
-  const visibleTabs = ALL_TABS.filter((t) => !t.feature || hasFeature(t.feature));
+  const hideMetricsForParticipants = sessionConfig.participant_metrics === false;
+  const visibleTabs = ALL_TABS.filter((t) => {
+    if (t.feature && !hasFeature(t.feature)) return false;
+    // Hide metrics tab for non-host/co-host if participant_metrics is disabled
+    if (t.id === 'metrics' && hideMetricsForParticipants && !data.isHost && !data.isCoHost) return false;
+    return true;
+  });
 
   const idleCountdown = useIdleCountdown(data.isIdle ? (liveSession?.idle_since_at ?? null) : null);
   const plannedDuration = usePlannedDuration(liveSession?.started_at, liveSession?.planned_duration_minutes ?? null);
@@ -263,9 +270,10 @@ export default function SessionPage() {
 
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || '';
 
-  // Participant display (max 4 + overflow)
-  const visibleParticipants = useMemo(() => data.participants.slice(0, 4), [data.participants]);
-  const overflowCount = Math.max(0, data.participants.length - 4);
+  // Participant display (max 8 + overflow)
+  const MAX_VISIBLE_AVATARS = 8;
+  const visibleParticipants = useMemo(() => data.participants.slice(0, MAX_VISIBLE_AVATARS), [data.participants]);
+  const overflowCount = Math.max(0, data.participants.length - MAX_VISIBLE_AVATARS);
   const showHostControls = data.isHost || data.isCoHost;
 
   if (loading) {

@@ -12,11 +12,24 @@ import type { SessionParticipant } from '@/types';
 export function useRealtimeParticipants(sessionId: string | null, myIdentity: string | null) {
   const [allParticipants, setAllParticipants] = useState<SessionParticipant[]>([]);
 
-  // Initial load from API
+  // Initial load from API — uses functional update to merge with any
+  // realtime events that arrived during the async fetch
   useEffect(() => {
     if (!sessionId) return;
     getParticipants(sessionId)
-      .then(setAllParticipants)
+      .then((fetched) => {
+        setAllParticipants((prev) => {
+          // Merge: fetched data is the base, but keep any realtime updates
+          // that arrived while the fetch was in flight
+          const fetchedById = new Map(fetched.map((p) => [p.id, p]));
+          for (const p of prev) {
+            if (!fetchedById.has(p.id)) {
+              fetchedById.set(p.id, p); // realtime INSERT arrived during fetch
+            }
+          }
+          return Array.from(fetchedById.values());
+        });
+      })
       .catch((err) => console.error('Failed to load participants:', err));
   }, [sessionId]);
 

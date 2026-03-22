@@ -39,6 +39,8 @@ export default function CreateSession() {
   const [goals, setGoals] = useState<GoalFormData[]>([]);
   const [plannedDuration, setPlannedDuration] = useState<number | ''>('');
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [autoHost, setAutoHost] = useState(true);
+  const [participantMetrics, setParticipantMetrics] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdSession, setCreatedSession] = useState<Session | null>(null);
@@ -140,7 +142,11 @@ export default function CreateSession() {
               }))
           : undefined,
         planned_duration_minutes: plannedDuration || undefined,
-        config: { tts_enabled: ttsEnabled },
+        config: {
+          tts_enabled: ttsEnabled,
+          ...(!autoHost ? { auto_host: false } : {}),
+          ...(!participantMetrics ? { participant_metrics: false } : {}),
+        },
       });
       setCreatedSession(session);
     } catch (err) {
@@ -338,6 +344,43 @@ export default function CreateSession() {
           </label>
         </div>
       )}
+
+      {/* Session Access Controls */}
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-3">Teilnehmer-Einstellungen</label>
+        <div className="space-y-2">
+          <label className="flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none border-[var(--border-glass)] bg-white/[0.02] hover:bg-white/[0.04] hover:border-[var(--border-glass-hover)]">
+            <input
+              type="checkbox"
+              checked={!autoHost}
+              onChange={(e) => setAutoHost(!e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded accent-indigo-500"
+            />
+            <div>
+              <span className="text-[var(--text-primary)] text-sm font-medium">Kein Host unter Teilnehmern</span>
+              <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+                Niemand erhält Host-Rechte. Teilnehmer können nur beitreten und zuhören — kein Pausieren oder Beenden.
+              </p>
+            </div>
+          </label>
+          {selectedFeatures.includes('metrics') && (
+            <label className="flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none border-[var(--border-glass)] bg-white/[0.02] hover:bg-white/[0.04] hover:border-[var(--border-glass-hover)]">
+              <input
+                type="checkbox"
+                checked={!participantMetrics}
+                onChange={(e) => setParticipantMetrics(!e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded accent-indigo-500"
+              />
+              <div>
+                <span className="text-[var(--text-primary)] text-sm font-medium">Metriken vor Teilnehmern verbergen</span>
+                <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+                  Teilnehmer sehen keine Echtzeit-Metriken. Nur Hosts und Co-Hosts haben Zugriff.
+                </p>
+              </div>
+            </label>
+          )}
+        </div>
+      </div>
 
       {/* Features — always visible */}
       <div className="animate-fade-in">

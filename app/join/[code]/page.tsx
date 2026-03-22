@@ -16,7 +16,7 @@ export default function JoinPage() {
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = displayName.trim();
-    if (!name) return;
+    if (!name || name.length < 2) return;
 
     setIsJoining(true);
     setError(null);
@@ -24,9 +24,10 @@ export default function JoinPage() {
     try {
       const result = await joinSession(code, name);
       // Pass identity and name via URL params — no sessionStorage needed
+      // Use the display_name from the API (may have been deduplicated by backend)
       const params = new URLSearchParams({
         identity: result.participant.livekit_identity,
-        name: name,
+        name: result.participant.display_name || name,
       });
       router.push(`/session/${result.session.id}?${params.toString()}`);
     } catch (err) {
@@ -72,9 +73,11 @@ export default function JoinPage() {
             <input
               type="text"
               value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              onChange={(e) => setDisplayName(e.target.value.slice(0, 30))}
               placeholder="z.B. Anna"
               autoFocus
+              maxLength={30}
+              minLength={2}
               className="input-glass text-center text-lg"
               required
             />
@@ -88,7 +91,7 @@ export default function JoinPage() {
 
           <button
             type="submit"
-            disabled={isJoining || !displayName.trim()}
+            disabled={isJoining || displayName.trim().length < 2}
             className="btn-primary w-full py-3.5 text-base"
           >
             {isJoining ? (

@@ -12,11 +12,18 @@ import type { Session } from '@/types';
 export function useRealtimeSession(sessionId: string | null) {
   const [session, setSession] = useState<Session | null>(null);
 
-  // Initial load from API
+  // Initial load from API — uses functional update to avoid overwriting
+  // any realtime updates that arrived during the async fetch
   useEffect(() => {
     if (!sessionId) return;
     getSession(sessionId)
-      .then(setSession)
+      .then((fetched) => {
+        setSession((prev) => {
+          // If a realtime update already arrived, keep it (it's more recent)
+          if (prev && prev.id === fetched.id) return prev;
+          return fetched;
+        });
+      })
       .catch((err) => console.error('Failed to load session:', err));
   }, [sessionId]);
 
