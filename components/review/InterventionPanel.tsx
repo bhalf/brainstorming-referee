@@ -52,7 +52,7 @@ export default function InterventionPanel({ data }: Props) {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-[var(--text-primary)] mt-1.5 line-clamp-2">{iv.text}</p>
+                    <p className={`text-sm text-[var(--text-primary)] mt-1.5${isExpanded ? '' : ' line-clamp-3'}`}>{iv.text}</p>
                   </div>
                   <svg
                     width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
