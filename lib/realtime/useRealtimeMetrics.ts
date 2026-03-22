@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase/client';
 import type { MetricSnapshot, ParticipationMetrics, SemanticDynamicsMetrics, InferredState } from '@/types';
 
 const MAX_SNAPSHOTS = 720; // ~60 min at 5s intervals
-const INITIAL_FETCH_LIMIT = 30; // Load last 30 snapshots on mount
+const INITIAL_FETCH_LIMIT = 120; // Load last ~10 min of snapshots (at 5s intervals)
 
 /**
  * Raw row shape from Supabase (matches actual production DB columns).
@@ -55,6 +55,9 @@ export function useRealtimeMetrics(sessionId: string | null) {
   useEffect(() => {
     if (!sessionId) return;
     initialFetchDone.current = false;
+    seenIdsRef.current.clear();
+    setHistory([]);
+    setLatest(null);
 
     supabase
       .from('metric_snapshots')

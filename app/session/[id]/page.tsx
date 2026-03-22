@@ -587,11 +587,13 @@ export default function SessionPage() {
 
               {/* Tab Content */}
               <div className="flex-1 min-h-0 overflow-hidden">
-                <div className={activeTab === 'transcript' ? 'h-full' : 'hidden'}>
-                  <TranscriptFeed segments={data.segments} />
-                </div>
-                {hasFeature('metrics') && (
-                  <div className={activeTab === 'metrics' ? 'h-full' : 'hidden'}>
+                {activeTab === 'transcript' && (
+                  <div className="h-full">
+                    <TranscriptFeed segments={data.segments} />
+                  </div>
+                )}
+                {activeTab === 'metrics' && hasFeature('metrics') && (
+                  <div className="h-full">
                     <MetricsPanel
                       latest={data.latestMetrics}
                       history={data.metricsHistory}
@@ -601,8 +603,8 @@ export default function SessionPage() {
                     />
                   </div>
                 )}
-                {hasFeature('ideas') && (
-                  <div className={activeTab === 'ideas' ? 'h-full relative' : 'hidden'}>
+                {activeTab === 'ideas' && hasFeature('ideas') && (
+                  <div className="h-full relative">
                     <IdeaBoard
                       ideas={data.ideas}
                       connections={data.connections}
@@ -611,13 +613,13 @@ export default function SessionPage() {
                     />
                   </div>
                 )}
-                {hasFeature('goals') && (
-                  <div className={activeTab === 'goals' ? 'h-full' : 'hidden'}>
+                {activeTab === 'goals' && hasFeature('goals') && (
+                  <div className="h-full">
                     <GoalsPanel goals={data.goals} />
                   </div>
                 )}
-                {hasFeature('summary') && (
-                  <div className={activeTab === 'summary' ? 'h-full' : 'hidden'}>
+                {activeTab === 'summary' && hasFeature('summary') && (
+                  <div className="h-full">
                     <SummaryPanel summary={data.summary} updatedAt={data.summaryUpdatedAt} />
                   </div>
                 )}
@@ -630,40 +632,43 @@ export default function SessionPage() {
         {isMounted && !isDesktop && (
           <>
             <div className="flex-1 w-full min-h-0 overflow-hidden">
-              <div className={`h-full ${mobileView === 'video' ? 'block' : 'hidden'}`}>
-                {hasModeration ? (
-                  <InterventionOverlay
-                    intervention={data.latestIntervention}
-                    onDismiss={data.dismissIntervention}
-                    isTTSPlaying={isTTSPlaying}
-                  >
-                    {token && (
+              {mobileView === 'video' && (
+                <div className="h-full">
+                  {hasModeration ? (
+                    <InterventionOverlay
+                      intervention={data.latestIntervention}
+                      onDismiss={data.dismissIntervention}
+                      isTTSPlaying={isTTSPlaying}
+                    >
+                      {token && (
+                        <VideoGrid
+                          token={token}
+                          serverUrl={livekitUrl}
+                          onConnectionChange={setIsConnected}
+                          onDisconnected={handleDisconnected}
+                          onTTSStateChange={setIsTTSPlaying}
+                        />
+                      )}
+                    </InterventionOverlay>
+                  ) : (
+                    token && (
                       <VideoGrid
                         token={token}
                         serverUrl={livekitUrl}
                         onConnectionChange={setIsConnected}
                         onDisconnected={handleDisconnected}
-                        onTTSStateChange={setIsTTSPlaying}
                       />
-                    )}
-                  </InterventionOverlay>
-                ) : (
-                  token && (
-                    <VideoGrid
-                      token={token}
-                      serverUrl={livekitUrl}
-                      onConnectionChange={setIsConnected}
-                      onDisconnected={handleDisconnected}
-                    />
-                  )
-                )}
-              </div>
-              {hasFeature('ideas') && (
-                <div className={`h-full relative ${mobileView === 'ideas' ? 'block' : 'hidden'}`}>
+                    )
+                  )}
+                </div>
+              )}
+              {mobileView === 'ideas' && hasFeature('ideas') && (
+                <div className="h-full relative">
                   <IdeaBoard ideas={data.ideas} connections={data.connections} sessionId={sessionId} language={liveSession?.language} />
                 </div>
               )}
-              <div className={`h-full ${mobileView === 'panel' ? 'block' : 'hidden'}`}>
+              {mobileView === 'panel' && (
+                <div className="h-full">
                 <div className="h-full flex flex-col">
                   <div className="flex border-b border-[var(--border-glass)] overflow-x-auto px-1">
                     {visibleTabs.filter((t) => t.id !== 'ideas').map((tab) => (
@@ -689,6 +694,7 @@ export default function SessionPage() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
             {/* Mobile Bottom Tab Bar */}

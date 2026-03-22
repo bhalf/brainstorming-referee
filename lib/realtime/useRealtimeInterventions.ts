@@ -22,8 +22,10 @@ export function useRealtimeInterventions(sessionId: string | null) {
   // ── Initial data load ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
-    // Don't clear seenIdsRef here — realtime events may have arrived already.
-    // Instead, merge fetched data with any realtime arrivals.
+    // Clear state for new session
+    seenIdsRef.current.clear();
+    setInterventions([]);
+    setLatestIntervention(null);
 
     supabase
       .from('interventions')
