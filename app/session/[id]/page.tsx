@@ -444,8 +444,9 @@ export default function SessionPage() {
             </span>
           )}
           {isObserver && (
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
-              Observer
+            <span className="flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/25">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              Observer-Modus
             </span>
           )}
         </div>
@@ -535,6 +536,14 @@ export default function SessionPage() {
         </div>
       )}
 
+      {/* Observer Banner */}
+      {isObserver && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-violet-500/8 border-b border-violet-500/15">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-violet-400 shrink-0"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span className="text-[11px] text-violet-300">Du beobachtest diese Session — unsichtbar für Teilnehmer, keine Auswirkung auf Metriken.</span>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Desktop Layout */}
@@ -608,7 +617,7 @@ export default function SessionPage() {
                       latest={data.latestMetrics}
                       history={data.metricsHistory}
                       engineState={data.engineState}
-                      participants={data.allParticipants}
+                      participants={nonObserverParticipants}
                       interventions={data.interventions}
                     />
                   </div>
@@ -698,7 +707,7 @@ export default function SessionPage() {
                   </div>
                   <div className="flex-1 min-h-0 overflow-hidden">
                     {activeTab === 'transcript' && <TranscriptFeed segments={data.segments} />}
-                    {activeTab === 'metrics' && hasFeature('metrics') && <MetricsPanel latest={data.latestMetrics} history={data.metricsHistory} engineState={data.engineState} participants={data.allParticipants} interventions={data.interventions} />}
+                    {activeTab === 'metrics' && hasFeature('metrics') && <MetricsPanel latest={data.latestMetrics} history={data.metricsHistory} engineState={data.engineState} participants={nonObserverParticipants} interventions={data.interventions} />}
                     {activeTab === 'goals' && hasFeature('goals') && <GoalsPanel goals={data.goals} />}
                     {activeTab === 'summary' && hasFeature('summary') && <SummaryPanel summary={data.summary} updatedAt={data.summaryUpdatedAt} />}
                   </div>
