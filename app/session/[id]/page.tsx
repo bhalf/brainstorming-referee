@@ -305,7 +305,7 @@ export default function SessionPage() {
 
   const handleEndSession = useCallback(async () => {
     try {
-      await endSession(sessionId, myIdentity);
+      if (myIdentity) await endSession(sessionId, myIdentity);
     } catch {
       // Best effort
     }
