@@ -240,6 +240,7 @@ export default function SessionPage() {
 
   const myIdentity = searchParams.get('identity');
   const myName = searchParams.get('name');
+  const isObserver = searchParams.get('role') === 'observer';
 
   const data = useSessionData(sessionId, myIdentity);
 
@@ -259,8 +260,8 @@ export default function SessionPage() {
   const hideMetricsForParticipants = sessionConfig.participant_metrics === false;
   const visibleTabs = ALL_TABS.filter((t) => {
     if (t.feature && !hasFeature(t.feature)) return false;
-    // Hide metrics tab for non-host/co-host if participant_metrics is disabled
-    if (t.id === 'metrics' && hideMetricsForParticipants && !data.isHost && !data.isCoHost) return false;
+    // Observers always see all tabs; hide metrics for regular participants if disabled
+    if (t.id === 'metrics' && hideMetricsForParticipants && !data.isHost && !data.isCoHost && !isObserver) return false;
     return true;
   });
 
@@ -304,12 +305,12 @@ export default function SessionPage() {
 
   const handleEndSession = useCallback(async () => {
     try {
-      await endSession(sessionId);
+      await endSession(sessionId, myIdentity);
     } catch {
       // Best effort
     }
     router.push('/dashboard');
-  }, [sessionId, router]);
+  }, [sessionId, myIdentity, router]);
 
   const handleDisconnected = useCallback(() => {
     router.push('/dashboard');
@@ -317,10 +318,14 @@ export default function SessionPage() {
 
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || '';
 
-  // Participant display (max 8 + overflow)
+  // Participant display (max 8 + overflow, observers hidden)
   const MAX_VISIBLE_AVATARS = 8;
-  const visibleParticipants = useMemo(() => data.participants.slice(0, MAX_VISIBLE_AVATARS), [data.participants]);
-  const overflowCount = Math.max(0, data.participants.length - MAX_VISIBLE_AVATARS);
+  const nonObserverParticipants = useMemo(
+    () => data.participants.filter((p) => p.role !== 'observer'),
+    [data.participants]
+  );
+  const visibleParticipants = useMemo(() => nonObserverParticipants.slice(0, MAX_VISIBLE_AVATARS), [nonObserverParticipants]);
+  const overflowCount = Math.max(0, nonObserverParticipants.length - MAX_VISIBLE_AVATARS);
   const showHostControls = data.isHost || data.isCoHost;
 
   if (loading) {
@@ -438,6 +443,11 @@ export default function SessionPage() {
               Co-Host
             </span>
           )}
+          {isObserver && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
+              Observer
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -455,7 +465,7 @@ export default function SessionPage() {
               ))}
               {overflowCount > 0 && (
                 <OverflowParticipants
-                  participants={data.participants.slice(MAX_VISIBLE_AVATARS)}
+                  participants={nonObserverParticipants.slice(MAX_VISIBLE_AVATARS)}
                   count={overflowCount}
                 />
               )}
@@ -483,7 +493,7 @@ export default function SessionPage() {
               </span>
             </div>
           )}
-          {(data.isHost || data.isCoHost) && myIdentity && !data.isPaused && !data.isIdle && !data.isEnded && (
+          {!isObserver && (data.isHost || data.isCoHost) && myIdentity && !data.isPaused && !data.isIdle && !data.isEnded && (
             <button
               onClick={async () => { try { await pauseSession(sessionId, myIdentity); } catch { /* best effort */ } }}
               className="px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-xs font-medium border border-indigo-500/20 transition-all"
@@ -498,7 +508,7 @@ export default function SessionPage() {
           >
             Verlassen
           </button>
-          {(data.isHost || data.isCoHost) && (
+          {!isObserver && (data.isHost || data.isCoHost) && (
             <button
               onClick={handleEndSession}
               className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs font-medium border border-rose-500/20 transition-all"

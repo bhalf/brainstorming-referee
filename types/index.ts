@@ -35,7 +35,7 @@ export interface Session {
 
 // --- Session Participant ---
 
-export type ParticipantRole = 'host' | 'co_host' | 'participant';
+export type ParticipantRole = 'host' | 'co_host' | 'participant' | 'observer';
 
 export interface SessionParticipant {
   id: string;

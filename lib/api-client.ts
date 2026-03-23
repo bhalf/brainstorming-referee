@@ -78,9 +78,10 @@ export async function getSession(id: string): Promise<Session> {
   return request<Session>(`/api/sessions/${id}`);
 }
 
-export async function endSession(id: string): Promise<void> {
+export async function endSession(id: string, identity: string): Promise<void> {
   return request<void>(`/api/sessions/${id}/end`, {
     method: 'POST',
+    headers: { 'X-Livekit-Identity': identity },
   });
 }
 
