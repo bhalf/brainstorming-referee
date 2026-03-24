@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { MetricSnapshot, EngineState, SessionParticipant, Intervention, InterventionIntent, CumulativeParticipation } from '@/types';
+import type { MetricSnapshot, EngineState, SessionParticipant, Intervention, InterventionIntent } from '@/types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -66,17 +66,9 @@ const METRIC_TOOLTIPS: Record<string, TooltipEntry> = {
     description: 'Wie oft hat eine Person mehrmals hintereinander gesprochen, ohne dass jemand anderes dazwischen kam? Normalisiert auf die Gesamtzahl der Wortmeldungen.',
     formula: 'Hoch = jemand monopolisiert das Gespräch. Niedrig = Gespräch wechselt natürlich.',
   },
-  gini: {
-    description: 'Misst die Ungleichverteilung der Redezeit (Wortanzahl). 0% = alle reden exakt gleich viel, 100% = eine Person redet alles.',
-    formula: 'Bekannter Ungleichheits-Index, wie bei Einkommensverteilung.',
-  },
   hoover: {
     description: 'Wie viel Prozent der Redezeit müsste man umverteilen, damit alle gleich viel reden? Intuitiver als Gini.',
     formula: '0% = perfekt gleich. 50% = Hälfte müsste umverteilt werden.',
-  },
-  turnGini: {
-    description: 'Wie ungleich sind die Wortmeldungen (Anzahl Turns) verteilt? Wie Gini, aber zählt die Anzahl der Redebeiträge statt der Wörter.',
-    formula: 'Hoch = wenige Personen melden sich viel öfter. Niedrig = alle melden sich ähnlich oft.',
   },
   longTermBalance: {
     description: 'Balance über die letzten 10 Minuten — ein breiterer Blick als die normale Balance (5 Min). Glättet kurzzeitige Schwankungen.',
@@ -862,34 +854,27 @@ export default function MetricsPanel({ latest, history, engineState, participant
       }));
   }, [p.cumulative, identityToName]);
 
-  // Determine header state
-  const isHealthy = insights.length === 0;
-  const hasProblems = insights.some(i => i.severity === 'bad');
+  // Determine header state — always from backend state inference (single source of truth).
+  // Insights serve as supplementary early-warning cards but never override the header.
+  const isRiskState = ['DOMINANCE_RISK', 'CONVERGENCE_RISK', 'STALLED_DISCUSSION'].includes(inf.state);
+  const stateConfig = STATE_CONFIG[inf.state] || STATE_CONFIG.HEALTHY_EXPLORATION;
 
-  // When insights disagree with inf.state, use the primary insight to determine
-  // the displayed title — prevents confusing combos like red header + "Session läuft gut".
-  const isStateHealthy = inf.state === 'HEALTHY_EXPLORATION' || inf.state === 'HEALTHY_ELABORATION';
-  const primaryInsight = insights[0]; // sorted by severity (bad first)
-
-  const INSIGHT_TITLES: Record<string, { title: string; subtitle: string }> = {
-    dominance: { title: 'Dominanz-Risiko', subtitle: 'Beteiligung ist unausgewogen — einzelne dominieren.' },
-    stagnation: { title: 'Stagnation', subtitle: 'Diskussion stockt — keine frischen Ideen.' },
-    convergence: { title: 'Konvergenz-Risiko', subtitle: 'Diskussion verengt sich — wenig neue Perspektiven.' },
-    silent: { title: 'Stille Teilnehmer', subtitle: 'Einige Teilnehmer haben sich noch nicht eingebracht.' },
-    balance: { title: 'Unausgewogene Beteiligung', subtitle: 'Beteiligung ist unausgewogen — einzelne dominieren.' },
-    novelty: { title: 'Wenig neue Ideen', subtitle: 'Ideenfluss verlangsamt sich.' },
-  };
-
-  // Use insight-based title when state says healthy but metrics say otherwise
-  const problemTitle = (isStateHealthy && primaryInsight)
-    ? INSIGHT_TITLES[primaryInsight.id]?.title ?? 'Problem erkannt'
-    : STATE_CONFIG[inf.state]?.label ?? 'Problem erkannt';
-  const problemSubtitle = (isStateHealthy && primaryInsight)
-    ? INSIGHT_TITLES[primaryInsight.id]?.subtitle ?? ''
-    : getStateSummaryCoach(inf.state);
-
-  const headerConfig = isHealthy
+  const headerConfig = isRiskState
     ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        ),
+        title: stateConfig.label,
+        subtitle: getStateSummaryCoach(inf.state),
+        bg: stateConfig.gradient,
+        titleColor: stateConfig.color,
+        subtitleColor: stateConfig.color.replace('400', '400/60'),
+      }
+    : {
         icon: (
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
             <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
@@ -903,35 +888,6 @@ export default function MetricsPanel({ latest, history, engineState, participant
         bg: 'from-emerald-500/15 to-emerald-500/5',
         titleColor: 'text-emerald-400',
         subtitleColor: 'text-emerald-400/60',
-      }
-    : hasProblems
-    ? {
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-rose-400">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-        ),
-        title: problemTitle,
-        subtitle: problemSubtitle,
-        bg: 'from-rose-500/15 to-rose-500/5',
-        titleColor: 'text-rose-400',
-        subtitleColor: 'text-rose-400/60',
-      }
-    : {
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
-        ),
-        title: problemTitle,
-        subtitle: problemSubtitle,
-        bg: 'from-amber-500/15 to-amber-500/5',
-        titleColor: 'text-amber-400',
-        subtitleColor: 'text-amber-400/60',
       };
 
   // Empty state
