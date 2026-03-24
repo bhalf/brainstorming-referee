@@ -18,12 +18,14 @@ export function useRealtimeInterventions(sessionId: string | null) {
   const [interventions, setInterventions] = useState<Intervention[]>([]);
   const [latestIntervention, setLatestIntervention] = useState<Intervention | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const dismissedIdsRef = useRef<Set<string>>(new Set());
 
   // ── Initial data load ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
     // Clear state for new session
     seenIdsRef.current.clear();
+    dismissedIdsRef.current.clear();
     setInterventions([]);
     setLatestIntervention(null);
 
@@ -68,7 +70,7 @@ export function useRealtimeInterventions(sessionId: string | null) {
       setLatestIntervention((prev) => {
         if (prev?.id === row.id) return row;
         // If no overlay showing but text just arrived, show it now
-        if (!prev && row.text?.trim()) {
+        if (!prev && row.text?.trim() && !dismissedIdsRef.current.has(row.id)) {
           const age = Date.now() - new Date(row.created_at).getTime();
           if (age < MAX_AGE_MS) return row;
         }
@@ -100,7 +102,10 @@ export function useRealtimeInterventions(sessionId: string | null) {
 
   /** Clear the latest intervention (e.g. after overlay dismiss) */
   const dismissLatest = useCallback(() => {
-    setLatestIntervention(null);
+    setLatestIntervention((prev) => {
+      if (prev) dismissedIdsRef.current.add(prev.id);
+      return null;
+    });
   }, []);
 
   return { interventions, latestIntervention, dismissLatest, isSubscribed };
