@@ -188,8 +188,9 @@ function MetricsAtIntervention({ metricsSnapshot }: { metricsSnapshot?: Record<s
 
   const rows: { label: string; value: string }[] = [];
   if (state?.state) rows.push({ label: 'Zustand', value: String(state.state).replace(/_/g, ' ') });
-  if (participation?.participation_risk_score != null)
-    rows.push({ label: 'Partizipationsrisiko', value: `${Math.round(Number(participation.participation_risk_score) * 100)}%` });
+  const compositeVal = participation?.participation_composite ?? participation?.participation_risk_score;
+  if (compositeVal != null)
+    rows.push({ label: 'Partizipations-Komposit', value: `${Math.round(Number(compositeVal) * 100)}%` });
   if (semantic?.novelty_rate != null)
     rows.push({ label: 'Novelty-Rate', value: `${Math.round(Number(semantic.novelty_rate) * 100)}%` });
   if (semantic?.stagnation_duration_seconds != null)
@@ -238,7 +239,7 @@ function TriggeredIdeas({
 
   if (triggered.length === 0) return null;
 
-  const ROLE_ICONS: Record<string, string> = { seed: '✦', extension: '↗', variant: '≈', tangent: '↯' };
+  const ROLE_ICONS: Record<string, string> = { seed: '✦', extension: '↗', variant: '≈', tangent: '↝' };
 
   return (
     <div className="space-y-1">

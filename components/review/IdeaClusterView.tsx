@@ -13,7 +13,7 @@ const NOVELTY_STYLES: Record<NoveltyRole, { icon: string; badge: string; label: 
   seed: { icon: '✦', badge: 'bg-green-500/15 text-green-400 border-green-500/25', label: 'Neu' },
   extension: { icon: '↗', badge: 'bg-blue-500/15 text-blue-400 border-blue-500/25', label: 'Erweiterung' },
   variant: { icon: '≈', badge: 'bg-purple-500/15 text-purple-400 border-purple-500/25', label: 'Variante' },
-  tangent: { icon: '↯', badge: 'bg-orange-500/15 text-orange-400 border-orange-500/25', label: 'Tangente' },
+  tangent: { icon: '↝', badge: 'bg-orange-500/15 text-orange-400 border-orange-500/25', label: 'Verwandt' },
 };
 
 const TYPE_COLORS: Record<IdeaType, string> = {

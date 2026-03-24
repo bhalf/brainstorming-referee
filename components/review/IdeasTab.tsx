@@ -14,7 +14,7 @@ const NOVELTY_ROLE_CONFIG: Record<string, { label: string; badge: string; icon: 
   seed: { label: 'Neue Idee', badge: 'bg-green-500/15 text-green-400 border-green-500/25', icon: '✦' },
   extension: { label: 'Erweiterung', badge: 'bg-blue-500/15 text-blue-400 border-blue-500/25', icon: '↗' },
   variant: { label: 'Variante', badge: 'bg-purple-500/15 text-purple-400 border-purple-500/25', icon: '≈' },
-  tangent: { label: 'Tangente', badge: 'bg-orange-500/15 text-orange-400 border-orange-500/25', icon: '↯' },
+  tangent: { label: 'Verwandt', badge: 'bg-orange-500/15 text-orange-400 border-orange-500/25', icon: '↝' },
 };
 
 const SOURCE_CONTEXT_CONFIG: Record<string, { label: string; badge: string }> = {

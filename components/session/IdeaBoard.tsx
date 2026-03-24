@@ -39,6 +39,7 @@ const I18N: Record<LangKey, {
   cancel: string;
   save: string;
   ungrouped: string;
+  connectionHint: string;
 }> = {
   de: {
     ideaBoard: 'Idea Board',
@@ -52,6 +53,7 @@ const I18N: Record<LangKey, {
     cancel: 'Abbrechen',
     save: 'Speichern',
     ungrouped: 'Neue Ideen',
+    connectionHint: 'Klicke auf eine Idee, um verwandte Ideen hervorzuheben.',
   },
   en: {
     ideaBoard: 'Idea Board',
@@ -65,6 +67,7 @@ const I18N: Record<LangKey, {
     cancel: 'Cancel',
     save: 'Save',
     ungrouped: 'New ideas',
+    connectionHint: 'Click an idea to highlight related ideas.',
   },
   fr: {
     ideaBoard: 'Tableau d\'idées',
@@ -78,6 +81,7 @@ const I18N: Record<LangKey, {
     cancel: 'Annuler',
     save: 'Enregistrer',
     ungrouped: 'Nouvelles idées',
+    connectionHint: 'Cliquez sur une idée pour mettre en avant les idées liées.',
   },
 };
 
@@ -89,7 +93,7 @@ const NOVELTY_STYLES: Record<NoveltyRole, { badge: string; icon: string; label: 
   seed: { badge: 'bg-green-500/15 text-green-400 border-green-500/25', icon: '✦', label: { de: 'Neu', en: 'Seed', fr: 'Graine' } },
   extension: { badge: 'bg-blue-500/15 text-blue-400 border-blue-500/25', icon: '↗', label: { de: 'Erweiterung', en: 'Extension', fr: 'Extension' } },
   variant: { badge: 'bg-purple-500/15 text-purple-400 border-purple-500/25', icon: '≈', label: { de: 'Variante', en: 'Variant', fr: 'Variante' } },
-  tangent: { badge: 'bg-orange-500/15 text-orange-400 border-orange-500/25', icon: '↯', label: { de: 'Tangente', en: 'Tangent', fr: 'Tangente' } },
+  tangent: { badge: 'bg-orange-500/15 text-orange-400 border-orange-500/25', icon: '↝', label: { de: 'Verwandt', en: 'Related', fr: 'Connexe' } },
 };
 
 const TYPE_BORDER: Record<IdeaType, string> = {
@@ -220,6 +224,16 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
     return set;
   }, [selectedIdeaId, connections]);
 
+  // Connection count per idea
+  const ideaConnectionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const conn of connections) {
+      counts[conn.source_idea_id] = (counts[conn.source_idea_id] || 0) + 1;
+      counts[conn.target_idea_id] = (counts[conn.target_idea_id] || 0) + 1;
+    }
+    return counts;
+  }, [connections]);
+
   const handleEdit = useCallback((id: string) => {
     const idea = visibleIdeas.find((i) => i.id === id);
     if (idea) {
@@ -302,6 +316,13 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
         </div>
       )}
 
+      {/* Connection hint */}
+      {connections.length > 0 && (
+        <p className="shrink-0 text-[10px] text-[var(--text-tertiary)] px-3 pt-1.5 pb-0.5">
+          {t.connectionHint}
+        </p>
+      )}
+
       {/* Edit modal */}
       {!readOnly && editingId && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in-scale">
@@ -359,6 +380,7 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
                         idea={idea}
                         langKey={langKey}
                         readOnly={readOnly}
+                        connectionCount={ideaConnectionCounts[idea.id] || 0}
                         selected={selectedIdeaId === idea.id}
                         highlighted={connectedIds.has(idea.id)}
                         dimmed={selectedIdeaId !== null && selectedIdeaId !== idea.id && !connectedIds.has(idea.id)}
@@ -391,6 +413,7 @@ export default function IdeaBoard({ ideas, connections, sessionId, language, rea
                         idea={idea}
                         langKey={langKey}
                         readOnly={readOnly}
+                        connectionCount={ideaConnectionCounts[idea.id] || 0}
                         selected={selectedIdeaId === idea.id}
                         highlighted={connectedIds.has(idea.id)}
                         dimmed={selectedIdeaId !== null && selectedIdeaId !== idea.id && !connectedIds.has(idea.id)}
@@ -418,6 +441,7 @@ interface IdeaCardProps {
   idea: Idea;
   langKey: LangKey;
   readOnly?: boolean;
+  connectionCount: number;
   selected: boolean;
   highlighted: boolean;
   dimmed: boolean;
@@ -426,7 +450,7 @@ interface IdeaCardProps {
   onDelete: (id: string) => void;
 }
 
-function IdeaCard({ idea, langKey, readOnly, selected, highlighted, dimmed, onClick, onEdit, onDelete }: IdeaCardProps) {
+function IdeaCard({ idea, langKey, readOnly, connectionCount, selected, highlighted, dimmed, onClick, onEdit, onDelete }: IdeaCardProps) {
   const typeColor = TYPE_BORDER[idea.idea_type] || TYPE_BORDER.brainstorming_idea;
   const novelty = idea.novelty_role ? NOVELTY_STYLES[idea.novelty_role] : null;
 
@@ -446,11 +470,18 @@ function IdeaCard({ idea, langKey, readOnly, selected, highlighted, dimmed, onCl
     >
       <div className="flex items-start justify-between gap-1.5">
         <div className="flex-1 min-w-0">
-          {novelty && (
-            <span className={`text-[8px] font-semibold px-1.5 py-0.5 rounded border inline-block mb-0.5 ${novelty.badge}`}>
-              {novelty.icon} {novelty.label[langKey]}
-            </span>
-          )}
+          <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+            {novelty && (
+              <span className={`text-[8px] font-semibold px-1.5 py-0.5 rounded border inline-block ${novelty.badge}`}>
+                {novelty.icon} {novelty.label[langKey]}
+              </span>
+            )}
+            {connectionCount > 0 && (
+              <span className="text-[8px] font-medium px-1 py-0.5 rounded bg-white/[0.06] text-[var(--text-tertiary)] inline-block">
+                {connectionCount}
+              </span>
+            )}
+          </div>
           <h5 className="text-[12px] font-medium text-[var(--text-primary)] leading-snug">{idea.title}</h5>
           {idea.description && (
             <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 line-clamp-2 leading-relaxed">{idea.description}</p>

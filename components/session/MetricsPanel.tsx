@@ -188,7 +188,7 @@ function generateInsights(
   const participantCount = Math.max(totalParticipants, speakerCount);
 
   // 1. Dominance / high participation risk
-  if (participantCount > 1 && (p.participation_risk_score > 0.35 || inf.state === 'DOMINANCE_RISK')) {
+  if (participantCount > 1 && (pComposite > 0.35 || inf.state === 'DOMINANCE_RISK')) {
     const sorted = Object.entries(p.volume_share).sort(([, a], [, b]) => b - a);
     if (sorted.length > 0) {
       const [topName, topShare] = sorted[0];
@@ -498,7 +498,7 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
   history: MetricSnapshot[];
 }) {
   const speakerCount = Object.keys(p.volume_share).length;
-  const riskStatus = getStatus('risk', p.participation_risk_score);
+  const riskStatus = getStatus('risk', pComposite);
   const balanceStatus = speakerCount <= 1
     ? { text: 'Nur 1 Sprecher', type: 'bad' as StatusType }
     : getStatus('balance', p.balance);
@@ -546,7 +546,7 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
       <SectionDivider>Beteiligung</SectionDivider>
 
       <div className="space-y-2.5">
-        <MetricRow label="Risiko" tipKey="risk" displayValue={`${(p.participation_risk_score * 100).toFixed(0)}%`} status={speakerCount <= 1 ? { text: 'Nur 1 Sprecher', type: 'bad' } : riskStatus} gaugeFill={p.participation_risk_score} gaugeThreshold={0.5} />
+        <MetricRow label="Risiko" tipKey="risk" displayValue={`${(pComposite * 100).toFixed(0)}%`} status={speakerCount <= 1 ? { text: 'Nur 1 Sprecher', type: 'bad' } : riskStatus} gaugeFill={pComposite} gaugeThreshold={0.5} />
         <MetricRow label="Balance" tipKey="balance" displayValue={`${(p.balance * 100).toFixed(0)}%`} status={balanceStatus} gaugeFill={p.balance} gaugeThreshold={0.5} />
       </div>
 
@@ -557,8 +557,6 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
       </div>
 
       <div className="space-y-3">
-        <DetailGauge label="Gini (Volumen)" value={p.gini_imbalance} tipKey="gini" />
-        <DetailGauge label="Gini (Turns)" value={p.turn_share_gini} tipKey="turnGini" />
         <DetailGauge label="Hoover (Volumen)" value={p.hoover_imbalance} tipKey="hoover" />
         <DetailGauge label="Stille-Quote" value={p.silent_participant_ratio} tipKey="silentRatio" />
         <DetailGauge label="Dominanz-Streak" value={p.dominance_streak_score} tipKey="dominanceStreak" />
@@ -667,8 +665,7 @@ const INTENT_LABELS: Record<InterventionIntent, { label: string; reason: string 
 };
 
 const METRIC_DISPLAY_LABELS: Record<string, string> = {
-  participation_risk_score: 'Beteiligungsrisiko',
-  gini_imbalance: 'Gini (Volumen)',
+  participation_composite: 'Partizipations-Komposit',
   balance: 'Balance',
   silent_participant_ratio: 'Stille-Quote',
   dominance_streak_score: 'Dominanz-Streak',
@@ -809,17 +806,19 @@ export default function MetricsPanel({ latest, history, engineState, participant
   const spark = useMemo(() => {
     const recent = history.slice(-30);
     return {
-      risk: recent.map(s => s.participation?.participation_risk_score ?? 0),
-      balance: recent.map(s => s.participation?.balance ?? (1 - (s.participation?.gini_imbalance ?? 1))),
+      risk: recent.map(s => s.participation?.participation_composite ?? s.participation?.participation_risk_score ?? 0),
+      balance: recent.map(s => s.participation?.balance ?? 0),
     };
   }, [history]);
 
   const p = latest?.participation ?? {
-    volume_share: {}, turn_share: {}, gini_imbalance: 1, turn_share_gini: 0,
+    volume_share: {}, turn_share: {},
     hoover_imbalance: 0, turn_hoover: 0, balance: 0, silent_participant_ratio: 0,
-    dominance_streak_score: 0, participation_risk_score: 0, long_term_balance: 0,
+    dominance_streak_score: 0, participation_composite: 0, long_term_balance: 0,
     cumulative_imbalance: 0, ideational_fluency_rate: 0,
   };
+  // Backward compat: older sessions store participation_risk_score
+  const pComposite = pComposite || (p as Record<string, unknown>).participation_risk_score as number || 0;
   const sd = latest?.semantic_dynamics ?? {
     novelty_rate: 0, cluster_concentration: 0, exploration_elaboration_ratio: 1,
     semantic_expansion_score: 0, cluster_count: 0, has_embeddings: false,

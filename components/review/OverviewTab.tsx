@@ -52,7 +52,7 @@ export default function OverviewTab({ data }: Props) {
     const avgNovelty = metrics.reduce((s, m) => s + (m.semantic_dynamics?.novelty_rate ?? 0), 0) / metrics.length;
     const avgDiversity = metrics.reduce((s, m) => s + (m.semantic_dynamics?.diversity ?? 0.5), 0) / metrics.length;
     const avgBalance = metrics.reduce((s, m) => s + (m.participation?.balance ?? 1), 0) / metrics.length;
-    const avgRisk = metrics.reduce((s, m) => s + (m.participation?.participation_risk_score ?? 0), 0) / metrics.length;
+    const avgRisk = metrics.reduce((s, m) => s + (m.participation?.participation_composite ?? m.participation?.participation_risk_score ?? 0), 0) / metrics.length;
     const avgPiggybacking = metrics.reduce((s, m) => s + (m.semantic_dynamics?.piggybacking_score ?? 0), 0) / metrics.length;
     const avgExploration = metrics.reduce((s, m) => s + (m.semantic_dynamics?.exploration_elaboration_ratio ?? 0.5), 0) / metrics.length;
 
@@ -376,7 +376,7 @@ export default function OverviewTab({ data }: Props) {
               seed: { label: '✦ Neue Ideen', color: 'text-green-400' },
               extension: { label: '↗ Erweiterungen', color: 'text-blue-400' },
               variant: { label: '≈ Varianten', color: 'text-purple-400' },
-              tangent: { label: '↯ Tangenten', color: 'text-orange-400' },
+              tangent: { label: '↝ Verwandte', color: 'text-orange-400' },
             };
             const entries = Object.entries(roleCounts);
             if (entries.length === 0) return null;

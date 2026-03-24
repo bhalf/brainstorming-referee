@@ -89,14 +89,14 @@ export interface CumulativeParticipation {
 export interface ParticipationMetrics {
   volume_share: Record<string, number>;
   turn_share: Record<string, number>;
-  gini_imbalance: number;
-  turn_share_gini: number;
   hoover_imbalance: number;
   turn_hoover: number;
   balance: number;
   silent_participant_ratio: number;
   dominance_streak_score: number;
-  participation_risk_score: number;
+  participation_composite: number;
+  /** @deprecated Renamed to participation_composite — kept for backward compat with old DB rows */
+  participation_risk_score?: number;
   long_term_balance: number;
   cumulative_imbalance: number;
   ideational_fluency_rate: number;
@@ -206,7 +206,7 @@ export interface Idea {
   created_at: string;
 }
 
-export type ConnectionType = 'builds_on' | 'supports' | 'leads_to' | 'contrasts' | 'related' | 'contains' | 'refines';
+export type ConnectionType = 'builds_on' | 'supports' | 'leads_to' | 'contrasts' | 'related' | 'related_weak' | 'contains' | 'refines';
 
 export interface IdeaConnection {
   id: string;

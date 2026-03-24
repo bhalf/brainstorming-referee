@@ -211,7 +211,7 @@ export default function GoalsTab({ data }: Props) {
 }
 
 function GoalLinkedIdeas({ ideas }: { ideas: SessionExport['ideas'] }) {
-  const ROLE_ICONS: Record<string, string> = { seed: '✦', extension: '↗', variant: '≈', tangent: '↯' };
+  const ROLE_ICONS: Record<string, string> = { seed: '✦', extension: '↗', variant: '≈', tangent: '↝' };
 
   return (
     <div className="space-y-1 mt-1.5">

@@ -30,7 +30,7 @@ const ROLE_LABELS: Record<string, string> = {
   seed: '✦ Neue Idee',
   extension: '↗ Erweiterung',
   variant: '≈ Variante',
-  tangent: '↯ Tangente',
+  tangent: '↝ Verwandt',
 };
 
 export default function IdeasTimelineChart({ data }: Props) {
@@ -139,7 +139,7 @@ export default function IdeasTimelineChart({ data }: Props) {
                     {d.seed > 0 && <p className="text-green-400">✦ {d.seed} Neue</p>}
                     {d.extension > 0 && <p className="text-sky-400">↗ {d.extension} Erweiterungen</p>}
                     {d.variant > 0 && <p className="text-violet-400">≈ {d.variant} Varianten</p>}
-                    {d.tangent > 0 && <p className="text-orange-400">↯ {d.tangent} Tangenten</p>}
+                    {d.tangent > 0 && <p className="text-orange-400">↝ {d.tangent} Verwandte</p>}
                     <p className="text-[var(--text-tertiary)]">Kumulativ: {d.cumulative}</p>
                   </div>
                 );

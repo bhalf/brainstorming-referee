@@ -114,9 +114,9 @@ export function computeInterventionImpact(
 
   const results = [
     {
-      metric: 'Partizipationsrisiko',
-      before: avg(before.map((m) => m.participation?.participation_risk_score ?? 0)),
-      after: avg(after.map((m) => m.participation?.participation_risk_score ?? 0)),
+      metric: 'Partizipations-Komposit',
+      before: avg(before.map((m) => m.participation?.participation_composite ?? m.participation?.participation_risk_score ?? 0)),
+      after: avg(after.map((m) => m.participation?.participation_composite ?? m.participation?.participation_risk_score ?? 0)),
       unit: 'pct' as const,
     },
     {

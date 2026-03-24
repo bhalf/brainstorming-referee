@@ -43,9 +43,9 @@ type MetricToggle = 'participationRisk' | 'noveltyRate' | 'stagnation' | 'cluste
 const METRIC_CONFIG: Record<MetricToggle, { label: string; color: string; type: 'area' | 'line' | 'dashed'; defaultOn: boolean }> = {
   participationRisk: { label: 'Partizipationsrisiko', color: '#fb923c', type: 'area', defaultOn: true },
   noveltyRate: { label: 'Novelty-Rate', color: '#34d399', type: 'area', defaultOn: true },
-  stagnation: { label: 'Stagnation (s)', color: '#facc15', type: 'dashed', defaultOn: true },
+  stagnation: { label: 'Stagnation (s)', color: '#facc15', type: 'dashed', defaultOn: false },
   clusterConcentration: { label: 'Cluster-Konz.', color: '#38bdf8', type: 'line', defaultOn: true },
-  balance: { label: 'Balance', color: '#a78bfa', type: 'line', defaultOn: false },
+  balance: { label: 'Balance', color: '#a78bfa', type: 'line', defaultOn: true },
   explorationElaboration: { label: 'Exploration/Elaboration', color: '#f472b6', type: 'line', defaultOn: false },
   diversity: { label: 'Diversität', color: '#2dd4bf', type: 'line', defaultOn: false },
   piggybackingScore: { label: 'Piggybacking', color: '#e879f9', type: 'dashed', defaultOn: false },
@@ -96,7 +96,7 @@ export default function MetricsTimelineChart({ data }: Props) {
       return {
         time: elapsed,
         timeLabel: formatTimestamp(m.computed_at, sessionStart),
-        participationRisk: Math.round((m.participation?.participation_risk_score ?? 0) * 100),
+        participationRisk: Math.round((m.participation?.participation_composite ?? m.participation?.participation_risk_score ?? 0) * 100),
         noveltyRate: Math.round((m.semantic_dynamics?.novelty_rate ?? 0) * 100),
         // Stagnation: normalize to 0-100 scale using maxStagnation for chart display
         stagnation: Math.round(
