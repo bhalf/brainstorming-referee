@@ -87,7 +87,12 @@ export function useRealtimeInterventions(sessionId: string | null) {
 
     const age = Date.now() - new Date(row.created_at).getTime();
     if (age < MAX_AGE_MS) {
-      setLatestIntervention(row);
+      // Don't overwrite an intervention that's currently showing —
+      // the user should see the first one fully before the next appears.
+      setLatestIntervention((prev) => {
+        if (prev && !dismissedIdsRef.current.has(prev.id)) return prev;
+        return row;
+      });
     }
   }, []);
 
