@@ -172,6 +172,7 @@ export interface Intervention {
   text: string;
   audio_duration_ms?: number;
   metrics_at_intervention?: Record<string, unknown>;
+  metrics_at_postcheck?: Record<string, unknown>;
   recovery_score?: number;
   recovered?: boolean;
   created_at: string;

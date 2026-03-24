@@ -151,7 +151,7 @@ export function computeInterventionImpact(
 
 export function formatImpactValue(value: number, unit: 'pct' | 'seconds'): string {
   if (unit === 'seconds') return `${Math.round(value)}s`;
-  return `${Math.round(value * 100)}`;
+  return `${Math.round(value * 100)}%`;
 }
 
 // --- Speaker Colors ---
@@ -174,12 +174,12 @@ export function getSpeakerColor(index: number): string {
 // --- Intent Chart Colors ---
 
 export const INTENT_CHART_COLORS: Record<string, string> = {
-  PARTICIPATION_REBALANCING: '#818cf8',  // indigo-400
-  PERSPECTIVE_BROADENING: '#a78bfa',     // violet-400
-  REACTIVATION: '#fbbf24',              // amber-400
-  ALLY_IMPULSE: '#34d399',              // emerald-400
-  NORM_REINFORCEMENT: '#fb7185',         // rose-400
-  GOAL_REFOCUS: '#2dd4bf',              // teal-400
+  PARTICIPATION_REBALANCING: '#3b82f6',  // blue-500
+  PERSPECTIVE_BROADENING: '#f97316',     // orange-500
+  REACTIVATION: '#eab308',              // yellow-500
+  ALLY_IMPULSE: '#22c55e',              // green-500
+  NORM_REINFORCEMENT: '#ef4444',         // red-500
+  GOAL_REFOCUS: '#06b6d4',              // cyan-500
 };
 
 // --- Speaking Time Estimation ---

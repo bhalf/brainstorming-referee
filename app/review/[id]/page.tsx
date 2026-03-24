@@ -14,9 +14,9 @@ const StateDurationChart = dynamic(() => import('@/components/review/StateDurati
 const InterventionPanel = dynamic(() => import('@/components/review/InterventionPanel'), { ssr: false });
 const ParticipantBreakdown = dynamic(() => import('@/components/review/ParticipantBreakdown'), { ssr: false });
 const TranscriptTab = dynamic(() => import('@/components/review/TranscriptTab'), { ssr: false });
-const IdeasTab = dynamic(() => import('@/components/review/IdeasTab'), { ssr: false });
 const GoalsTab = dynamic(() => import('@/components/review/GoalsTab'), { ssr: false });
 const TopicsTab = dynamic(() => import('@/components/review/TopicsTab'), { ssr: false });
+const IdeasSummary = dynamic(() => import('@/components/review/IdeasSummary'), { ssr: false });
 const IdeasTimelineChart = dynamic(() => import('@/components/review/IdeasTimelineChart'), { ssr: false });
 const IdeaClusterView = dynamic(() => import('@/components/review/IdeaClusterView'), { ssr: false });
 
@@ -171,9 +171,9 @@ export default function ReviewPage() {
           {activeTab === 'transcript' && <TranscriptTab data={data} />}
           {activeTab === 'ideas' && (
             <div className="space-y-5">
+              <IdeasSummary data={data} />
               <IdeaClusterView sessionId={sessionId} data={data} />
               <IdeasTimelineChart data={data} />
-              <IdeasTab data={data} />
             </div>
           )}
           {activeTab === 'goals' && <GoalsTab data={data} />}

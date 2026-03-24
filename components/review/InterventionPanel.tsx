@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { SessionExport } from '@/types';
-import { INTENT_LABELS, formatTimestamp, computeInterventionImpact, formatImpactValue, generateInterventionNarrative } from './utils';
+import { INTENT_LABELS, INTENT_CHART_COLORS, formatTimestamp, computeInterventionImpact, formatImpactValue } from './utils';
 
 interface Props {
   data: SessionExport;
@@ -24,135 +24,54 @@ export default function InterventionPanel({ data }: Props) {
 
   return (
     <div className="space-y-5">
-      {/* Intervention Timeline */}
-      <div className="glass p-5 space-y-3">
-        <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Interventions-Verlauf</h3>
-        <div className="space-y-2">
-          {interventions.map((iv) => {
-            const isExpanded = expandedId === iv.id;
-            return (
-              <div key={iv.id} className="glass-sm rounded-xl overflow-hidden">
-                <button
-                  className="w-full text-left p-3.5 flex items-start gap-3 hover:bg-white/[0.02] transition-colors"
-                  onClick={() => setExpandedId(isExpanded ? null : iv.id)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-mono text-[var(--text-tertiary)]">
-                        {formatTimestamp(iv.created_at, sessionStart)}
-                      </span>
-                      <IntentBadge intent={iv.intent} />
-                      {iv.recovered !== undefined && iv.recovered !== null && (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
-                          iv.recovered
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                        }`}>
-                          {iv.recovered ? 'Recovered' : 'Not recovered'}
-                        </span>
-                      )}
-                    </div>
-                    <p className={`text-sm text-[var(--text-primary)] mt-1.5${isExpanded ? '' : ' line-clamp-3'}`}>{iv.text}</p>
-                  </div>
-                  <svg
-                    width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    className={`text-[var(--text-tertiary)] shrink-0 mt-1 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-
-                {isExpanded && (
-                  <div className="px-3.5 pb-3.5 border-t border-white/[0.06] pt-3 space-y-2 animate-fade-in">
-                    {/* Narrative summary */}
-                    <NarrativeSummary
-                      intervention={iv}
-                      metrics={metrics}
-                      ideas={ideas}
-                      sessionStart={sessionStart}
-                    />
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      {iv.trigger && (
-                        <div>
-                          <span className="text-[var(--text-tertiary)]">Trigger</span>
-                          <p className="text-[var(--text-secondary)] mt-0.5">{iv.trigger}</p>
-                        </div>
-                      )}
-                      {iv.audio_duration_ms !== undefined && iv.audio_duration_ms !== null && (
-                        <div>
-                          <span className="text-[var(--text-tertiary)]">Audio-Dauer</span>
-                          <p className="text-[var(--text-secondary)] mt-0.5">{(iv.audio_duration_ms / 1000).toFixed(1)}s</p>
-                        </div>
-                      )}
-                      {iv.recovery_score !== undefined && iv.recovery_score !== null && (
-                        <div>
-                          <span className="text-[var(--text-tertiary)]">Recovery-Score</span>
-                          <p className="text-[var(--text-secondary)] mt-0.5">{Math.round(iv.recovery_score * 100)}%</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Metrics at Intervention (exact snapshot) */}
-                    <MetricsAtIntervention metricsSnapshot={iv.metrics_at_intervention} />
-
-                    {/* Impact Analysis for this intervention */}
-                    <InterventionImpactMini intervention={iv} metrics={metrics} sessionStart={sessionStart} />
-
-                    {/* Ideas triggered by this intervention */}
-                    <TriggeredIdeas intervention={iv} ideas={ideas} sessionStart={sessionStart} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      <div className="glass p-5 space-y-1.5">
+        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Interventions-Verlauf</h3>
+        {interventions.map((iv) => {
+          const isExpanded = expandedId === iv.id;
+          return (
+            <InterventionRow
+              key={iv.id}
+              intervention={iv}
+              metrics={metrics}
+              ideas={ideas}
+              sessionStart={sessionStart}
+              isExpanded={isExpanded}
+              onToggle={() => setExpandedId(isExpanded ? null : iv.id)}
+            />
+          );
+        })}
       </div>
 
-      {/* Intervention → Idea Generation Summary */}
       <InterventionIdeaSummary data={data} />
-
-      {/* Aggregate Impact Chart */}
       <AggregateImpactChart data={data} />
     </div>
   );
 }
 
-function IntentBadge({ intent }: { intent: string }) {
-  const colors: Record<string, string> = {
-    PARTICIPATION_REBALANCING: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
-    PERSPECTIVE_BROADENING: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
-    REACTIVATION: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    ALLY_IMPULSE: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-    NORM_REINFORCEMENT: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-    GOAL_REFOCUS: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
-  };
+// --- Single Intervention Row ---
 
-  return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${colors[intent] || 'bg-white/5 text-white/40 border-white/10'}`}>
-      {INTENT_LABELS[intent] || intent}
-    </span>
-  );
-}
-
-function NarrativeSummary({
-  intervention,
+function InterventionRow({
+  intervention: iv,
   metrics,
   ideas,
   sessionStart,
+  isExpanded,
+  onToggle,
 }: {
   intervention: SessionExport['interventions'][0];
   metrics: SessionExport['metrics'];
   ideas: SessionExport['ideas'];
   sessionStart: string;
+  isExpanded: boolean;
+  onToggle: () => void;
 }) {
   const impact = useMemo(
-    () => computeInterventionImpact(intervention, metrics, sessionStart),
-    [intervention, metrics, sessionStart]
+    () => computeInterventionImpact(iv, metrics, sessionStart),
+    [iv, metrics, sessionStart]
   );
 
-  const triggeredCount = useMemo(() => {
-    const ivTime = new Date(intervention.created_at).getTime();
+  const triggered = useMemo(() => {
+    const ivTime = new Date(iv.created_at).getTime();
     const windowMs = 90 * 1000;
     return ideas.filter((idea) => {
       if (idea.is_deleted) return false;
@@ -161,152 +80,184 @@ function NarrativeSummary({
         return ideaTime >= ivTime && ideaTime <= ivTime + windowMs;
       }
       return false;
-    }).length;
-  }, [intervention, ideas]);
-
-  const narrative = useMemo(
-    () => generateInterventionNarrative(intervention, impact, triggeredCount),
-    [intervention, impact, triggeredCount]
-  );
-
-  return (
-    <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.06]">
-      <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider block mb-1">Zusammenfassung</span>
-      <p className="text-xs text-[var(--text-primary)] leading-relaxed">{narrative}</p>
-    </div>
-  );
-}
-
-function MetricsAtIntervention({ metricsSnapshot }: { metricsSnapshot?: Record<string, unknown> }) {
-  if (!metricsSnapshot) return null;
-
-  const participation = metricsSnapshot.participation as Record<string, unknown> | undefined;
-  const semantic = metricsSnapshot.semantic_dynamics as Record<string, unknown> | undefined;
-  const state = metricsSnapshot.inferred_state as Record<string, unknown> | undefined;
-
-  if (!participation && !semantic) return null;
-
-  const rows: { label: string; value: string }[] = [];
-  if (state?.state) rows.push({ label: 'Zustand', value: String(state.state).replace(/_/g, ' ') });
-  const compositeVal = participation?.participation_composite ?? participation?.participation_risk_score;
-  if (compositeVal != null)
-    rows.push({ label: 'Partizipations-Komposit', value: `${Math.round(Number(compositeVal) * 100)}%` });
-  if (semantic?.novelty_rate != null)
-    rows.push({ label: 'Novelty-Rate', value: `${Math.round(Number(semantic.novelty_rate) * 100)}%` });
-  if (semantic?.stagnation_duration_seconds != null)
-    rows.push({ label: 'Stagnation', value: `${Math.round(Number(semantic.stagnation_duration_seconds))}s` });
-  if (participation?.balance != null)
-    rows.push({ label: 'Balance', value: `${Math.round(Number(participation.balance) * 100)}%` });
-
-  if (rows.length === 0) return null;
-
-  return (
-    <div className="space-y-1">
-      <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider">Metriken zum Zeitpunkt</span>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center justify-between gap-2">
-            <span className="text-[var(--text-tertiary)]">{r.label}</span>
-            <span className="font-mono text-[var(--text-secondary)]">{r.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TriggeredIdeas({
-  intervention,
-  ideas,
-  sessionStart,
-}: {
-  intervention: SessionExport['interventions'][0];
-  ideas: SessionExport['ideas'];
-  sessionStart: string;
-}) {
-  const triggered = useMemo(() => {
-    const ivTime = new Date(intervention.created_at).getTime();
-    const windowMs = 90 * 1000; // 90s window after intervention
-    return ideas.filter((idea) => {
-      if (idea.is_deleted) return false;
-      if (idea.source_context === 'moderator_triggered' || idea.source_context === 'ally_triggered') {
-        const ideaTime = new Date(idea.created_at).getTime();
-        return ideaTime >= ivTime && ideaTime <= ivTime + windowMs;
-      }
-      return false;
     });
-  }, [intervention, ideas]);
-
-  if (triggered.length === 0) return null;
-
-  const ROLE_ICONS: Record<string, string> = { seed: '✦', extension: '↗', variant: '≈', tangent: '↝' };
+  }, [iv, ideas]);
 
   return (
-    <div className="space-y-1">
-      <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider">
-        Ausgelöste Ideen ({triggered.length})
-      </span>
-      <div className="space-y-1">
-        {triggered.map((idea) => (
-          <div key={idea.id} className="text-xs flex items-center gap-2 bg-white/[0.03] rounded-lg px-2 py-1">
-            {idea.novelty_role && (
-              <span className="text-[var(--text-tertiary)]">{ROLE_ICONS[idea.novelty_role] || ''}</span>
-            )}
-            <span className="text-[var(--text-primary)]">{idea.title}</span>
-            <span className="text-[10px] font-mono text-[var(--text-tertiary)] ml-auto">
-              {formatTimestamp(idea.created_at, sessionStart)}
+    <div className={`rounded-lg overflow-hidden transition-colors ${isExpanded ? 'ring-1 ring-white/[0.08]' : 'hover:bg-white/[0.02]'}`}>
+      {/* Preview — always visible */}
+      <button
+        className="w-full text-left px-3 py-2.5 cursor-pointer"
+        onClick={onToggle}
+      >
+        {/* Top row: meta */}
+        <div className="flex items-center gap-2.5 mb-1.5">
+          <span className="text-xs font-mono text-[var(--text-tertiary)] shrink-0">
+            {formatTimestamp(iv.created_at, sessionStart)}
+          </span>
+          <IntentBadge intent={iv.intent} />
+          {/* Backend recovery status */}
+          {iv.recovered !== undefined && iv.recovered !== null && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${
+              iv.recovered
+                ? 'bg-emerald-500/10 text-emerald-400'
+                : 'bg-rose-500/10 text-rose-400'
+            }`}>
+              {iv.recovered ? 'Erholt' : 'Nicht erholt'}
             </span>
-          </div>
-        ))}
-      </div>
+          )}
+          <span className="flex-1" />
+          <svg
+            width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            className={`text-[var(--text-tertiary)] shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+        {/* Full intervention text */}
+        <p className="text-[13px] text-[var(--text-primary)] leading-relaxed">{iv.text}</p>
+      </button>
+
+      {/* Expanded details */}
+      {isExpanded && (
+        <ExpandedDetails
+          intervention={iv}
+          impact={impact}
+          triggered={triggered}
+        />
+      )}
     </div>
   );
 }
 
-function InterventionImpactMini({
+function IntentBadge({ intent }: { intent: string }) {
+  const color = INTENT_CHART_COLORS[intent] || '#888';
+  return (
+    <span
+      className="text-[10px] px-2 py-0.5 rounded-full border shrink-0 font-medium"
+      style={{
+        backgroundColor: `${color}15`,
+        color: color,
+        borderColor: `${color}30`,
+      }}
+    >
+      {INTENT_LABELS[intent] || intent}
+    </span>
+  );
+}
+
+// --- Expanded Details ---
+
+/** Extract before/after metrics from backend-stored snapshots (point-in-time). */
+function extractBackendImpact(intervention: SessionExport['interventions'][0]) {
+  const before = intervention.metrics_at_intervention as Record<string, Record<string, number>> | undefined;
+  const after = intervention.metrics_at_postcheck as Record<string, Record<string, number>> | undefined;
+  if (!before || !after) return null;
+
+  const pb = before.participation ?? {};
+  const pa = after.participation ?? {};
+  const sb = before.semantic_dynamics ?? {};
+  const sa = after.semantic_dynamics ?? {};
+
+  const rows: Array<{ metric: string; before: number; after: number; unit: 'pct' | 'seconds'; improved: boolean }> = [
+    {
+      metric: 'Partizipations-Komposit',
+      before: pb.participation_composite ?? 0,
+      after: pa.participation_composite ?? 0,
+      unit: 'pct',
+      improved: (pa.participation_composite ?? 0) < (pb.participation_composite ?? 0),
+    },
+    {
+      metric: 'Novelty-Rate',
+      before: sb.novelty_rate ?? 0,
+      after: sa.novelty_rate ?? 0,
+      unit: 'pct',
+      improved: (sa.novelty_rate ?? 0) > (sb.novelty_rate ?? 0),
+    },
+    {
+      metric: 'Stagnation',
+      before: sb.stagnation_duration_seconds ?? 0,
+      after: sa.stagnation_duration_seconds ?? 0,
+      unit: 'seconds',
+      improved: (sa.stagnation_duration_seconds ?? 0) < (sb.stagnation_duration_seconds ?? 0),
+    },
+    {
+      metric: 'Cluster-Konzentration',
+      before: sb.cluster_concentration ?? 0,
+      after: sa.cluster_concentration ?? 0,
+      unit: 'pct',
+      improved: (sa.cluster_concentration ?? 0) < (sb.cluster_concentration ?? 0),
+    },
+  ];
+  return rows;
+}
+
+function ExpandedDetails({
   intervention,
-  metrics,
-  sessionStart,
+  impact,
+  triggered,
 }: {
   intervention: SessionExport['interventions'][0];
-  metrics: SessionExport['metrics'];
-  sessionStart: string;
+  impact: ReturnType<typeof computeInterventionImpact>;
+  triggered: SessionExport['ideas'];
 }) {
-  const impact = useMemo(
-    () => computeInterventionImpact(intervention, metrics, sessionStart),
-    [intervention, metrics, sessionStart]
-  );
-
-  if (!impact) {
-    return (
-      <p className="text-[10px] text-[var(--text-tertiary)]">
-        Nicht genügend Daten für Impact-Analyse
-      </p>
-    );
-  }
+  // Prefer backend point-in-time values; fall back to frontend Ø windows
+  const backendImpact = useMemo(() => extractBackendImpact(intervention), [intervention]);
+  const displayImpact = backendImpact ?? impact;
+  const isBackendData = backendImpact !== null;
 
   return (
-    <div className="space-y-1.5">
-      <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider">Impact (3min vorher → 5min nachher)</span>
-      {impact.map((row) => (
-        <div key={row.metric} className="flex items-center gap-2 text-xs">
-          <span className="text-[var(--text-tertiary)] w-36 shrink-0">{row.metric}</span>
-          <div className="flex items-center gap-1.5 flex-1">
-            <span className="font-mono text-[var(--text-tertiary)] w-12 text-right">
-              {formatImpactValue(row.before, row.unit)}
+    <div className="px-3 pb-3 animate-fade-in border-t border-white/[0.06] pt-2.5 space-y-2.5">
+      {/* Backend Recovery info */}
+      <div className="flex items-center gap-4 text-[11px]">
+        {intervention.recovery_score != null && (
+          <span className="text-[var(--text-tertiary)]">
+            Recovery-Score: <span className="font-mono text-[var(--text-secondary)]">{Math.round(intervention.recovery_score * 100)}%</span>
+          </span>
+        )}
+        {intervention.trigger && (
+          <span className="text-[var(--text-tertiary)]">
+            Trigger: <span className="text-[var(--text-secondary)]">{intervention.trigger}</span>
+          </span>
+        )}
+        {triggered.length > 0 && (
+          <span className="text-[var(--text-tertiary)]">
+            {triggered.length} {triggered.length === 1 ? 'Idee' : 'Ideen'} ausgelöst
+          </span>
+        )}
+      </div>
+
+      {/* Impact table */}
+      {displayImpact && displayImpact.length > 0 ? (
+        <div>
+          <span className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider font-medium">
+            Metrik-Vergleich
+            <span className="normal-case tracking-normal font-normal opacity-60 ml-1.5">
+              {isBackendData ? 'bei Intervention → bei Postcheck' : 'Ø 3 min vorher → Ø 5 min nachher'}
             </span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[var(--text-tertiary)]">
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
-            <span className={`font-mono w-12 ${row.improved ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {formatImpactValue(row.after, row.unit)}
-            </span>
+          </span>
+          <div className="mt-1.5 space-y-0.5">
+            {displayImpact.map((row) => (
+              <div key={row.metric} className="flex items-center text-[11px] py-0.5">
+                <span className="text-[var(--text-tertiary)] w-[140px] shrink-0">{row.metric}</span>
+                <span className="font-mono text-[var(--text-tertiary)] w-10 text-right">{formatImpactValue(row.before, row.unit)}</span>
+                <span className="text-[var(--text-tertiary)] opacity-40 mx-1.5">→</span>
+                <span className={`font-mono w-10 ${row.improved ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {formatImpactValue(row.after, row.unit)}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
+      ) : (
+        <p className="text-[11px] text-[var(--text-tertiary)]">Nicht genügend Daten für Metrik-Vergleich</p>
+      )}
     </div>
   );
 }
+
+// --- Intervention → Idea Summary ---
 
 function InterventionIdeaSummary({ data }: { data: SessionExport }) {
   const { interventions, ideas } = data;
@@ -349,6 +300,8 @@ function InterventionIdeaSummary({ data }: { data: SessionExport }) {
   );
 }
 
+// --- Aggregate Impact Chart ---
+
 function AggregateImpactChart({ data }: { data: SessionExport }) {
   const { session, interventions, metrics } = data;
   const sessionStart = session.started_at || session.created_at;
@@ -366,12 +319,16 @@ function AggregateImpactChart({ data }: { data: SessionExport }) {
       }
     }
 
+    const maxStagnation = Object.entries(allImpacts)
+      .filter(([, d]) => d.unit === 'seconds')
+      .flatMap(([, d]) => [...d.before, ...d.after])
+      .reduce((max, v) => Math.max(max, v), 60);
+
     return Object.entries(allImpacts).map(([metric, { before, after, unit }]) => {
       const avgBefore = before.reduce((a, b) => a + b, 0) / before.length;
       const avgAfter = after.reduce((a, b) => a + b, 0) / after.length;
       const improved = metric === 'Novelty-Rate' ? avgAfter > avgBefore : avgAfter < avgBefore;
-      // Normalize stagnation to 0-100 scale for chart (cap at 120s = 100%)
-      const normalize = (v: number) => unit === 'seconds' ? Math.min(Math.round((v / 120) * 100), 100) : Math.round(v * 100);
+      const normalize = (v: number) => unit === 'seconds' ? Math.min(Math.round((v / maxStagnation) * 100), 100) : Math.round(v * 100);
       return {
         metric,
         before: normalize(avgBefore),
@@ -417,12 +374,13 @@ function AggregateImpactChart({ data }: { data: SessionExport }) {
               width={130}
             />
             <Tooltip
+              cursor={false}
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
                 const d = payload[0].payload;
                 const fmt = (v: number) => d.unit === 'seconds' ? `${Math.round(v)}s` : `${Math.round(v * 100)}%`;
                 return (
-                  <div className="glass-sm p-2.5 rounded-lg text-xs space-y-1">
+                  <div className="p-2.5 rounded-lg text-xs space-y-1" style={{ background: 'rgba(15, 15, 25, 0.95)', border: '1px solid rgba(255,255,255,0.1)' }}>
                     <p className="text-[var(--text-primary)] font-medium">{d.metric}</p>
                     <p className="text-[var(--text-tertiary)]">Vorher: {fmt(d.rawBefore)} / Nachher: {fmt(d.rawAfter)}</p>
                     <p className="text-[var(--text-tertiary)]">n={d.n} Interventionen</p>

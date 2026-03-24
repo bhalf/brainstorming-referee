@@ -14,7 +14,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import type { SessionExport } from '@/types';
-import { formatTimestamp } from './utils';
+import { formatTimestamp, INTENT_LABELS } from './utils';
 
 interface Props {
   data: SessionExport;
@@ -25,12 +25,14 @@ const ROLE_COLORS: Record<string, string> = {
   extension: '#38bdf8',
   variant: '#a78bfa',
   tangent: '#fb923c',
+  unclassified: '#64748b',
 };
 const ROLE_LABELS: Record<string, string> = {
   seed: '✦ Neue Idee',
   extension: '↗ Erweiterung',
   variant: '≈ Variante',
   tangent: '↝ Verwandt',
+  unclassified: '○ Unkategorisiert',
 };
 
 export default function IdeasTimelineChart({ data }: Props) {
@@ -44,10 +46,11 @@ export default function IdeasTimelineChart({ data }: Props) {
     if (activeIdeas.length === 0) return [];
 
     const startMs = new Date(sessionStart).getTime();
-    const endMs = session.ended_at ? new Date(session.ended_at).getTime() : startMs;
+    const lastIdeaMs = activeIdeas.reduce((max, i) => Math.max(max, new Date(i.created_at).getTime()), startMs);
+    const endMs = session.ended_at ? new Date(session.ended_at).getTime() : lastIdeaMs;
     const durationMin = Math.max(Math.ceil((endMs - startMs) / 60000), 1);
 
-    const buckets: { minute: number; time: number; seed: number; extension: number; variant: number; tangent: number; cumulative: number }[] = [];
+    const buckets: { minute: number; time: number; seed: number; extension: number; variant: number; tangent: number; unclassified: number; cumulative: number; triggered: number }[] = [];
     let cumulative = 0;
 
     for (let m = 0; m < durationMin; m++) {
@@ -62,6 +65,8 @@ export default function IdeasTimelineChart({ data }: Props) {
       const extension = inBucket.filter((i) => i.novelty_role === 'extension').length;
       const variant = inBucket.filter((i) => i.novelty_role === 'variant').length;
       const tangent = inBucket.filter((i) => i.novelty_role === 'tangent').length;
+      const unclassified = inBucket.filter((i) => !i.novelty_role).length;
+      const triggered = inBucket.filter((i) => i.source_context === 'moderator_triggered' || i.source_context === 'ally_triggered').length;
       cumulative += inBucket.length;
 
       buckets.push({
@@ -71,7 +76,9 @@ export default function IdeasTimelineChart({ data }: Props) {
         extension,
         variant,
         tangent,
+        unclassified,
         cumulative,
+        triggered,
       });
     }
 
@@ -83,6 +90,7 @@ export default function IdeasTimelineChart({ data }: Props) {
     const startMs = new Date(sessionStart).getTime();
     return interventions.map((iv) => ({
       time: new Date(iv.created_at).getTime() - startMs,
+      intent: iv.intent,
     }));
   }, [interventions, sessionStart]);
 
@@ -97,7 +105,15 @@ export default function IdeasTimelineChart({ data }: Props) {
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
 
             {interventionMarkers.map((m, i) => (
-              <ReferenceLine key={i} x={m.time} stroke="#818cf8" strokeDasharray="4 4" strokeWidth={1} />
+              <ReferenceLine
+                key={i}
+                x={m.time}
+                yAxisId="count"
+                stroke="#818cf8"
+                strokeDasharray="4 4"
+                strokeWidth={1}
+                label={{ value: INTENT_LABELS[m.intent] || m.intent, position: 'insideTopRight', fill: '#818cf8', fontSize: 9 }}
+              />
             ))}
 
             <XAxis
@@ -128,18 +144,21 @@ export default function IdeasTimelineChart({ data }: Props) {
               width={35}
             />
             <Tooltip
+              cursor={false}
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
                 const d = payload[0].payload;
-                const total = d.seed + d.extension + d.variant + d.tangent;
+                const total = d.seed + d.extension + d.variant + d.tangent + d.unclassified;
                 return (
-                  <div className="glass-sm p-2.5 rounded-lg text-xs space-y-1">
+                  <div className="p-2.5 rounded-lg text-xs space-y-1" style={{ background: 'rgba(15, 15, 25, 0.95)', border: '1px solid rgba(255,255,255,0.1)' }}>
                     <p className="text-[var(--text-primary)] font-medium">Minute {d.minute + 1}</p>
                     {total > 0 && <p className="text-[var(--text-tertiary)]">{total} Ideen in dieser Minute</p>}
                     {d.seed > 0 && <p className="text-green-400">✦ {d.seed} Neue</p>}
                     {d.extension > 0 && <p className="text-sky-400">↗ {d.extension} Erweiterungen</p>}
                     {d.variant > 0 && <p className="text-violet-400">≈ {d.variant} Varianten</p>}
                     {d.tangent > 0 && <p className="text-orange-400">↝ {d.tangent} Verwandte</p>}
+                    {d.unclassified > 0 && <p className="text-slate-400">○ {d.unclassified} Unkategorisiert</p>}
+                    {d.triggered > 0 && <p className="text-indigo-400">⚡ {d.triggered} nach Intervention</p>}
                     <p className="text-[var(--text-tertiary)]">Kumulativ: {d.cumulative}</p>
                   </div>
                 );
@@ -150,6 +169,7 @@ export default function IdeasTimelineChart({ data }: Props) {
             <Bar yAxisId="count" dataKey="extension" stackId="ideas" fill={ROLE_COLORS.extension} fillOpacity={0.7} barSize={12} />
             <Bar yAxisId="count" dataKey="variant" stackId="ideas" fill={ROLE_COLORS.variant} fillOpacity={0.7} barSize={12} />
             <Bar yAxisId="count" dataKey="tangent" stackId="ideas" fill={ROLE_COLORS.tangent} fillOpacity={0.7} barSize={12} />
+            <Bar yAxisId="count" dataKey="unclassified" stackId="ideas" fill={ROLE_COLORS.unclassified} fillOpacity={0.5} barSize={12} />
             <Line yAxisId="cumulative" type="monotone" dataKey="cumulative" stroke="#e2e8f0" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
           </ComposedChart>
         </ResponsiveContainer>
