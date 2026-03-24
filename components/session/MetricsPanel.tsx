@@ -189,10 +189,11 @@ function generateInsights(
 
   // 1. Dominance / high participation risk
   const pComposite = p.participation_composite || 0;
-  if (participantCount > 1 && (pComposite > 0.35 || inf.state === 'DOMINANCE_RISK')) {
-    const sorted = Object.entries(p.volume_share).sort(([, a], [, b]) => b - a);
+  const sorted = Object.entries(p.volume_share).sort(([, a], [, b]) => b - a);
+  const topShare = sorted.length > 0 ? sorted[0][1] : 0;
+  if (participantCount > 1 && (pComposite > 0.35 || topShare > 0.50 || inf.state === 'DOMINANCE_RISK')) {
     if (sorted.length > 0) {
-      const [topName, topShare] = sorted[0];
+      const [topName] = sorted[0];
       const others = sorted.slice(1).map(([name]) => name);
       const othersStr = others.length === 1 ? others[0] : 'andere';
       insights.push({
@@ -528,7 +529,7 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
           <span className="text-[10px] text-[var(--text-tertiary)]">Konfidenz</span>
           <span className="text-[11px] font-mono text-[var(--text-secondary)]">{(inf.confidence * 100).toFixed(0)}%</span>
         </div>
-        {inf.secondary_state && (
+        {inf.secondary_state && inf.secondary_confidence < inf.confidence && (
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-[var(--text-tertiary)]">Sekundär</span>
             <span className="text-[11px] font-mono text-[var(--text-secondary)]">
