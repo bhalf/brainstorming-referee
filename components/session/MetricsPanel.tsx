@@ -536,13 +536,24 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
           </div>
         )}
 
-        {/* State formula scores — shows why this state was chosen */}
-        {inf.criteria_snapshot && Object.keys(inf.criteria_snapshot).length > 0 && (
-          <div className="pt-1.5 mt-1.5 border-t border-white/[0.06] space-y-1">
-            <span className="text-[9px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">Formel-Scores</span>
-            {Object.entries(inf.criteria_snapshot)
-              .sort(([, a], [, b]) => b - a)
-              .map(([state, score]) => {
+        {/* State formula scores — always shown so user can see competition between states */}
+        {inf.criteria_snapshot && Object.keys(inf.criteria_snapshot).length > 0 && (() => {
+          const sorted = Object.entries(inf.criteria_snapshot).sort(([, a], [, b]) => b - a);
+          const topState = sorted[0]?.[0];
+          const topScore = sorted[0]?.[1] ?? 0;
+          const activeScore = inf.criteria_snapshot[inf.state] ?? 0;
+          const isSuppressed = topState !== inf.state;
+          return (
+            <div className="pt-1.5 mt-1.5 border-t border-white/[0.06] space-y-1">
+              <span className="text-[9px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">Formel-Scores</span>
+              {isSuppressed && (
+                <p className="text-[8px] text-amber-500/60 leading-tight">
+                  {topScore - activeScore > 0.20
+                    ? 'Aufwärmphase — Risiko-Erkennung noch nicht aktiv'
+                    : 'Vorsprung zu knapp für Wechsel (Stabilisierung)'}
+                </p>
+              )}
+              {sorted.map(([state, score]) => {
                 const cfg = STATE_CONFIG[state];
                 if (!cfg) return null;
                 const isActive = state === inf.state;
@@ -568,8 +579,9 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
                   </div>
                 );
               })}
-          </div>
-        )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Beteiligung */}
