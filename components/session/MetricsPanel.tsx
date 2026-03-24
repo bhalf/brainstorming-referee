@@ -188,6 +188,7 @@ function generateInsights(
   const participantCount = Math.max(totalParticipants, speakerCount);
 
   // 1. Dominance / high participation risk
+  const pComposite = p.participation_composite || 0;
   if (participantCount > 1 && (pComposite > 0.35 || inf.state === 'DOMINANCE_RISK')) {
     const sorted = Object.entries(p.volume_share).sort(([, a], [, b]) => b - a);
     if (sorted.length > 0) {
@@ -498,6 +499,7 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
   history: MetricSnapshot[];
 }) {
   const speakerCount = Object.keys(p.volume_share).length;
+  const pComposite = p.participation_composite || 0;
   const riskStatus = getStatus('risk', pComposite);
   const balanceStatus = speakerCount <= 1
     ? { text: 'Nur 1 Sprecher', type: 'bad' as StatusType }
@@ -817,8 +819,6 @@ export default function MetricsPanel({ latest, history, engineState, participant
     dominance_streak_score: 0, participation_composite: 0, long_term_balance: 0,
     cumulative_imbalance: 0, ideational_fluency_rate: 0,
   };
-  // Backward compat: older sessions store participation_risk_score
-  const pComposite = pComposite || (p as Record<string, unknown>).participation_risk_score as number || 0;
   const sd = latest?.semantic_dynamics ?? {
     novelty_rate: 0, cluster_concentration: 0, exploration_elaboration_ratio: 1,
     semantic_expansion_score: 0, cluster_count: 0, has_embeddings: false,
