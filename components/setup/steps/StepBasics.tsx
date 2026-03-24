@@ -33,32 +33,42 @@ export default function StepBasics({
     <div className="space-y-6 animate-fade-in">
       <div className="text-center mb-2">
         <h2 className="text-xl font-bold tracking-tight">Grundlagen</h2>
-        <p className="text-sm text-[var(--text-tertiary)] mt-1">Gib deiner Session einen Namen</p>
+        <p className="text-sm text-[var(--text-tertiary)] mt-1">Definiere das Thema eurer Brainstorming-Session</p>
       </div>
 
       {/* Title */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Titel</label>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Brainstorming-Thema</label>
+        <p className="text-xs text-[var(--text-tertiary)] mb-2">
+          Die Kernfrage oder das Thema, das die Gruppe bearbeiten soll. Der KI-Moderator nutzt dies, um Interventionen thematisch passend zu formulieren.
+        </p>
         <input
           type="text"
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
-          placeholder="z.B. Produktideen Q2"
+          placeholder="z.B. Wie können wir die Onboarding-Experience für neue Mitarbeitende verbessern?"
           className="input-glass text-lg"
           autoFocus
           onKeyDown={(e) => e.key === 'Enter' && canProceed && onNext()}
         />
+        <p className="text-xs text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
+          Tipp: Formuliere eine konkrete Frage statt eines Stichwortes.
+          {' '}<span className="text-[var(--text-secondary)]">&quot;Wie verbessern wir das Onboarding?&quot;</span> funktioniert besser als <span className="text-[var(--text-secondary)]">&quot;Onboarding&quot;</span>.
+        </p>
       </div>
 
       {/* Description */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-          Beschreibung <span className="text-[var(--text-tertiary)] font-normal">(optional)</span>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+          Kontext &amp; Hintergrund <span className="text-[var(--text-tertiary)] font-normal">(optional)</span>
         </label>
+        <p className="text-xs text-[var(--text-tertiary)] mb-2">
+          Zusätzliche Infos helfen der KI, ein thematisches Raster zu erstellen und blinde Flecken zu erkennen, z.B. wer die Zielgruppe ist oder welche Aspekte relevant sind.
+        </p>
         <textarea
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
-          placeholder="Worum geht es in dieser Session? Kontext hilft der KI, relevantere Themen zu erkennen."
+          placeholder={"z.B. Wir sind ein 50-Personen-Startup. Neue Mitarbeitende brauchen aktuell 3 Monate bis zur vollen Produktivität. Fokus auf: Remote-Onboarding, Buddy-System, Tooling, Kulturvermittlung."}
           className="input-glass w-full resize-none"
           rows={3}
         />

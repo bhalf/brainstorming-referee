@@ -256,26 +256,37 @@ export default function CreateSession() {
 
       {/* Title */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Titel</label>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Brainstorming-Thema</label>
+        <p className="text-xs text-[var(--text-tertiary)] mb-2">
+          Die Kernfrage, die die Gruppe bearbeiten soll. Der KI-Moderator nutzt dies für thematisch passende Interventionen.
+        </p>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="z.B. Produktideen Q2"
+          placeholder="z.B. Wie können wir die Onboarding-Experience für neue Mitarbeitende verbessern?"
           className="input-glass"
           required
         />
+        <p className="text-xs text-[var(--text-tertiary)] mt-1.5">
+          Tipp: Eine konkrete Frage funktioniert besser als ein Stichwort.
+        </p>
       </div>
 
       {/* Description */}
       <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Beschreibung (optional)</label>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
+          Kontext &amp; Hintergrund <span className="text-[var(--text-tertiary)] font-normal">(optional)</span>
+        </label>
+        <p className="text-xs text-[var(--text-tertiary)] mb-2">
+          Hilft der KI, relevante Unterthemen zu erkennen und blinde Flecken aufzudecken.
+        </p>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Worum geht es in dieser Session? Kontext hilft der KI, relevantere Themen zu erkennen."
+          placeholder={"z.B. Wir sind ein 50-Personen-Startup. Neue Mitarbeitende brauchen aktuell 3 Monate bis zur vollen Produktivität. Fokus auf: Remote-Onboarding, Buddy-System, Tooling."}
           className="input-glass w-full resize-none"
-          rows={2}
+          rows={3}
         />
       </div>
 
