@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Intervention, InterventionIntent } from '@/types';
 
 interface InterventionOverlayProps {
@@ -72,7 +72,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   escalation: 'Eskalation',
 };
 
-const AUTO_DISMISS_MS = 12_000;
+const MIN_DISMISS_MS = 12_000;
 
 export default function InterventionOverlay({ intervention, onDismiss, isTTSPlaying = false, children }: InterventionOverlayProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,6 +81,16 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
   const prevInterventionId = useRef<string | null>(null);
 
   const hasText = !!intervention?.text?.trim();
+
+  // Dynamic dismiss duration based on text length and audio duration.
+  // Scales with content so long interventions aren't cut short.
+  const dismissMs = useMemo(() => {
+    if (!intervention?.text?.trim()) return MIN_DISMISS_MS;
+    const wordCount = intervention.text.trim().split(/\s+/).length;
+    const readingMs = wordCount * 300; // ~200 wpm reading speed
+    const audioMs = intervention.audio_duration_ms ?? 0;
+    return Math.max(audioMs + 3_000, readingMs, MIN_DISMISS_MS);
+  }, [intervention?.text, intervention?.audio_duration_ms]);
 
   // Track when intervention is dismissed to show feedback
   useEffect(() => {
@@ -109,11 +119,11 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
     if (isTTSPlaying || !hasText) return;
 
     // Start dismiss timer (resets when text arrives via UPDATE)
-    timerRef.current = setTimeout(onDismiss, AUTO_DISMISS_MS);
+    timerRef.current = setTimeout(onDismiss, dismissMs);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [intervention, onDismiss, isTTSPlaying, hasText]);
+  }, [intervention, onDismiss, isTTSPlaying, hasText, dismissMs]);
 
   const style = intervention ? INTENT_STYLES[intervention.intent] : null;
 
@@ -187,7 +197,7 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
             <div
               className="h-full bg-white/40 rounded-full"
               style={{
-                animation: (isTTSPlaying || !hasText) ? 'none' : `shrink ${AUTO_DISMISS_MS}ms linear forwards`,
+                animation: (isTTSPlaying || !hasText) ? 'none' : `shrink ${dismissMs}ms linear forwards`,
               }}
             />
           </div>
