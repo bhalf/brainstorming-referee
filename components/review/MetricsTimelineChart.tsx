@@ -135,7 +135,7 @@ interface PresetGroup {
 
 const PARTICIPATION_PRESETS: PresetGroup[] = [
   { label: 'Alle', keys: Object.keys(PARTICIPATION_METRICS) },
-  { label: 'Risiko + Balance', keys: ['participationRisk', 'balance'] },
+  { label: 'Ungleichgewicht + Balance', keys: ['participationRisk', 'balance'] },
 ];
 
 const SEMANTIC_PRESETS: PresetGroup[] = [

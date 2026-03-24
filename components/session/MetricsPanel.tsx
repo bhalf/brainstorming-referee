@@ -35,7 +35,7 @@ interface TooltipEntry { description: string; formula?: string }
 
 const METRIC_TOOLTIPS: Record<string, TooltipEntry> = {
   risk: {
-    description: 'Ein Gesamtwert, der mehrere Signale kombiniert: Wie unausgewogen ist die Diskussion? Berücksichtigt, ob jemand dominiert, ob Leute schweigen und ob die Wortmeldungen ungleich verteilt sind.',
+    description: 'Roh-Composite aus mehreren Signalen: Dominanz, Schweigen, Ungleichverteilung. Dieser Wert fliesst als Input in die State-Formeln ein (wird dort verstärkt).',
     formula: 'Hoch = Diskussion ist unausgewogen. Niedrig = alle beteiligen sich fair.',
   },
   balance: {
@@ -108,8 +108,8 @@ function getStatus(metric: string, value: number): { text: string; type: StatusT
   switch (metric) {
     case 'risk':
       if (value < 0.3) return { text: 'Ausgewogen', type: 'good' };
-      if (value < 0.6) return { text: 'Leichtes Risiko', type: 'warn' };
-      return { text: 'Hohes Risiko', type: 'bad' };
+      if (value < 0.6) return { text: 'Leicht ungleich', type: 'warn' };
+      return { text: 'Stark ungleich', type: 'bad' };
     case 'balance':
       if (value > 0.6) return { text: 'Ausgewogen', type: 'good' };
       if (value > 0.3) return { text: 'Ungleichmäßig', type: 'warn' };
@@ -535,13 +535,48 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
             <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${phaseConfig.bg}`}>{phaseConfig.label}</span>
           </div>
         )}
+
+        {/* State formula scores — shows why this state was chosen */}
+        {inf.criteria_snapshot && Object.keys(inf.criteria_snapshot).length > 0 && (
+          <div className="pt-1.5 mt-1.5 border-t border-white/[0.06] space-y-1">
+            <span className="text-[9px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">Formel-Scores</span>
+            {Object.entries(inf.criteria_snapshot)
+              .sort(([, a], [, b]) => b - a)
+              .map(([state, score]) => {
+                const cfg = STATE_CONFIG[state];
+                if (!cfg) return null;
+                const isActive = state === inf.state;
+                return (
+                  <div key={state} className="flex items-center gap-2">
+                    <span className={`text-[9px] w-[90px] truncate ${isActive ? cfg.color + ' font-semibold' : 'text-[var(--text-tertiary)]'}`}>
+                      {cfg.label}
+                    </span>
+                    <div className="flex-1 h-1 bg-white/[0.06] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isActive ? 'opacity-100' : 'opacity-40'}`}
+                        style={{
+                          width: `${Math.min(score * 100, 100)}%`,
+                          background: state.includes('RISK') || state === 'STALLED_DISCUSSION'
+                            ? 'linear-gradient(to right, #f43f5e, #fb923c)'
+                            : 'linear-gradient(to right, #10b981, #14b8a6)',
+                        }}
+                      />
+                    </div>
+                    <span className={`text-[9px] font-mono w-8 text-right ${isActive ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}>
+                      {(score * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        )}
       </div>
 
       {/* Beteiligung */}
       <SectionDivider>Beteiligung</SectionDivider>
 
       <div className="space-y-2.5">
-        <MetricRow label="Risiko" tipKey="risk" displayValue={`${(pComposite * 100).toFixed(0)}%`} status={speakerCount <= 1 ? { text: 'Nur 1 Sprecher', type: 'bad' } : riskStatus} gaugeFill={pComposite} gaugeThreshold={0.5} />
+        <MetricRow label="Ungleichgewicht" tipKey="risk" displayValue={`${(pComposite * 100).toFixed(0)}%`} status={speakerCount <= 1 ? { text: 'Nur 1 Sprecher', type: 'bad' } : riskStatus} gaugeFill={pComposite} gaugeThreshold={0.5} />
         <MetricRow label="Balance" tipKey="balance" displayValue={`${(p.balance * 100).toFixed(0)}%`} status={balanceStatus} gaugeFill={p.balance} gaugeThreshold={0.5} />
       </div>
 
