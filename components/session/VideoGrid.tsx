@@ -12,7 +12,14 @@ import {
   useConnectionState,
 } from '@livekit/components-react';
 import '@livekit/components-styles';
-import { ConnectionState, Track, ParticipantKind } from 'livekit-client';
+import {
+  ConnectionState,
+  Track,
+  ParticipantKind,
+  VideoPresets,
+  AudioPresets,
+  RoomOptions,
+} from 'livekit-client';
 
 // --- Error Boundary ---
 
@@ -177,7 +184,26 @@ export default function VideoGrid({ token, serverUrl, onConnectionChange, onDisc
         serverUrl={serverUrl}
         connect={true}
         audio={true}
-        video={true}
+        video={{ resolution: VideoPresets.h720.resolution }}
+        options={{
+          dynacast: true,
+          adaptiveStream: true,
+          audioCaptureDefaults: {
+            autoGainControl: true,
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+          videoCaptureDefaults: {
+            resolution: VideoPresets.h720.resolution,
+          },
+          publishDefaults: {
+            videoSimulcastLayers: [VideoPresets.h360, VideoPresets.h180],
+            videoCodec: 'vp9',
+            audioPreset: AudioPresets.speech,
+            dtx: true,
+            red: true,
+          },
+        } satisfies RoomOptions}
         data-lk-theme="default"
         style={{ height: '100%' }}
       >
