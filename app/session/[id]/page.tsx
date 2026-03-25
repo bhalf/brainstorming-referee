@@ -18,9 +18,9 @@ const SummaryPanel = dynamic(() => import('@/components/session/SummaryPanel'));
 type Tab = 'transcript' | 'metrics' | 'ideas' | 'goals' | 'summary';
 
 const ALL_TABS: { id: Tab; label: string; icon: string; feature?: FeatureKey }[] = [
+  { id: 'ideas', label: 'Ideen', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', feature: 'ideas' },
   { id: 'transcript', label: 'Transkript', icon: 'M4 6h16M4 12h16M4 18h12' },
   { id: 'metrics', label: 'Metriken', icon: 'M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z', feature: 'metrics' },
-  { id: 'ideas', label: 'Ideen', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', feature: 'ideas' },
   { id: 'goals', label: 'Ziele', icon: 'M13 10V3L4 14h7v7l9-11h-7z', feature: 'goals' },
   { id: 'summary', label: 'Zusammenfassung', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', feature: 'summary' },
 ];
@@ -231,7 +231,7 @@ export default function SessionPage() {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('transcript');
+  const [activeTab, setActiveTab] = useState<Tab>('ideas');
   const [isConnected, setIsConnected] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
