@@ -6,9 +6,11 @@ import { supabase } from '@/lib/supabase/client';
 import type { Intervention } from '@/types';
 
 const MAX_AGE_MS = 60_000; // Only show overlay for interventions newer than 60s
+const POLL_INTERVAL_MS = 10_000; // Fallback polling every 10s
 
 /**
  * Subscribes to new interventions via Supabase Realtime AND loads initial data.
+ * Includes a polling fallback (every 10s) in case Realtime events are missed.
  *
  * Shows the overlay IMMEDIATELY on INSERT (even without text) so the user sees
  * the intent/reason right away. When the UPDATE arrives with generated text,
@@ -20,7 +22,51 @@ export function useRealtimeInterventions(sessionId: string | null) {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const dismissedIdsRef = useRef<Set<string>>(new Set());
 
-  // ── Initial data load ──────────────────────────────────────────────────────
+  /** Shared fetch logic used by both initial load and polling fallback. */
+  const fetchInterventions = useCallback((sid: string, isInitial: boolean) => {
+    supabase
+      .from('interventions')
+      .select('*')
+      .eq('session_id', sid)
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[rt-interventions] Fetch failed:', error.message);
+          return;
+        }
+        if (!data || data.length === 0) return;
+
+        const fetchedIds = new Set(data.map((d) => d.id));
+        const sorted = [...(data as Intervention[])].reverse();
+
+        // Find new interventions not yet seen
+        const newRows = sorted.filter((r) => !seenIdsRef.current.has(r.id));
+        for (const row of data) seenIdsRef.current.add(row.id);
+
+        // Merge with existing state
+        setInterventions((prev) => {
+          const realtimeOnly = prev.filter((iv) => !fetchedIds.has(iv.id));
+          return [...sorted, ...realtimeOnly];
+        });
+
+        // Show overlay for new interventions found via polling (not initial load)
+        if (!isInitial && newRows.length > 0) {
+          const newest = newRows[newRows.length - 1];
+          if (newest.text?.trim() && !dismissedIdsRef.current.has(newest.id)) {
+            const age = Date.now() - new Date(newest.created_at).getTime();
+            if (age < MAX_AGE_MS) {
+              setLatestIntervention((prev) => {
+                if (prev && !dismissedIdsRef.current.has(prev.id)) return prev;
+                return newest;
+              });
+            }
+          }
+        }
+      });
+  }, []);
+
+  // ── Initial data load + polling fallback ─────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
     // Clear state for new session
@@ -29,33 +75,16 @@ export function useRealtimeInterventions(sessionId: string | null) {
     setInterventions([]);
     setLatestIntervention(null);
 
-    supabase
-      .from('interventions')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: false })
-      .limit(50)
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('[rt-interventions] Initial fetch failed:', error.message);
-          return;
-        }
-        if (!data || data.length === 0) return;
+    // Initial fetch
+    fetchInterventions(sessionId, true);
 
-        // Mark all as seen to prevent Realtime duplicates
-        for (const row of data) seenIdsRef.current.add(row.id);
+    // Polling fallback: re-fetch every 10s to catch missed Realtime events
+    const pollTimer = setInterval(() => {
+      fetchInterventions(sessionId, false);
+    }, POLL_INTERVAL_MS);
 
-        // Use functional update to merge with any realtime arrivals
-        const fetchedIds = new Set(data.map((d) => d.id));
-        const sorted = [...(data as Intervention[])].reverse();
-
-        setInterventions((prev) => {
-          const realtimeOnly = prev.filter((iv) => !fetchedIds.has(iv.id));
-          return [...sorted, ...realtimeOnly];
-        });
-        // Don't set latestIntervention — old interventions shouldn't trigger overlay
-      });
-  }, [sessionId]);
+    return () => clearInterval(pollTimer);
+  }, [sessionId, fetchInterventions]);
 
   // ── Realtime subscription callback (INSERT + UPDATE) ──────────────────────
   const onPayload = useCallback((row: Intervention, eventType: RealtimeEventType) => {

@@ -83,13 +83,16 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
   const hasText = !!intervention?.text?.trim();
 
   // Dynamic dismiss duration based on text length and audio duration.
-  // Scales with content so long interventions aren't cut short.
+  // After TTS finishes, keep overlay visible long enough to re-read the text.
   const dismissMs = useMemo(() => {
     if (!intervention?.text?.trim()) return MIN_DISMISS_MS;
     const wordCount = intervention.text.trim().split(/\s+/).length;
-    const readingMs = wordCount * 300; // ~200 wpm reading speed
+    const readingMs = wordCount * 400; // ~150 wpm comfortable reading speed
     const audioMs = intervention.audio_duration_ms ?? 0;
-    return Math.max(audioMs + 3_000, readingMs, MIN_DISMISS_MS);
+    // After audio ends, keep overlay for at least 5s + half the reading time
+    // so users can re-read and absorb the message
+    const postAudioBuffer = Math.max(5_000, readingMs * 0.5);
+    return Math.max(audioMs + postAudioBuffer, readingMs, MIN_DISMISS_MS);
   }, [intervention?.text, intervention?.audio_duration_ms]);
 
   // Track when intervention is dismissed to show feedback
