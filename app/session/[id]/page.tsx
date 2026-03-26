@@ -561,6 +561,7 @@ export default function SessionPage() {
                     <VideoGrid
                       token={token}
                       serverUrl={livekitUrl}
+                      isObserver={isObserver}
                       onConnectionChange={setIsConnected}
                       onDisconnected={handleDisconnected}
                       onTTSStateChange={setIsTTSPlaying}
@@ -572,6 +573,7 @@ export default function SessionPage() {
                   <VideoGrid
                     token={token}
                     serverUrl={livekitUrl}
+                    isObserver={isObserver}
                     onConnectionChange={setIsConnected}
                     onDisconnected={handleDisconnected}
                   />

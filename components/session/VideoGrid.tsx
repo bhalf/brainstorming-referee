@@ -157,12 +157,13 @@ function VideoGridContent({ onConnectionChange, onDisconnected, onTTSStateChange
 interface VideoGridProps {
   token: string;
   serverUrl: string;
+  isObserver?: boolean;
   onConnectionChange?: (connected: boolean) => void;
   onDisconnected?: () => void;
   onTTSStateChange?: (playing: boolean) => void;
 }
 
-export default function VideoGrid({ token, serverUrl, onConnectionChange, onDisconnected, onTTSStateChange }: VideoGridProps) {
+export default function VideoGrid({ token, serverUrl, isObserver, onConnectionChange, onDisconnected, onTTSStateChange }: VideoGridProps) {
   const [retryKey, setRetryKey] = useState(0);
 
   const handleReset = useCallback(() => {
@@ -183,8 +184,8 @@ export default function VideoGrid({ token, serverUrl, onConnectionChange, onDisc
         token={token}
         serverUrl={serverUrl}
         connect={true}
-        audio={true}
-        video={{ resolution: VideoPresets.h720.resolution }}
+        audio={!isObserver}
+        video={isObserver ? false : { resolution: VideoPresets.h720.resolution }}
         options={{
           dynacast: true,
           adaptiveStream: true,
