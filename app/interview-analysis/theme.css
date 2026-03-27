@@ -1,0 +1,651 @@
+/* ============================================
+   Interview-Analyse — Light Research Theme
+   Scoped to .ia-theme wrapper
+   Inspired by Dovetail, Linear, modern research tools
+   ============================================ */
+
+/* ─── CSS Variables (Light Override) ──────────────────────────────── */
+
+.ia-theme {
+  /* Backgrounds */
+  --ia-bg:            #FAFAF8;
+  --ia-bg-card:       #FFFFFF;
+  --ia-bg-muted:      #F5F3EF;
+  --ia-bg-hover:      #F0EDE7;
+  --ia-bg-selected:   #EDE9FE;
+  --ia-bg-sidebar:    #F8F6F2;
+
+  /* Text */
+  --ia-text:          #1A1A1A;
+  --ia-text-secondary:#6B6B6B;
+  --ia-text-tertiary: #9B9B9B;
+  --ia-text-inverse:  #FFFFFF;
+
+  /* Accent — Indigo (matches main app accent) */
+  --ia-accent:        #6366F1;
+  --ia-accent-hover:  #4F46E5;
+  --ia-accent-light:  #EEF2FF;
+  --ia-accent-muted:  #C7D2FE;
+
+  /* Semantic */
+  --ia-success:       #16A34A;
+  --ia-success-light: #F0FDF4;
+  --ia-warning:       #D97706;
+  --ia-warning-light: #FFFBEB;
+  --ia-error:         #DC2626;
+  --ia-error-light:   #FEF2F2;
+
+  /* Borders */
+  --ia-border:        #E8E5DE;
+  --ia-border-strong: #D1CEC7;
+
+  /* Shadows */
+  --ia-shadow-xs:     0 1px 2px rgba(0, 0, 0, 0.04);
+  --ia-shadow-sm:     0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --ia-shadow-md:     0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --ia-shadow-lg:     0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --ia-shadow-xl:     0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+
+  /* Radius */
+  --ia-radius:        10px;
+  --ia-radius-sm:     6px;
+  --ia-radius-md:     8px;
+  --ia-radius-lg:     10px;
+  --ia-radius-xl:     14px;
+  --ia-radius-2xl:    18px;
+
+  /* Base */
+  background: var(--ia-bg);
+  color: var(--ia-text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Gradient Line (top accent) ──────────────────────────────────── */
+
+.ia-theme::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #6366F1, #8B5CF6, #EC4899, #F59E0B, #10B981);
+  background-size: 200% auto;
+  animation: ia-gradient-shift 4s ease infinite;
+  z-index: 100;
+}
+
+@keyframes ia-gradient-shift {
+  0%, 100% { background-position: 0% center; }
+  50% { background-position: 100% center; }
+}
+
+/* ─── Card System ─────────────────────────────────────────────────── */
+
+.ia-card {
+  background: var(--ia-bg-card);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-xl);
+  box-shadow: var(--ia-shadow-xs);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.ia-card-hover:hover {
+  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.08), 0 4px 10px -4px rgba(0, 0, 0, 0.03);
+  transform: translateY(-1px);
+}
+
+.ia-card-sm {
+  background: var(--ia-bg-card);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-lg);
+  box-shadow: var(--ia-shadow-xs);
+}
+
+.ia-card-muted {
+  background: var(--ia-bg-muted);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-xl);
+}
+
+/* ─── Buttons ─────────────────────────────────────────────────────── */
+
+.ia-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.ia-btn-primary {
+  padding: 8px 18px;
+  height: 36px;
+  border-radius: var(--ia-radius-md);
+  background: var(--ia-accent);
+  color: var(--ia-text-inverse);
+  font-size: 13px;
+  box-shadow: var(--ia-shadow-xs);
+}
+.ia-btn-primary:hover {
+  background: var(--ia-accent-hover);
+  box-shadow: var(--ia-shadow-sm);
+}
+.ia-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ia-btn-secondary {
+  padding: 8px 18px;
+  height: 36px;
+  border-radius: var(--ia-radius-md);
+  background: transparent;
+  color: var(--ia-text-secondary);
+  font-size: 13px;
+  border: 1px solid var(--ia-border);
+}
+.ia-btn-secondary:hover {
+  background: var(--ia-bg-hover);
+  border-color: var(--ia-border-strong);
+  color: var(--ia-text);
+}
+
+.ia-btn-ghost {
+  padding: 6px 12px;
+  border-radius: var(--ia-radius-sm);
+  background: transparent;
+  color: var(--ia-text-secondary);
+  font-size: 13px;
+}
+.ia-btn-ghost:hover {
+  background: var(--ia-bg-hover);
+  color: var(--ia-text);
+}
+
+.ia-btn-sm {
+  height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.ia-btn-danger {
+  color: var(--ia-error);
+}
+.ia-btn-danger:hover {
+  background: var(--ia-error-light);
+}
+
+/* ─── Inputs ──────────────────────────────────────────────────────── */
+
+.ia-input {
+  width: 100%;
+  padding: 8px 14px;
+  height: 36px;
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-md);
+  background: var(--ia-bg-card);
+  color: var(--ia-text);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+.ia-input::placeholder {
+  color: var(--ia-text-tertiary);
+}
+.ia-input:focus {
+  border-color: var(--ia-accent);
+  box-shadow: 0 0 0 3px var(--ia-accent-light);
+}
+
+.ia-textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-md);
+  background: var(--ia-bg-card);
+  color: var(--ia-text);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.15s ease;
+  resize: vertical;
+  min-height: 80px;
+}
+.ia-textarea:focus {
+  border-color: var(--ia-accent);
+  box-shadow: 0 0 0 3px var(--ia-accent-light);
+}
+
+.ia-select {
+  width: auto;
+  padding: 6px 32px 6px 12px;
+  height: 32px;
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-md);
+  background: var(--ia-bg-card);
+  color: var(--ia-text);
+  font-size: 13px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%239B9B9B' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 6l3.5 4 3.5-4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: all 0.15s ease;
+}
+.ia-select:focus {
+  border-color: var(--ia-accent);
+  box-shadow: 0 0 0 3px var(--ia-accent-light);
+}
+
+/* ─── Upload Zone ─────────────────────────────────────────────────── */
+
+.ia-upload-zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 32px;
+  border: 2px dashed var(--ia-border);
+  border-radius: var(--ia-radius-xl);
+  background: var(--ia-bg-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 180px;
+}
+.ia-upload-zone:hover {
+  border-color: var(--ia-accent-muted);
+  background: var(--ia-accent-light);
+}
+.ia-upload-zone--active {
+  border-color: var(--ia-accent);
+  border-style: solid;
+  background: var(--ia-accent-light);
+  box-shadow: 0 0 0 3px var(--ia-accent-light);
+  transform: scale(1.005);
+}
+
+/* ─── Pipeline Stepper ────────────────────────────────────────────── */
+
+.ia-pipeline {
+  display: flex;
+  align-items: center;
+  padding: 20px 24px;
+}
+
+.ia-pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ia-pipeline-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.ia-pipeline-dot--done {
+  background: var(--ia-accent);
+  color: white;
+}
+
+.ia-pipeline-dot--active {
+  background: white;
+  border: 2px solid var(--ia-accent);
+  color: var(--ia-accent);
+  box-shadow: 0 0 0 4px var(--ia-accent-light);
+}
+
+.ia-pipeline-dot--pending {
+  background: var(--ia-bg-muted);
+  border: 2px solid var(--ia-border);
+  color: var(--ia-text-tertiary);
+}
+
+.ia-pipeline-dot--error {
+  background: var(--ia-error-light);
+  border: 2px solid var(--ia-error);
+  color: var(--ia-error);
+}
+
+.ia-pipeline-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--ia-border);
+  margin: 0 12px;
+  min-width: 32px;
+}
+
+.ia-pipeline-connector--done {
+  background: var(--ia-accent);
+}
+
+.ia-pipeline-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ia-text-secondary);
+  white-space: nowrap;
+}
+
+.ia-pipeline-label--active {
+  color: var(--ia-accent);
+  font-weight: 600;
+}
+
+/* ─── Tabs ────────────────────────────────────────────────────────── */
+
+.ia-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--ia-border);
+}
+
+.ia-tab {
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ia-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s ease;
+}
+.ia-tab:hover {
+  color: var(--ia-text);
+}
+.ia-tab--active {
+  color: var(--ia-accent);
+  font-weight: 600;
+}
+.ia-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--ia-accent);
+  border-radius: 1px 1px 0 0;
+}
+
+.ia-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+/* ─── Badges & Tags ───────────────────────────────────────────────── */
+
+.ia-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ia-badge-positive { background: var(--ia-success-light); color: var(--ia-success); }
+.ia-badge-negative { background: var(--ia-error-light); color: var(--ia-error); }
+.ia-badge-ambivalent { background: var(--ia-warning-light); color: var(--ia-warning); }
+.ia-badge-neutral { background: var(--ia-bg-muted); color: var(--ia-text-tertiary); }
+.ia-badge-info { background: var(--ia-accent-light); color: var(--ia-accent); }
+
+/* ─── Sentiment Indicator Bar ─────────────────────────────────────── */
+
+.ia-sentiment-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+}
+
+/* ─── Empty State ─────────────────────────────────────────────────── */
+
+.ia-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 32px;
+  text-align: center;
+}
+
+.ia-empty-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  color: var(--ia-text-tertiary);
+  opacity: 0.5;
+}
+
+/* ─── Summary Box ─────────────────────────────────────────────────── */
+
+.ia-summary {
+  background: var(--ia-accent-light);
+  border: 1px solid var(--ia-accent-muted);
+  border-left: 3px solid var(--ia-accent);
+  border-radius: 0 var(--ia-radius-lg) var(--ia-radius-lg) 0;
+  padding: 16px 20px;
+}
+
+/* ─── Spinner ─────────────────────────────────────────────────────── */
+
+.ia-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ia-border);
+  border-top-color: var(--ia-accent);
+  border-radius: 50%;
+  animation: ia-spin 0.6s linear infinite;
+}
+
+.ia-spinner-lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+@keyframes ia-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Animations ──────────────────────────────────────────────────── */
+
+@keyframes ia-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ia-fade-in-scale {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.ia-animate-in {
+  animation: ia-fade-in 0.3s ease-out forwards;
+}
+
+.ia-animate-in-scale {
+  animation: ia-fade-in-scale 0.25s ease-out forwards;
+}
+
+/* Staggered entry */
+.ia-stagger > * {
+  opacity: 0;
+  animation: ia-fade-in 0.3s ease-out forwards;
+}
+.ia-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.ia-stagger > *:nth-child(2) { animation-delay: 50ms; }
+.ia-stagger > *:nth-child(3) { animation-delay: 100ms; }
+.ia-stagger > *:nth-child(4) { animation-delay: 150ms; }
+.ia-stagger > *:nth-child(5) { animation-delay: 200ms; }
+.ia-stagger > *:nth-child(6) { animation-delay: 250ms; }
+.ia-stagger > *:nth-child(7) { animation-delay: 300ms; }
+.ia-stagger > *:nth-child(8) { animation-delay: 350ms; }
+
+/* ─── Skeleton Loading ────────────────────────────────────────────── */
+
+.ia-skeleton {
+  background: linear-gradient(90deg, var(--ia-bg-muted) 25%, var(--ia-bg-hover) 50%, var(--ia-bg-muted) 75%);
+  background-size: 200% 100%;
+  animation: ia-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--ia-radius-sm);
+}
+
+@keyframes ia-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Scrollbar (light) ───────────────────────────────────────────── */
+
+.ia-theme ::-webkit-scrollbar { width: 6px; height: 6px; }
+.ia-theme ::-webkit-scrollbar-track { background: transparent; }
+.ia-theme ::-webkit-scrollbar-thumb { background: var(--ia-border); border-radius: 3px; }
+.ia-theme ::-webkit-scrollbar-thumb:hover { background: var(--ia-border-strong); }
+
+/* ─── Overline Label ──────────────────────────────────────────────── */
+
+.ia-overline {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ia-text-tertiary);
+}
+
+/* ─── Data Values ─────────────────────────────────────────────────── */
+
+.ia-data {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ─── Chat ────────────────────────────────────────────────────────── */
+
+.ia-chat-msg {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ia-chat-msg-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ia-chat-msg--user .ia-chat-msg-icon {
+  background: var(--ia-bg-muted);
+  color: var(--ia-text-secondary);
+}
+
+.ia-chat-msg--assistant .ia-chat-msg-icon {
+  background: var(--ia-accent-light, #EDE9FE);
+  color: var(--ia-accent);
+}
+
+.ia-chat-msg-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.ia-chat-msg-role {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--ia-text-secondary);
+}
+
+.ia-chat-msg-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ia-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ia-chat-msg--user .ia-chat-msg-text {
+  background: var(--ia-bg-muted);
+  padding: 8px 12px;
+  border-radius: 10px;
+  border-top-left-radius: 2px;
+}
+
+.ia-chat-msg--assistant .ia-chat-msg-text {
+  padding: 4px 0;
+}
+
+.ia-chat-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ia-chat-suggestion {
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--ia-border);
+  background: var(--ia-bg-card);
+  color: var(--ia-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.ia-chat-suggestion:hover {
+  border-color: var(--ia-accent);
+  color: var(--ia-accent);
+  background: var(--ia-accent-light, #EDE9FE);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .ia-pipeline {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ia-pipeline-connector {
+    display: none;
+  }
+}

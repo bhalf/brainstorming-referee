@@ -653,36 +653,37 @@ export default function SessionPage() {
         {isMounted && !isDesktop && (
           <>
             <div className="flex-1 w-full min-h-0 overflow-hidden">
-              {mobileView === 'video' && (
-                <div className="h-full">
-                  {hasModeration ? (
-                    <InterventionOverlay
-                      intervention={data.latestIntervention}
-                      onDismiss={data.dismissIntervention}
-                      isTTSPlaying={isTTSPlaying}
-                    >
-                      {token && (
-                        <VideoGrid
-                          token={token}
-                          serverUrl={livekitUrl}
-                          onConnectionChange={setIsConnected}
-                          onDisconnected={handleDisconnected}
-                          onTTSStateChange={setIsTTSPlaying}
-                        />
-                      )}
-                    </InterventionOverlay>
-                  ) : (
-                    token && (
+              {/* VideoGrid stays mounted across all mobile views to prevent
+                  LiveKit disconnect/reconnect cycles when switching tabs.
+                  Hidden via CSS when not on the video view. */}
+              <div className={mobileView === 'video' ? 'h-full' : 'hidden'}>
+                {hasModeration ? (
+                  <InterventionOverlay
+                    intervention={data.latestIntervention}
+                    onDismiss={data.dismissIntervention}
+                    isTTSPlaying={isTTSPlaying}
+                  >
+                    {token && (
                       <VideoGrid
                         token={token}
                         serverUrl={livekitUrl}
                         onConnectionChange={setIsConnected}
                         onDisconnected={handleDisconnected}
+                        onTTSStateChange={setIsTTSPlaying}
                       />
-                    )
-                  )}
-                </div>
-              )}
+                    )}
+                  </InterventionOverlay>
+                ) : (
+                  token && (
+                    <VideoGrid
+                      token={token}
+                      serverUrl={livekitUrl}
+                      onConnectionChange={setIsConnected}
+                      onDisconnected={handleDisconnected}
+                    />
+                  )
+                )}
+              </div>
               {mobileView === 'ideas' && hasFeature('ideas') && (
                 <div className="h-full relative">
                   <IdeaBoard ideas={data.ideas} connections={data.connections} sessionId={sessionId} language={liveSession?.language} />
