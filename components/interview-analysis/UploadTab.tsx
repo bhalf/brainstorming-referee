@@ -319,6 +319,7 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
                                 zIndex: 50,
                                 minWidth: 180,
                                 padding: '4px',
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
                               }}
                             >
                               {/* No group option */}
