@@ -251,7 +251,7 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
             const isGroupOpen = groupDropdownId === interview.id;
 
             return (
-              <div key={interview.id} className="ia-card-sm p-4 group" style={{ position: 'relative' }}>
+              <div key={interview.id} className="ia-card-sm p-4 group" style={{ position: 'relative', overflow: isGroupOpen ? 'visible' : undefined, zIndex: isGroupOpen ? 10 : undefined }}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     {/* Source icon */}
