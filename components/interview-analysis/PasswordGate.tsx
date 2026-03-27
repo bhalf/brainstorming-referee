@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, type ReactNode } from 'react';
-import { t } from '@/lib/interview-analysis/i18n';
+import { useIALang, t } from '@/lib/interview-analysis/i18n';
 
 export default function PasswordGate({ children }: { children: ReactNode }) {
-  const lang = 'de' as const;
+  const lang = useIALang();
   const [authenticated, setAuthenticated] = useState(false);
   const [checking, setChecking] = useState(true);
   const [password, setPassword] = useState('');

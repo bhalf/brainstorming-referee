@@ -3,15 +3,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import type { IAProject } from '@/types/interview-analysis';
-import { t } from '@/lib/interview-analysis/i18n';
+import { useIALang, t } from '@/lib/interview-analysis/i18n';
 
 export default function InterviewAnalysisPage() {
-  const lang = 'de' as const;
+  const lang = useIALang();
   const [projects, setProjects] = useState<IAProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newLanguage, setNewLanguage] = useState<'de' | 'en'>('de');
   const [creating, setCreating] = useState(false);
 
   const loadProjects = useCallback(async () => {
@@ -35,11 +36,12 @@ export default function InterviewAnalysisPage() {
       const res = await fetch('/api/interview-analysis/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), description: newDescription.trim() || undefined }),
+        body: JSON.stringify({ name: newName.trim(), description: newDescription.trim() || undefined, language: newLanguage }),
       });
       if (res.ok) {
         setNewName('');
         setNewDescription('');
+        setNewLanguage('de');
         setShowCreate(false);
         loadProjects();
       }
@@ -118,6 +120,19 @@ export default function InterviewAnalysisPage() {
                 onChange={(e) => setNewDescription(e.target.value)}
               />
             </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--ia-text-secondary)' }}>
+                {t('project_language', lang)}
+              </label>
+              <select
+                className="ia-select"
+                value={newLanguage}
+                onChange={(e) => setNewLanguage(e.target.value as 'de' | 'en')}
+              >
+                <option value="de">{t('project_language_de', lang)}</option>
+                <option value="en">{t('project_language_en', lang)}</option>
+              </select>
+            </div>
             <div className="flex gap-2 pt-2">
               <button type="submit" className="ia-btn ia-btn-primary" disabled={creating || !newName.trim()}>
                 {creating ? t('project_creating', lang) : t('project_create', lang)}
@@ -125,7 +140,7 @@ export default function InterviewAnalysisPage() {
               <button
                 type="button"
                 className="ia-btn ia-btn-secondary"
-                onClick={() => { setShowCreate(false); setNewName(''); setNewDescription(''); }}
+                onClick={() => { setShowCreate(false); setNewName(''); setNewDescription(''); setNewLanguage('de'); }}
               >
                 {t('cancel', lang)}
               </button>
@@ -181,6 +196,9 @@ export default function InterviewAnalysisPage() {
                   <div className="flex items-center gap-3 mt-1.5">
                     <span className="ia-badge ia-badge-info">
                       {project.interview_count ?? 0} {(project.interview_count ?? 0) !== 1 ? t('interviews', lang) : t('project_interview_singular', lang)}
+                    </span>
+                    <span className="ia-badge ia-badge-neutral" style={{ fontSize: '10px' }}>
+                      {project.language === 'en' ? 'EN' : 'DE'}
                     </span>
                     <span className="text-[11px]" style={{ color: 'var(--ia-text-tertiary)' }}>
                       {new Date(project.created_at).toLocaleDateString('de-CH')}

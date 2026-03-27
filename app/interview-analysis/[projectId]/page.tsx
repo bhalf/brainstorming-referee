@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import type { IAProject, IAInterview, IAGuideQuestion, MatrixData } from '@/types/interview-analysis';
-import { IALanguageContext, type IALang, t } from '@/lib/interview-analysis/i18n';
+import { useIALang, t } from '@/lib/interview-analysis/i18n';
 import UploadTab from '@/components/interview-analysis/UploadTab';
 import PipelineControls from '@/components/interview-analysis/PipelineControls';
 import GuideEditor from '@/components/interview-analysis/GuideEditor';
@@ -95,7 +95,7 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const lang: IALang = (project?.language === 'en' ? 'en' : 'de');
+  const lang = useIALang();
   const hasCanonicalQuestions = (matrixData?.questions.length ?? 0) > 0;
   const hasAnswers = (matrixData?.questions.some(q => q.answers.length > 0)) ?? false;
 
@@ -148,7 +148,6 @@ export default function ProjectDetailPage() {
   ];
 
   return (
-    <IALanguageContext.Provider value={lang}>
     <div className="ia-page">
       <div className="max-w-6xl mx-auto">
         {/* Back + Header */}
@@ -262,6 +261,5 @@ export default function ProjectDetailPage() {
         )}
       </div>
     </div>
-    </IALanguageContext.Provider>
   );
 }

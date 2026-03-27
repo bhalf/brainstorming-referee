@@ -1,14 +1,49 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, createElement, type ReactNode } from 'react';
 
 export type IALang = 'de' | 'en';
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
 export const IALanguageContext = createContext<IALang>('de');
+const IALanguageSetterContext = createContext<(lang: IALang) => void>(() => {});
+
 export function useIALang(): IALang {
   return useContext(IALanguageContext);
+}
+
+export function useSetIALang(): (lang: IALang) => void {
+  return useContext(IALanguageSetterContext);
+}
+
+// ─── Provider (reads/writes localStorage) ───────────────────────────────────
+
+const STORAGE_KEY = 'ia_ui_lang';
+
+export function IALanguageProvider({ children }: { children: ReactNode }) {
+  const [lang, setLangState] = useState<IALang>('de');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === 'en' || stored === 'de') setLangState(stored);
+    setMounted(true);
+  }, []);
+
+  const setLang = useCallback((l: IALang) => {
+    setLangState(l);
+    localStorage.setItem(STORAGE_KEY, l);
+  }, []);
+
+  // Avoid hydration mismatch — render with default until mounted
+  const value = mounted ? lang : 'de';
+
+  return createElement(
+    IALanguageContext.Provider,
+    { value },
+    createElement(IALanguageSetterContext.Provider, { value: setLang }, children)
+  );
 }
 
 // ─── Translation helper ─────────────────────────────────────────────────────
@@ -222,6 +257,9 @@ const labels: Record<IALang, Record<string, string>> = {
     project_name_placeholder: 'z.B. Studie Arbeitszufriedenheit 2026',
     project_description: 'Beschreibung',
     project_desc_placeholder: 'Kurze Beschreibung des Forschungsprojekts (optional)',
+    project_language: 'Sprache',
+    project_language_de: 'Deutsch',
+    project_language_en: 'Englisch',
     project_creating: 'Erstelle...',
     project_create: 'Projekt erstellen',
     project_empty_title: 'Noch keine Projekte vorhanden',
@@ -441,6 +479,9 @@ const labels: Record<IALang, Record<string, string>> = {
     project_name_placeholder: 'e.g. Work Satisfaction Study 2026',
     project_description: 'Description',
     project_desc_placeholder: 'Short description of the research project (optional)',
+    project_language: 'Language',
+    project_language_de: 'German',
+    project_language_en: 'English',
     project_creating: 'Creating...',
     project_create: 'Create Project',
     project_empty_title: 'No projects yet',
