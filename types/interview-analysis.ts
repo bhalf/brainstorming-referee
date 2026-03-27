@@ -38,6 +38,7 @@ export interface IAInterview {
   status: InterviewStatus;
   source_type: SourceType;
   word_count: number | null;
+  group_label: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -120,6 +121,7 @@ export interface CreateInterviewRequest {
   metadata?: IAInterviewMetadata;
   transcript_text?: string;
   source_type: SourceType;
+  group_label?: string | null;
 }
 
 export interface UpdateInterviewRequest {
@@ -127,6 +129,7 @@ export interface UpdateInterviewRequest {
   metadata?: IAInterviewMetadata;
   transcript_text?: string;
   status?: InterviewStatus;
+  group_label?: string | null;
 }
 
 // ─── Matrix View Types ────────────────────────────────────────────────────────

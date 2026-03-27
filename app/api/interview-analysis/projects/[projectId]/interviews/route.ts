@@ -45,6 +45,7 @@ export async function POST(
       project_id: projectId,
       name: name.trim(),
       metadata: metadata || {},
+      group_label: body.group_label || null,
       transcript_text: transcript_text || null,
       source_type: source_type || (transcript_text ? 'text' : 'audio'),
       status: transcript_text ? 'transcribed' : 'pending',

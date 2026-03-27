@@ -13,8 +13,9 @@ import ChatView from '@/components/interview-analysis/ChatView';
 import DashboardView from '@/components/interview-analysis/DashboardView';
 import HeatmapView from '@/components/interview-analysis/HeatmapView';
 import ComparisonView from '@/components/interview-analysis/ComparisonView';
+import GroupComparisonView from '@/components/interview-analysis/GroupComparisonView';
 
-type Tab = 'upload' | 'guide' | 'matrix' | 'heatmap' | 'comparison' | 'dashboard' | 'chat';
+type Tab = 'upload' | 'guide' | 'matrix' | 'heatmap' | 'comparison' | 'groups' | 'dashboard' | 'chat';
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -24,6 +25,7 @@ export default function ProjectDetailPage() {
   const [matrixData, setMatrixData] = useState<MatrixData | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('upload');
   const [loading, setLoading] = useState(true);
+  const lang = useIALang();
 
   const loadProject = useCallback(async () => {
     try {
@@ -95,7 +97,6 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const lang = useIALang();
   const hasCanonicalQuestions = (matrixData?.questions.length ?? 0) > 0;
   const hasAnswers = (matrixData?.questions.some(q => q.answers.length > 0)) ?? false;
 
@@ -134,6 +135,16 @@ export default function ProjectDetailPage() {
           <rect x="2" y="3" width="8" height="18" rx="1" /><rect x="14" y="3" width="8" height="18" rx="1" />
         </svg>
       )},
+      ...(interviews.some(i => i.group_label) ? [
+        { key: 'groups' as Tab, label: t('tab_groups', lang), count: new Set(interviews.map(i => i.group_label).filter(Boolean)).size, icon: (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+        )},
+      ] : []),
       { key: 'dashboard' as Tab, label: t('tab_dashboard', lang), count: 0, icon: (
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" />
@@ -239,6 +250,13 @@ export default function ProjectDetailPage() {
 
         {activeTab === 'comparison' && (
           <ComparisonView
+            questions={matrixData?.questions ?? []}
+            interviews={matrixData?.interviews ?? []}
+          />
+        )}
+
+        {activeTab === 'groups' && (
+          <GroupComparisonView
             questions={matrixData?.questions ?? []}
             interviews={matrixData?.interviews ?? []}
           />

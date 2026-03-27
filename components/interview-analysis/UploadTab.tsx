@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { IAInterview } from '@/types/interview-analysis';
 import AudioUploader from './AudioUploader';
 import TranscriptUploader from './TranscriptUploader';
@@ -19,12 +19,70 @@ const STATUS_KEYS: Record<string, { key: string; className: string }> = {
   analyzed: { key: 'status_analyzed', className: 'ia-badge-info' },
 };
 
+const GROUP_COLORS = [
+  '#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16',
+];
+
+function groupColor(label: string): string {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) | 0;
+  return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length];
+}
+
+/** Try to detect common prefixes from interview names to auto-assign groups */
+function detectGroupsFromNames(interviews: IAInterview[]): Map<string, string> | null {
+  // Try common separators: "-", "_", " "
+  for (const sep of ['-', '_', ' ']) {
+    const prefixMap = new Map<string, string[]>();
+    for (const iv of interviews) {
+      const idx = iv.name.indexOf(sep);
+      if (idx > 0) {
+        const prefix = iv.name.slice(0, idx).trim();
+        if (!prefixMap.has(prefix)) prefixMap.set(prefix, []);
+        prefixMap.get(prefix)!.push(iv.id);
+      }
+    }
+    // Valid if we have at least 2 groups with at least 2 members each
+    const groups = [...prefixMap.entries()].filter(([, ids]) => ids.length >= 2);
+    if (groups.length >= 2) {
+      const result = new Map<string, string>();
+      for (const [prefix, ids] of groups) {
+        for (const id of ids) result.set(id, prefix);
+      }
+      return result;
+    }
+  }
+  return null;
+}
+
 export default function UploadTab({ projectId, interviews, onRefresh }: UploadTabProps) {
   const lang = useIALang();
   const [showAdd, setShowAdd] = useState(false);
   const [uploadMode, setUploadMode] = useState<'audio' | 'text'>('audio');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [groupDropdownId, setGroupDropdownId] = useState<string | null>(null);
+  const [newGroupText, setNewGroupText] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const existingGroups = useMemo(
+    () => [...new Set(interviews.map(i => i.group_label).filter((g): g is string => !!g))].sort(),
+    [interviews]
+  );
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!groupDropdownId) return;
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setGroupDropdownId(null);
+        setNewGroupText('');
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [groupDropdownId]);
 
   async function handleDelete(id: string) {
     if (!confirm(t('upload_delete_confirm', lang))) return;
@@ -47,6 +105,43 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
     onRefresh();
   }
 
+  async function assignGroup(interviewId: string, groupLabel: string | null) {
+    setGroupDropdownId(null);
+    setNewGroupText('');
+    await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_label: groupLabel }),
+    });
+    onRefresh();
+  }
+
+  async function handleDetectGroups() {
+    const detected = detectGroupsFromNames(interviews);
+    if (!detected || detected.size === 0) return;
+
+    const ids = [...detected.keys()];
+    // Group by label for batch updates
+    const byLabel = new Map<string, string[]>();
+    for (const [id, label] of detected) {
+      if (!byLabel.has(label)) byLabel.set(label, []);
+      byLabel.get(label)!.push(id);
+    }
+
+    await Promise.all(
+      [...byLabel.entries()].map(([label, interviewIds]) =>
+        fetch(`/api/interview-analysis/projects/${projectId}/interviews/batch-group`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ interviewIds, group_label: label }),
+        })
+      )
+    );
+    onRefresh();
+  }
+
+  const canDetectGroups = useMemo(() => detectGroupsFromNames(interviews) !== null, [interviews]);
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -59,18 +154,31 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
             {interviews.length} Interview{interviews.length !== 1 ? 's' : ''} {t('upload_uploaded', lang)}
           </p>
         </div>
-        <button className="ia-btn ia-btn-primary ia-btn-sm" onClick={() => setShowAdd(!showAdd)}>
-          {showAdd ? (
-            t('close', lang)
-          ) : (
-            <>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
+        <div className="flex items-center gap-2">
+          {canDetectGroups && (
+            <button
+              className="ia-btn ia-btn-secondary ia-btn-sm"
+              onClick={handleDetectGroups}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
-              {t('upload_add', lang)}
-            </>
+              {t('group_detect_prefix', lang)}
+            </button>
           )}
-        </button>
+          <button className="ia-btn ia-btn-primary ia-btn-sm" onClick={() => setShowAdd(!showAdd)}>
+            {showAdd ? (
+              t('close', lang)
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                {t('upload_add', lang)}
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Add Interview Panel */}
@@ -140,6 +248,7 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
           {interviews.map((interview) => {
             const status = STATUS_KEYS[interview.status] || STATUS_KEYS.pending;
             const isEditing = editingId === interview.id;
+            const isGroupOpen = groupDropdownId === interview.id;
 
             return (
               <div key={interview.id} className="ia-card-sm p-4 group" style={{ position: 'relative' }}>
@@ -166,13 +275,110 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
                       <h3 className="font-medium text-sm truncate" style={{ color: 'var(--ia-text)' }}>
                         {interview.name}
                       </h3>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className={`ia-badge ${status.className}`}>{t(status.key, lang)}</span>
                         {interview.word_count && (
                           <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-tertiary)' }}>
                             {interview.word_count.toLocaleString()} {t('words', lang)}
                           </span>
                         )}
+                        {/* Group Badge */}
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            className="ia-badge"
+                            style={{
+                              background: interview.group_label
+                                ? `${groupColor(interview.group_label)}20`
+                                : 'var(--ia-bg-muted)',
+                              color: interview.group_label
+                                ? groupColor(interview.group_label)
+                                : 'var(--ia-text-tertiary)',
+                              border: `1px solid ${interview.group_label ? `${groupColor(interview.group_label)}40` : 'var(--ia-border)'}`,
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setGroupDropdownId(isGroupOpen ? null : interview.id);
+                              setNewGroupText('');
+                            }}
+                          >
+                            {interview.group_label || t('group_assign', lang)}
+                          </button>
+
+                          {/* Group Dropdown */}
+                          {isGroupOpen && (
+                            <div
+                              ref={dropdownRef}
+                              className="ia-card"
+                              style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                marginTop: 4,
+                                zIndex: 50,
+                                minWidth: 180,
+                                padding: '4px',
+                              }}
+                            >
+                              {/* No group option */}
+                              <button
+                                className="ia-btn ia-btn-ghost w-full justify-start text-xs py-1.5 px-2 rounded"
+                                style={{ color: 'var(--ia-text-secondary)' }}
+                                onClick={() => assignGroup(interview.id, null)}
+                              >
+                                {t('group_none', lang)}
+                              </button>
+
+                              {/* Existing groups */}
+                              {existingGroups.map(g => (
+                                <button
+                                  key={g}
+                                  className="ia-btn ia-btn-ghost w-full justify-start text-xs py-1.5 px-2 rounded"
+                                  style={{ color: groupColor(g) }}
+                                  onClick={() => assignGroup(interview.id, g)}
+                                >
+                                  <span
+                                    style={{
+                                      width: 8, height: 8, borderRadius: '50%',
+                                      background: groupColor(g), display: 'inline-block', marginRight: 6,
+                                    }}
+                                  />
+                                  {g}
+                                </button>
+                              ))}
+
+                              {/* Divider */}
+                              <div style={{ height: 1, background: 'var(--ia-border)', margin: '4px 0' }} />
+
+                              {/* New group input */}
+                              <form
+                                className="flex gap-1 px-1"
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  if (newGroupText.trim()) assignGroup(interview.id, newGroupText.trim());
+                                }}
+                              >
+                                <input
+                                  className="ia-input text-xs flex-1"
+                                  style={{ padding: '4px 8px' }}
+                                  placeholder={t('group_new_placeholder', lang)}
+                                  value={newGroupText}
+                                  onChange={(e) => setNewGroupText(e.target.value)}
+                                  autoFocus
+                                />
+                                <button
+                                  type="submit"
+                                  className="ia-btn ia-btn-primary text-xs"
+                                  style={{ padding: '4px 8px' }}
+                                  disabled={!newGroupText.trim()}
+                                >
+                                  +
+                                </button>
+                              </form>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

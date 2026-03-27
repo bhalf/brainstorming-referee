@@ -36,6 +36,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       ? body.transcript_text.trim().split(/\s+/).length
       : null;
   }
+  if (body.group_label !== undefined) updates.group_label = body.group_label || null;
   if (body.status !== undefined) {
     if (!VALID_STATUSES.includes(body.status)) {
       return NextResponse.json({ error: `Invalid status. Must be: ${VALID_STATUSES.join(', ')}` }, { status: 400 });
