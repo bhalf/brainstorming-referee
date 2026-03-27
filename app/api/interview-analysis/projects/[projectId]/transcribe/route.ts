@@ -8,7 +8,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 
-export const maxDuration = 600; // 10 min for video extraction + transcription
+export const maxDuration = 300; // Vercel hobby plan limit
 
 const execFileAsync = promisify(execFile);
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'avi', 'mkv', 'wmv', 'flv']);
