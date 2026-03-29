@@ -121,7 +121,7 @@ export async function POST(
     }
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5.4',
       temperature: 0.2,
       response_format: { type: 'json_object' },
       messages: [
@@ -150,7 +150,7 @@ ${interview.transcript_text}`
     }
 
     // Process answers — filter out fake "not found" placeholders
-    const answers = (parsed.answers ?? [])
+    const answers = (Array.isArray(parsed.answers) ? parsed.answers : [])
       .filter((a: { canonical_question_id: string; answer_text: string }) =>
         a.canonical_question_id &&
         a.answer_text?.trim() &&

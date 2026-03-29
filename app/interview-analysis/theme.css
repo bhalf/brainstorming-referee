@@ -182,6 +182,18 @@
   font-size: 12px;
 }
 
+.ia-btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.ia-btn-icon.ia-btn-sm {
+  width: 28px;
+  height: 28px;
+}
+
 .ia-btn-danger {
   color: var(--ia-error);
 }
@@ -476,6 +488,17 @@
   animation: ia-spin 0.6s linear infinite;
 }
 
+.ia-spinner-sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.ia-spinner-inverse {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+}
+
 .ia-spinner-lg {
   width: 32px;
   height: 32px;
@@ -681,14 +704,473 @@
   background: var(--ia-accent-light);
 }
 
+/* ─── Section Header ─────────────────────────────────────────────── */
+
+.ia-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ia-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ia-text);
+  line-height: 1.3;
+}
+
+.ia-section-subtitle {
+  font-size: 12px;
+  color: var(--ia-text-tertiary);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* ─── Stat / KPI Cards ──────────────────────────────────────────── */
+
+.ia-stat-card {
+  background: var(--ia-bg-card);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-lg);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s ease;
+}
+
+.ia-stat-card:hover {
+  border-color: var(--ia-border-strong);
+}
+
+.ia-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ia-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ia-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ia-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.ia-stat-sub {
+  font-size: 11px;
+  color: var(--ia-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Toggle Button Group ────────────────────────────────────────── */
+
+.ia-toggle-group {
+  display: inline-flex;
+  border-radius: var(--ia-radius-md);
+  background: var(--ia-bg-muted);
+  padding: 3px;
+  gap: 2px;
+}
+
+.ia-toggle-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ia-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--ia-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.ia-toggle-btn:hover {
+  color: var(--ia-text);
+}
+
+.ia-toggle-btn--active {
+  background: var(--ia-bg-card);
+  color: var(--ia-text);
+  font-weight: 600;
+  box-shadow: var(--ia-shadow-xs);
+}
+
+/* ─── Table ──────────────────────────────────────────────────────── */
+
+.ia-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ia-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ia-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--ia-border);
+  background: var(--ia-bg-muted);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ia-table th:first-child {
+  border-radius: var(--ia-radius-sm) 0 0 0;
+}
+
+.ia-table th:last-child {
+  border-radius: 0 var(--ia-radius-sm) 0 0;
+}
+
+.ia-table th.ia-table-sortable {
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.ia-table th.ia-table-sortable:hover {
+  color: var(--ia-accent);
+}
+
+.ia-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ia-border);
+  color: var(--ia-text);
+  vertical-align: middle;
+}
+
+.ia-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ia-table tr:hover td {
+  background: var(--ia-bg-muted);
+}
+
+.ia-table td.ia-table-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ─── Progress Bar ───────────────────────────────────────────────── */
+
+.ia-progress {
+  height: 6px;
+  background: var(--ia-bg-muted);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ia-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ia-accent);
+  transition: width 0.4s ease;
+}
+
+/* ─── Popover / Dropdown ─────────────────────────────────────────── */
+
+.ia-popover {
+  background: var(--ia-bg-card);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-lg);
+  box-shadow: var(--ia-shadow-lg);
+  padding: 12px;
+  z-index: 50;
+}
+
+/* ─── Divider ────────────────────────────────────────────────────── */
+
+.ia-divider {
+  height: 1px;
+  background: var(--ia-border);
+  border: none;
+  margin: 16px 0;
+}
+
+/* ─── Interview Card (UploadTab) ─────────────────────────────────── */
+
+.ia-interview-card {
+  background: var(--ia-bg-card);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-xl);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: all 0.15s ease;
+}
+
+.ia-interview-card:hover {
+  border-color: var(--ia-border-strong);
+  box-shadow: var(--ia-shadow-sm);
+}
+
+.ia-interview-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--ia-radius-md);
+  background: var(--ia-bg-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ia-text-tertiary);
+}
+
+.ia-interview-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ia-interview-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ia-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.ia-interview-card-meta {
+  font-size: 11px;
+  color: var(--ia-text-tertiary);
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ia-interview-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.ia-interview-card:hover .ia-interview-card-actions {
+  opacity: 1;
+}
+
+/* ─── Group Header ───────────────────────────────────────────────── */
+
+.ia-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  margin-top: 20px;
+  margin-bottom: 8px;
+}
+
+.ia-group-header:first-child {
+  margin-top: 0;
+}
+
+.ia-group-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ia-group-name {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ia-text-tertiary);
+}
+
+/* ─── Filter Bar ─────────────────────────────────────────────────── */
+
+.ia-filter-bar {
+  background: var(--ia-bg-card);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-lg);
+  padding: 12px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ─── Answer Card (improved) ─────────────────────────────────────── */
+
+.ia-answer-card {
+  background: var(--ia-bg-card);
+  border: 1px solid var(--ia-border);
+  border-radius: var(--ia-radius-lg);
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ia-answer-card:hover {
+  border-color: var(--ia-border-strong);
+}
+
+.ia-answer-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+
+.ia-answer-card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ia-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ia-answer-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ia-answer-card-text {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ia-text-secondary);
+  padding-left: 4px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.ia-answer-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-left: 4px;
+}
+
+/* ─── Status Badge ───────────────────────────────────────────────── */
+
+.ia-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ia-status-dot--pending { background: var(--ia-text-tertiary); }
+.ia-status-dot--transcribing { background: var(--ia-warning); animation: ia-pulse 1.5s ease-in-out infinite; }
+.ia-status-dot--transcribed { background: var(--ia-accent); }
+.ia-status-dot--analyzed { background: var(--ia-success); }
+
+@keyframes ia-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ─── Heatmap Cell ───────────────────────────────────────────────── */
+
+.ia-heatmap-cell {
+  border-radius: 3px;
+  transition: transform 0.1s ease;
+  cursor: pointer;
+}
+
+.ia-heatmap-cell:hover {
+  transform: scale(1.15);
+  z-index: 1;
+}
+
+/* ─── Scrollable Container ───────────────────────────────────────── */
+
+.ia-scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ia-scroll-y {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ─── Truncate Multi-line ────────────────────────────────────────── */
+
+.ia-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ia-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── Color Utilities ────────────────────────────────────────────── */
+
+.ia-text-accent { color: var(--ia-accent); }
+.ia-text-success { color: var(--ia-success); }
+.ia-text-warning { color: var(--ia-warning); }
+.ia-text-error { color: var(--ia-error); }
+
+.ia-bg-accent-light { background: var(--ia-accent-light); }
+.ia-bg-success-light { background: var(--ia-success-light); }
+.ia-bg-warning-light { background: var(--ia-warning-light); }
+.ia-bg-error-light { background: var(--ia-error-light); }
+
 /* ─── Responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
+  .ia-page {
+    padding: 20px 16px 32px;
+  }
+
   .ia-pipeline {
     flex-wrap: wrap;
     gap: 8px;
   }
   .ia-pipeline-connector {
     display: none;
+  }
+
+  .ia-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .ia-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ia-tab {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+
+  .ia-filter-bar {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  .ia-stat-value {
+    font-size: 18px;
   }
 }

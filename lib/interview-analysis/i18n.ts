@@ -4,6 +4,20 @@ import { createContext, useContext, useState, useEffect, useCallback, createElem
 
 export type IALang = 'de' | 'en';
 
+/**
+ * Pick the correct text based on UI language vs project language.
+ * If the UI lang differs from the project lang, return the alt text (if available).
+ */
+export function pickLang(
+  primary: string,
+  alt: string | null | undefined,
+  uiLang: IALang,
+  projectLang: string,
+): string {
+  if (uiLang === projectLang || !alt) return primary;
+  return alt;
+}
+
 // ─── Context ────────────────────────────────────────────────────────────────
 
 export const IALanguageContext = createContext<IALang>('de');
@@ -222,6 +236,29 @@ const labels: Record<IALang, Record<string, string>> = {
     badge_additional: 'Zusatzfrage',
     matrix_mappings_count: 'Zuordnungen',
 
+    // Matrix View (extended filters)
+    matrix_collapse_all: 'Alle zuklappen',
+    matrix_expand_all: 'Alle aufklappen',
+    matrix_filter_group: 'Gruppe',
+    matrix_filter_topic: 'Thema',
+    matrix_filter_confidence: 'Konfidenz',
+    matrix_filter_match_type: 'Zuordnungsart',
+    matrix_filter_follow_ups: 'Mit Nachfragen',
+    matrix_filter_length: 'Antwortlänge',
+    matrix_length_short: 'Kurz (<50)',
+    matrix_length_medium: 'Mittel (50-200)',
+    matrix_length_long: 'Lang (>200)',
+    matrix_avg_words: 'Ø Wörter',
+    matrix_all_topics: 'Alle Themen',
+    matrix_all_groups: 'Alle Gruppen',
+    matrix_all_confidence: 'Alle',
+    matrix_all_match_types: 'Alle',
+
+    // Confidence levels
+    confidence_high: 'Hoch',
+    confidence_medium: 'Mittel',
+    confidence_low: 'Niedrig',
+
     // Chat View
     chat_title: 'Frag deine Daten',
     chat_based_on: 'Basierend auf',
@@ -267,6 +304,16 @@ const labels: Record<IALang, Record<string, string>> = {
     heatmap_few: 'Wenig',
     heatmap_many: 'Viel',
 
+    // Heatmap (extended)
+    heatmap_detail: 'Detail',
+    heatmap_overview: 'Interview-Übersicht',
+    heatmap_col_words: 'Wörter',
+    heatmap_col_coverage: 'Abdeckung',
+    heatmap_col_answers: 'Antworten',
+    heatmap_col_sentiment: 'Sentiment',
+    heatmap_col_avg_length: 'Ø Antwortlänge',
+    heatmap_zoom: 'Zoom',
+
     // Comparison
     comparison_min2: 'Mindestens 2 analysierte Interviews nötig für einen Vergleich.',
     comparison_a: 'INTERVIEW A',
@@ -277,6 +324,19 @@ const labels: Record<IALang, Record<string, string>> = {
     comparison_no_diff: 'Keine Unterschiede im Sentiment gefunden.',
     comparison_coverage: 'Abdeckung',
     comparison_less: 'Weniger',
+
+    // Comparison AI Summary
+    comparison_ai_generate: 'KI-Vergleich generieren',
+    comparison_ai_generating: 'KI analysiert Unterschiede...',
+    comparison_ai_regenerate: 'Neu generieren',
+    comparison_ai_title: 'KI-Vergleichsanalyse',
+    comparison_ai_error: 'Vergleich konnte nicht generiert werden.',
+    comparison_key_diff: 'Wesentliche Unterschiede',
+    comparison_similarities: 'Gemeinsamkeiten',
+    comparison_patterns: 'Auffällige Muster',
+    comparison_overall: 'Gesamtbild',
+    comparison_stance_a: 'Position A',
+    comparison_stance_b: 'Position B',
 
     // Project list page
     project_title: 'Interview-Analyse',
@@ -296,6 +356,39 @@ const labels: Record<IALang, Record<string, string>> = {
     project_empty_desc: 'Erstelle ein neues Projekt um mit der Analyse zu beginnen.',
     project_delete_confirm: 'Projekt wirklich löschen? Alle Interviews und Analysen gehen verloren.',
     project_interview_singular: 'Interview',
+
+    // Coding System
+    tab_coding: 'Kodierung',
+    coding_codebook: 'Codebuch',
+    coding_add_code: 'Code hinzufügen',
+    coding_add_category: 'Kategorie hinzufügen',
+    coding_edit_code: 'Code bearbeiten',
+    coding_delete_code: 'Code löschen',
+    coding_delete_confirm: 'Code und alle Zuweisungen löschen?',
+    coding_no_codes: 'Noch keine Codes erstellt. Erstelle ein Codebuch um zu beginnen.',
+    coding_name_placeholder: 'Codename...',
+    coding_description_placeholder: 'Beschreibung (optional)',
+    coding_select_question: 'Frage wählen',
+    coding_no_question_selected: 'Wähle eine Frage, um mit dem Kodieren zu beginnen.',
+    coding_assign: 'Code zuweisen',
+    coding_remove_assignment: 'Zuweisung entfernen',
+    coding_memo_placeholder: 'Memo (optional)',
+    coding_ai_suggest: 'KI-Vorschläge',
+    coding_ai_suggesting: 'Schlage Codes vor...',
+    coding_new_code: 'Neuer Code',
+    coding_search_codes: 'Codes durchsuchen...',
+    coding_statistics: 'Statistiken',
+    coding_workspace: 'Kodierung',
+    coding_frequency: 'Häufigkeit',
+    coding_co_occurrence: 'Ko-Okkurrenz',
+    coding_assignments: 'Zuweisungen',
+    coding_select_text: 'Text markieren um Code zuzuweisen',
+    coding_active_code: 'Aktiver Code',
+    coding_no_assignments: 'Noch keine Kodierungen vorhanden.',
+    coding_code_count: 'Codes',
+    coding_total_assignments: 'Kodierungen gesamt',
+    matrix_filter_code: 'Code',
+    matrix_all_codes: 'Alle Codes',
 
     // Password Gate
     pw_title: 'Interview-Analyse',
@@ -474,6 +567,29 @@ const labels: Record<IALang, Record<string, string>> = {
     badge_additional: 'Additional',
     matrix_mappings_count: 'mappings',
 
+    // Matrix View (extended filters)
+    matrix_collapse_all: 'Collapse all',
+    matrix_expand_all: 'Expand all',
+    matrix_filter_group: 'Group',
+    matrix_filter_topic: 'Topic',
+    matrix_filter_confidence: 'Confidence',
+    matrix_filter_match_type: 'Match type',
+    matrix_filter_follow_ups: 'With follow-ups',
+    matrix_filter_length: 'Answer length',
+    matrix_length_short: 'Short (<50)',
+    matrix_length_medium: 'Medium (50-200)',
+    matrix_length_long: 'Long (>200)',
+    matrix_avg_words: 'Avg. words',
+    matrix_all_topics: 'All topics',
+    matrix_all_groups: 'All groups',
+    matrix_all_confidence: 'All',
+    matrix_all_match_types: 'All',
+
+    // Confidence levels
+    confidence_high: 'High',
+    confidence_medium: 'Medium',
+    confidence_low: 'Low',
+
     // Chat View
     chat_title: 'Ask your data',
     chat_based_on: 'Based on',
@@ -519,6 +635,16 @@ const labels: Record<IALang, Record<string, string>> = {
     heatmap_few: 'Few',
     heatmap_many: 'Many',
 
+    // Heatmap (extended)
+    heatmap_detail: 'Detail',
+    heatmap_overview: 'Interview Overview',
+    heatmap_col_words: 'Words',
+    heatmap_col_coverage: 'Coverage',
+    heatmap_col_answers: 'Answers',
+    heatmap_col_sentiment: 'Sentiment',
+    heatmap_col_avg_length: 'Avg. answer length',
+    heatmap_zoom: 'Zoom',
+
     // Comparison
     comparison_min2: 'At least 2 analyzed interviews needed for comparison.',
     comparison_a: 'INTERVIEW A',
@@ -529,6 +655,19 @@ const labels: Record<IALang, Record<string, string>> = {
     comparison_no_diff: 'No sentiment differences found.',
     comparison_coverage: 'Coverage',
     comparison_less: 'Less',
+
+    // Comparison AI Summary
+    comparison_ai_generate: 'Generate AI Comparison',
+    comparison_ai_generating: 'AI analyzing differences...',
+    comparison_ai_regenerate: 'Regenerate',
+    comparison_ai_title: 'AI Comparison Analysis',
+    comparison_ai_error: 'Could not generate comparison.',
+    comparison_key_diff: 'Key Differences',
+    comparison_similarities: 'Similarities',
+    comparison_patterns: 'Notable Patterns',
+    comparison_overall: 'Overall Summary',
+    comparison_stance_a: 'Position A',
+    comparison_stance_b: 'Position B',
 
     // Project list page
     project_title: 'Interview Analysis',
@@ -548,6 +687,39 @@ const labels: Record<IALang, Record<string, string>> = {
     project_empty_desc: 'Create a new project to start analyzing.',
     project_delete_confirm: 'Delete project? All interviews and analyses will be lost.',
     project_interview_singular: 'Interview',
+
+    // Coding System
+    tab_coding: 'Coding',
+    coding_codebook: 'Codebook',
+    coding_add_code: 'Add code',
+    coding_add_category: 'Add category',
+    coding_edit_code: 'Edit code',
+    coding_delete_code: 'Delete code',
+    coding_delete_confirm: 'Delete code and all assignments?',
+    coding_no_codes: 'No codes created yet. Create a codebook to get started.',
+    coding_name_placeholder: 'Code name...',
+    coding_description_placeholder: 'Description (optional)',
+    coding_select_question: 'Select question',
+    coding_no_question_selected: 'Select a question to start coding.',
+    coding_assign: 'Assign code',
+    coding_remove_assignment: 'Remove assignment',
+    coding_memo_placeholder: 'Memo (optional)',
+    coding_ai_suggest: 'AI Suggestions',
+    coding_ai_suggesting: 'Suggesting codes...',
+    coding_new_code: 'New code',
+    coding_search_codes: 'Search codes...',
+    coding_statistics: 'Statistics',
+    coding_workspace: 'Coding',
+    coding_frequency: 'Frequency',
+    coding_co_occurrence: 'Co-occurrence',
+    coding_assignments: 'Assignments',
+    coding_select_text: 'Select text to assign a code',
+    coding_active_code: 'Active code',
+    coding_no_assignments: 'No coding done yet.',
+    coding_code_count: 'Codes',
+    coding_total_assignments: 'Total assignments',
+    matrix_filter_code: 'Code',
+    matrix_all_codes: 'All codes',
 
     // Password Gate
     pw_title: 'Interview Analysis',

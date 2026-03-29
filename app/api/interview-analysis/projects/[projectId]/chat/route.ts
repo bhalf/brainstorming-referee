@@ -87,7 +87,7 @@ REGELN:
 - Sei präzise und datengetrieben, keine spekulativen Interpretationen`;
 
   const stream = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.4-mini',
     temperature: 0.3,
     stream: true,
     messages: [

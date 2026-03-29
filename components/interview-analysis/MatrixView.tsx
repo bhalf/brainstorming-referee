@@ -1,25 +1,29 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import type { MatrixQuestion, MatrixFilter, Sentiment, IAInterview } from '@/types/interview-analysis';
+import { useState, useEffect, useMemo } from 'react';
+import type { MatrixQuestion, MatrixFilter, Sentiment, AnswerConfidence, AnswerMatchType, IAInterview } from '@/types/interview-analysis';
 import AnswerCard from './AnswerCard';
-import { useIALang, t } from '@/lib/interview-analysis/i18n';
+import { useIALang, t, pickLang } from '@/lib/interview-analysis/i18n';
 
 interface MatrixViewProps {
   questions: MatrixQuestion[];
   interviews: IAInterview[];
   projectId: string;
+  projectLanguage: string;
   onGenerateSummary: (canonicalQuestionId: string) => Promise<void>;
   onRefresh: () => void;
 }
 
-export default function MatrixView({ questions, interviews, projectId, onGenerateSummary, onRefresh }: MatrixViewProps) {
+export default function MatrixView({ questions, interviews, projectId, projectLanguage, onGenerateSummary, onRefresh }: MatrixViewProps) {
   const lang = useIALang();
   const [filter, setFilter] = useState<MatrixFilter>({});
-  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set(questions.map(q => q.canonical.id)));
+  const startExpanded = interviews.length < 15;
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(
+    new Set(startExpanded ? questions.map(q => q.canonical.id) : [])
+  );
   useEffect(() => {
-    setExpandedQuestions(new Set(questions.map(q => q.canonical.id)));
-  }, [questions]);
+    setExpandedQuestions(new Set(interviews.length < 15 ? questions.map(q => q.canonical.id) : []));
+  }, [questions, interviews.length]);
   const [generatingSummary, setGeneratingSummary] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState<string | null>(null); // mappingId being reassigned
   const [merging, setMerging] = useState<string | null>(null); // canonicalId being merged
@@ -28,6 +32,20 @@ export default function MatrixView({ questions, interviews, projectId, onGenerat
   // Interview name lookup
   const interviewNameMap = new Map(interviews.map(i => [i.id, i.name]));
   const hasAnyGuideQuestion = questions.some(q => q.canonical.guide_question_id);
+
+  // Derived filter options
+  const groupLabels = useMemo(
+    () => [...new Set(interviews.map(i => i.group_label).filter((g): g is string => !!g))].sort(),
+    [interviews]
+  );
+  const topicAreas = useMemo(
+    () => [...new Set(questions.map(q => q.canonical.topic_area).filter((t): t is string => !!t))].sort(),
+    [questions]
+  );
+  const groupInterviewIds = useMemo(() => {
+    if (!filter.group_label) return null;
+    return new Set(interviews.filter(i => i.group_label === filter.group_label).map(i => i.id));
+  }, [filter.group_label, interviews]);
 
   function toggleQuestion(id: string) {
     setExpandedQuestions(prev => {
@@ -82,17 +100,26 @@ export default function MatrixView({ questions, interviews, projectId, onGenerat
   }
 
   // Apply filters
-  const filteredQuestions = questions.map(q => {
-    let answers = q.answers;
-    if (filter.sentiment) answers = answers.filter(a => a.sentiment === filter.sentiment);
-    if (filter.interview_id) answers = answers.filter(a => a.interview_id === filter.interview_id);
-    if (filter.min_word_count) answers = answers.filter(a => (a.word_count ?? 0) >= (filter.min_word_count ?? 0));
-    if (filter.search) {
-      const s = filter.search.toLowerCase();
-      answers = answers.filter(a => a.answer_text.toLowerCase().includes(s));
-    }
-    return { ...q, answers };
-  });
+  const filteredQuestions = questions
+    .filter(q => !filter.topic_area || q.canonical.topic_area === filter.topic_area)
+    .map(q => {
+      let answers = q.answers;
+      if (filter.sentiment) answers = answers.filter(a => a.sentiment === filter.sentiment);
+      if (filter.interview_id) answers = answers.filter(a => a.interview_id === filter.interview_id);
+      if (groupInterviewIds) answers = answers.filter(a => groupInterviewIds.has(a.interview_id));
+      if (filter.min_word_count) answers = answers.filter(a => (a.word_count ?? 0) >= (filter.min_word_count ?? 0));
+      if (filter.confidence) answers = answers.filter(a => a.confidence === filter.confidence);
+      if (filter.match_type) answers = answers.filter(a => a.match_type === filter.match_type);
+      if (filter.has_follow_ups) answers = answers.filter(a => a.follow_ups && a.follow_ups.length > 0);
+      if (filter.min_answer_length === 'short') answers = answers.filter(a => (a.word_count ?? 0) < 50);
+      if (filter.min_answer_length === 'medium') answers = answers.filter(a => (a.word_count ?? 0) >= 50 && (a.word_count ?? 0) <= 200);
+      if (filter.min_answer_length === 'long') answers = answers.filter(a => (a.word_count ?? 0) > 200);
+      if (filter.search) {
+        const s = filter.search.toLowerCase();
+        answers = answers.filter(a => a.answer_text.toLowerCase().includes(s));
+      }
+      return { ...q, answers };
+    });
 
   const allInterviews = Array.from(
     new Map(questions.flatMap(q => q.answers.map(a => [a.interview_id, a.interview_name]))).entries()
@@ -103,50 +130,143 @@ export default function MatrixView({ questions, interviews, projectId, onGenerat
   return (
     <div className="space-y-5">
       {/* Filter Bar */}
-      <div className="ia-card-sm p-3 flex flex-wrap gap-2 items-center">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ia-text-tertiary)' }}>
-          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-        </svg>
+      <div className="ia-card-sm p-3 space-y-2">
+        <div className="flex flex-wrap gap-2 items-center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ia-text-tertiary)' }}>
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+          </svg>
 
-        <select
-          className="ia-select"
-          value={filter.sentiment ?? ''}
-          onChange={(e) => setFilter(f => ({ ...f, sentiment: (e.target.value || undefined) as Sentiment | undefined }))}
-        >
-          <option value="">{t('sentiment', lang)}</option>
-          <option value="positive">{t('positive', lang)}</option>
-          <option value="negative">{t('negative', lang)}</option>
-          <option value="ambivalent">{t('ambivalent', lang)}</option>
-          <option value="neutral">{t('neutral', lang)}</option>
-        </select>
-
-        <select
-          className="ia-select"
-          value={filter.interview_id ?? ''}
-          onChange={(e) => setFilter(f => ({ ...f, interview_id: e.target.value || undefined }))}
-        >
-          <option value="">Interview</option>
-          {allInterviews.map(([id, name]) => (
-            <option key={id} value={id}>{name}</option>
-          ))}
-        </select>
-
-        <input
-          className="ia-input"
-          style={{ width: '200px', height: '32px', fontSize: '13px' }}
-          placeholder={t('matrix_search_placeholder', lang)}
-          value={filter.search ?? ''}
-          onChange={(e) => setFilter(f => ({ ...f, search: e.target.value || undefined }))}
-        />
-
-        {hasActiveFilter && (
-          <button
-            className="ia-btn ia-btn-ghost ia-btn-sm ia-btn-danger"
-            onClick={() => setFilter({})}
+          <select
+            className="ia-select"
+            value={filter.sentiment ?? ''}
+            onChange={(e) => setFilter(f => ({ ...f, sentiment: (e.target.value || undefined) as Sentiment | undefined }))}
           >
-            {t('matrix_reset', lang)}
-          </button>
-        )}
+            <option value="">{t('sentiment', lang)}</option>
+            <option value="positive">{t('positive', lang)}</option>
+            <option value="negative">{t('negative', lang)}</option>
+            <option value="ambivalent">{t('ambivalent', lang)}</option>
+            <option value="neutral">{t('neutral', lang)}</option>
+          </select>
+
+          <select
+            className="ia-select"
+            value={filter.interview_id ?? ''}
+            onChange={(e) => setFilter(f => ({ ...f, interview_id: e.target.value || undefined }))}
+          >
+            <option value="">Interview</option>
+            {allInterviews.map(([id, name]) => (
+              <option key={id} value={id}>{name}</option>
+            ))}
+          </select>
+
+          {groupLabels.length > 0 && (
+            <select
+              className="ia-select"
+              value={filter.group_label ?? ''}
+              onChange={(e) => setFilter(f => ({ ...f, group_label: e.target.value || undefined }))}
+            >
+              <option value="">{t('matrix_all_groups', lang)}</option>
+              {groupLabels.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          )}
+
+          {topicAreas.length > 1 && (
+            <select
+              className="ia-select"
+              value={filter.topic_area ?? ''}
+              onChange={(e) => setFilter(f => ({ ...f, topic_area: e.target.value || undefined }))}
+            >
+              <option value="">{t('matrix_all_topics', lang)}</option>
+              {topicAreas.map(t2 => <option key={t2} value={t2}>{t2}</option>)}
+            </select>
+          )}
+
+          <input
+            className="ia-input"
+            style={{ width: '200px', height: '32px', fontSize: '13px' }}
+            placeholder={t('matrix_search_placeholder', lang)}
+            value={filter.search ?? ''}
+            onChange={(e) => setFilter(f => ({ ...f, search: e.target.value || undefined }))}
+          />
+
+          {hasActiveFilter && (
+            <button
+              className="ia-btn ia-btn-ghost ia-btn-sm ia-btn-danger"
+              onClick={() => setFilter({})}
+            >
+              {t('matrix_reset', lang)}
+            </button>
+          )}
+        </div>
+
+        {/* Second row: advanced filters + expand/collapse */}
+        <div className="flex flex-wrap gap-2 items-center justify-between">
+          <div className="flex flex-wrap gap-2 items-center">
+            <select
+              className="ia-select"
+              style={{ fontSize: '12px' }}
+              value={filter.confidence ?? ''}
+              onChange={(e) => setFilter(f => ({ ...f, confidence: (e.target.value || undefined) as AnswerConfidence | undefined }))}
+            >
+              <option value="">{t('matrix_filter_confidence', lang)}</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+
+            <select
+              className="ia-select"
+              style={{ fontSize: '12px' }}
+              value={filter.match_type ?? ''}
+              onChange={(e) => setFilter(f => ({ ...f, match_type: (e.target.value || undefined) as AnswerMatchType | undefined }))}
+            >
+              <option value="">{t('matrix_filter_match_type', lang)}</option>
+              <option value="direct">{t('match_direct', lang)}</option>
+              <option value="paraphrased">{t('match_paraphrased', lang)}</option>
+              <option value="implicit">{t('match_implicit', lang)}</option>
+              <option value="scattered">{t('match_scattered', lang)}</option>
+            </select>
+
+            <select
+              className="ia-select"
+              style={{ fontSize: '12px' }}
+              value={filter.min_answer_length ?? ''}
+              onChange={(e) => setFilter(f => ({ ...f, min_answer_length: (e.target.value || undefined) as MatrixFilter['min_answer_length'] }))}
+            >
+              <option value="">{t('matrix_filter_length', lang)}</option>
+              <option value="short">{t('matrix_length_short', lang)}</option>
+              <option value="medium">{t('matrix_length_medium', lang)}</option>
+              <option value="long">{t('matrix_length_long', lang)}</option>
+            </select>
+
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--ia-text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={!!filter.has_follow_ups}
+                onChange={(e) => setFilter(f => ({ ...f, has_follow_ups: e.target.checked || undefined }))}
+                style={{ accentColor: 'var(--ia-accent)' }}
+              />
+              {t('matrix_filter_follow_ups', lang)}
+            </label>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              className="ia-btn ia-btn-ghost ia-btn-sm"
+              style={{ fontSize: '11px' }}
+              onClick={() => setExpandedQuestions(new Set(filteredQuestions.map(q => q.canonical.id)))}
+            >
+              {t('matrix_expand_all', lang)}
+            </button>
+            <button
+              className="ia-btn ia-btn-ghost ia-btn-sm"
+              style={{ fontSize: '11px' }}
+              onClick={() => setExpandedQuestions(new Set())}
+            >
+              {t('matrix_collapse_all', lang)}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Questions */}
@@ -194,7 +314,7 @@ export default function MatrixView({ questions, interviews, projectId, onGenerat
                       )}
                     </div>
                     <h3 className="font-semibold text-sm" style={{ color: 'var(--ia-text)' }}>
-                      {q.canonical.canonical_text}
+                      {pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage)}
                     </h3>
                   </div>
 
@@ -234,6 +354,37 @@ export default function MatrixView({ questions, interviews, projectId, onGenerat
                     </svg>
                   </div>
                 </button>
+
+                {/* Compact Summary (when collapsed) */}
+                {!isExpanded && q.answers.length > 0 && (() => {
+                  const sc: Record<string, number> = { positive: 0, negative: 0, neutral: 0, ambivalent: 0 };
+                  let totalWords = 0;
+                  for (const a of q.answers) {
+                    sc[a.sentiment ?? 'neutral']++;
+                    totalWords += a.word_count ?? 0;
+                  }
+                  const total = q.answers.length;
+                  const avgWords = Math.round(totalWords / total);
+                  return (
+                    <div className="px-5 pb-3 flex items-center gap-3" style={{ marginTop: -8 }}>
+                      {/* Sentiment mini bar */}
+                      <div className="flex rounded-full overflow-hidden" style={{ width: 120, height: 6 }}>
+                        {(['positive', 'neutral', 'ambivalent', 'negative'] as const).map(s => {
+                          const pct = (sc[s] / total) * 100;
+                          if (pct === 0) return null;
+                          const colors: Record<string, string> = { positive: 'var(--ia-success)', negative: 'var(--ia-error)', neutral: 'var(--ia-text-tertiary)', ambivalent: 'var(--ia-warning)' };
+                          return <div key={s} style={{ width: `${pct}%`, background: colors[s] }} />;
+                        })}
+                      </div>
+                      <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-tertiary)' }}>
+                        {total} {t('answers', lang)}
+                      </span>
+                      <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-tertiary)' }}>
+                        {t('matrix_avg_words', lang)}: {avgWords}
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 {/* Expanded Content */}
                 {isExpanded && (
@@ -411,7 +562,7 @@ export default function MatrixView({ questions, interviews, projectId, onGenerat
                           </button>
                         </div>
                         <p className="text-[13px] leading-relaxed" style={{ color: 'var(--ia-text-secondary)' }}>
-                          {q.summary.summary_text}
+                          {pickLang(q.summary.summary_text, q.summary.summary_text_alt, lang, projectLanguage)}
                         </p>
                       </div>
                     ) : (

@@ -5,6 +5,7 @@ import { useIALang, t } from '@/lib/interview-analysis/i18n';
 
 interface AudioUploaderProps {
   projectId: string;
+  transcriptionLanguage: string;
   onComplete: () => void;
 }
 
@@ -12,7 +13,7 @@ const ACCEPTED = '.mp3,.wav,.m4a,.webm,.ogg,.mp4,.mov,.avi,.mkv';
 const MAX_AUDIO_SIZE_MB = 24;
 const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|wmv|flv)$/i;
 
-export default function AudioUploader({ projectId, onComplete }: AudioUploaderProps) {
+export default function AudioUploader({ projectId, transcriptionLanguage, onComplete }: AudioUploaderProps) {
   const lang = useIALang();
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
@@ -55,7 +56,7 @@ export default function AudioUploader({ projectId, onComplete }: AudioUploaderPr
           const formData = new FormData();
           formData.append('file', chunks[i], `chunk_${i}.${file.name.split('.').pop()}`);
           if (i === 0) formData.append('name', name || file.name);
-          formData.append('language', lang);
+          formData.append('language', transcriptionLanguage);
 
           const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
             method: 'POST',

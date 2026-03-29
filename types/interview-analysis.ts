@@ -60,6 +60,7 @@ export interface IACanonicalQuestion {
   id: string;
   project_id: string;
   canonical_text: string;
+  canonical_text_alt: string | null;
   topic_area: string | null;
   sort_order: number;
   guide_question_id: string | null;
@@ -105,6 +106,7 @@ export interface IAQuestionSummary {
   id: string;
   canonical_question_id: string;
   summary_text: string;
+  summary_text_alt: string | null;
   generated_at: string;
 }
 
@@ -148,9 +150,84 @@ export interface MatrixData {
   interviews: IAInterview[];
 }
 
+export interface IAComparisonSummary {
+  key_differences: Array<{
+    topic: string;
+    description: string;
+    interview_a_stance: string;
+    interview_b_stance: string;
+  }>;
+  similarities: Array<{ topic: string; description: string }>;
+  notable_patterns: string[];
+  overall_summary: string;
+}
+
 export type MatrixFilter = {
   sentiment?: Sentiment;
   interview_id?: string;
   min_word_count?: number;
   search?: string;
+  group_label?: string;
+  topic_area?: string;
+  confidence?: AnswerConfidence;
+  match_type?: AnswerMatchType;
+  has_follow_ups?: boolean;
+  min_answer_length?: 'short' | 'medium' | 'long';
+  code_id?: string;
 };
+
+// ─── Coding System Types ──────────────────────────────────────────────────────
+
+export interface IACode {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  name: string;
+  description: string | null;
+  color: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IACodeAssignment {
+  id: string;
+  code_id: string;
+  answer_id: string;
+  start_offset: number;
+  end_offset: number;
+  selected_text: string;
+  memo: string | null;
+  created_at: string;
+}
+
+export interface IACodeWithChildren extends IACode {
+  children: IACodeWithChildren[];
+}
+
+export interface IACodeAssignmentWithCode extends IACodeAssignment {
+  code: IACode;
+}
+
+export interface CreateCodeRequest {
+  name: string;
+  parent_id?: string | null;
+  description?: string;
+  color?: string;
+}
+
+export interface CreateCodeAssignmentRequest {
+  code_id: string;
+  answer_id: string;
+  start_offset: number;
+  end_offset: number;
+  selected_text: string;
+  memo?: string;
+}
+
+export interface CodeFrequency {
+  code: IACode;
+  count: number;
+  interview_count: number;
+  question_count: number;
+}

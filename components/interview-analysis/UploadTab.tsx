@@ -9,6 +9,7 @@ import { useIALang, t } from '@/lib/interview-analysis/i18n';
 interface UploadTabProps {
   projectId: string;
   interviews: IAInterview[];
+  projectLanguage: string;
   onRefresh: () => void;
 }
 
@@ -56,7 +57,7 @@ function detectGroupsFromNames(interviews: IAInterview[]): Map<string, string> |
   return null;
 }
 
-export default function UploadTab({ projectId, interviews, onRefresh }: UploadTabProps) {
+export default function UploadTab({ projectId, interviews, projectLanguage, onRefresh }: UploadTabProps) {
   const lang = useIALang();
   const [showAdd, setShowAdd] = useState(false);
   const [uploadMode, setUploadMode] = useState<'audio' | 'text'>('audio');
@@ -142,15 +143,25 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
 
   const canDetectGroups = useMemo(() => detectGroupsFromNames(interviews) !== null, [interviews]);
 
+  const sortedInterviews = useMemo(() => {
+    return [...interviews].sort((a, b) => {
+      const aGroup = a.group_label ?? '\uffff';
+      const bGroup = b.group_label ?? '\uffff';
+      const groupCmp = aGroup.localeCompare(bGroup, undefined, { numeric: true, sensitivity: 'base' });
+      if (groupCmp !== 0) return groupCmp;
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [interviews]);
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="ia-section-header">
         <div>
-          <h2 className="text-base font-semibold" style={{ color: 'var(--ia-text)' }}>
+          <h2 className="ia-section-title">
             {t('interviews', lang)}
           </h2>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--ia-text-tertiary)' }}>
+          <p className="ia-section-subtitle">
             {interviews.length} Interview{interviews.length !== 1 ? 's' : ''} {t('upload_uploaded', lang)}
           </p>
         </div>
@@ -185,17 +196,11 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
       {showAdd && (
         <div className="ia-card p-5 ia-animate-in space-y-4">
           {/* Mode Toggle */}
-          <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--ia-bg-muted)' }}>
+          <div className="ia-toggle-group" style={{ display: 'flex' }}>
             {(['audio', 'text'] as const).map(mode => (
               <button
                 key={mode}
-                className="ia-btn flex-1 text-xs py-2 rounded-md transition-all"
-                style={{
-                  background: uploadMode === mode ? 'var(--ia-bg-card)' : 'transparent',
-                  color: uploadMode === mode ? 'var(--ia-text)' : 'var(--ia-text-secondary)',
-                  boxShadow: uploadMode === mode ? 'var(--ia-shadow-xs)' : 'none',
-                  fontWeight: uploadMode === mode ? 600 : 500,
-                }}
+                className={`ia-toggle-btn flex-1 ${uploadMode === mode ? 'ia-toggle-btn--active' : ''}`}
                 onClick={() => setUploadMode(mode)}
               >
                 {mode === 'audio' ? (
@@ -221,7 +226,7 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
           </div>
 
           {uploadMode === 'audio' ? (
-            <AudioUploader projectId={projectId} onComplete={() => { setShowAdd(false); onRefresh(); }} />
+            <AudioUploader projectId={projectId} transcriptionLanguage={projectLanguage} onComplete={() => { setShowAdd(false); onRefresh(); }} />
           ) : (
             <TranscriptUploader projectId={projectId} onComplete={() => { setShowAdd(false); onRefresh(); }} />
           )}
@@ -244,183 +249,142 @@ export default function UploadTab({ projectId, interviews, onRefresh }: UploadTa
           </p>
         </div>
       ) : (
-        <div className="space-y-2 ia-stagger">
-          {interviews.map((interview) => {
+        <div className="space-y-3 ia-stagger">
+          {sortedInterviews.map((interview, idx) => {
+            const prevGroup = idx > 0 ? sortedInterviews[idx - 1].group_label : undefined;
+            const showGroupHeader = interview.group_label && interview.group_label !== prevGroup;
             const status = STATUS_KEYS[interview.status] || STATUS_KEYS.pending;
             const isEditing = editingId === interview.id;
             const isGroupOpen = groupDropdownId === interview.id;
 
             return (
-              <div key={interview.id} className="ia-card-sm p-4 group" style={{ position: 'relative', overflow: isGroupOpen ? 'visible' : undefined, zIndex: isGroupOpen ? 10 : undefined }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {/* Source icon */}
-                    <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ background: 'var(--ia-bg-muted)', color: 'var(--ia-text-tertiary)' }}
-                    >
-                      {interview.source_type === 'audio' ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                        </svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-medium text-sm truncate" style={{ color: 'var(--ia-text)' }}>
-                        {interview.name}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className={`ia-badge ${status.className}`}>{t(status.key, lang)}</span>
-                        {interview.word_count && (
-                          <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-tertiary)' }}>
-                            {interview.word_count.toLocaleString()} {t('words', lang)}
-                          </span>
-                        )}
-                        {/* Group Badge */}
-                        <div style={{ position: 'relative' }}>
+              <div key={interview.id}>
+                {showGroupHeader && (
+                  <div className="ia-group-header" style={idx > 0 ? { marginTop: 12 } : undefined}>
+                    <span className="ia-group-dot" style={{ background: groupColor(interview.group_label!) }} />
+                    <span className="ia-group-name" style={{ color: groupColor(interview.group_label!) }}>
+                      {interview.group_label}
+                    </span>
+                  </div>
+                )}
+              <div className="ia-interview-card" style={{ position: 'relative', overflow: isGroupOpen ? 'visible' : undefined, zIndex: isGroupOpen ? 10 : undefined }}>
+                <div className="ia-interview-card-icon">
+                  {interview.source_type === 'audio' ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  )}
+                </div>
+                <div className="ia-interview-card-body">
+                  <h3 className="ia-interview-card-name">{interview.name}</h3>
+                  <div className="ia-interview-card-meta">
+                    <span className={`ia-badge ${status.className}`}>{t(status.key, lang)}</span>
+                    {interview.word_count && (
+                      <span className="ia-data">{interview.word_count.toLocaleString()} {t('words', lang)}</span>
+                    )}
+                    {/* Group Badge */}
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        className="ia-badge"
+                        style={{
+                          background: interview.group_label
+                            ? `${groupColor(interview.group_label)}20`
+                            : 'var(--ia-bg-muted)',
+                          color: interview.group_label
+                            ? groupColor(interview.group_label)
+                            : 'var(--ia-text-tertiary)',
+                          border: `1px solid ${interview.group_label ? `${groupColor(interview.group_label)}40` : 'var(--ia-border)'}`,
+                          cursor: 'pointer',
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setGroupDropdownId(isGroupOpen ? null : interview.id);
+                          setNewGroupText('');
+                        }}
+                      >
+                        {interview.group_label || t('group_assign', lang)}
+                      </button>
+
+                      {/* Group Dropdown */}
+                      {isGroupOpen && (
+                        <div ref={dropdownRef} className="ia-popover" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, minWidth: 180, padding: '4px' }}>
                           <button
-                            className="ia-badge"
-                            style={{
-                              background: interview.group_label
-                                ? `${groupColor(interview.group_label)}20`
-                                : 'var(--ia-bg-muted)',
-                              color: interview.group_label
-                                ? groupColor(interview.group_label)
-                                : 'var(--ia-text-tertiary)',
-                              border: `1px solid ${interview.group_label ? `${groupColor(interview.group_label)}40` : 'var(--ia-border)'}`,
-                              cursor: 'pointer',
-                              fontSize: '11px',
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setGroupDropdownId(isGroupOpen ? null : interview.id);
-                              setNewGroupText('');
+                            className="ia-btn ia-btn-ghost w-full justify-start text-xs py-1.5 px-2 rounded"
+                            style={{ color: 'var(--ia-text-secondary)' }}
+                            onClick={() => assignGroup(interview.id, null)}
+                          >
+                            {t('group_none', lang)}
+                          </button>
+                          {existingGroups.map(g => (
+                            <button
+                              key={g}
+                              className="ia-btn ia-btn-ghost w-full justify-start text-xs py-1.5 px-2 rounded"
+                              style={{ color: groupColor(g) }}
+                              onClick={() => assignGroup(interview.id, g)}
+                            >
+                              <span className="ia-group-dot" style={{ background: groupColor(g), display: 'inline-block', marginRight: 6 }} />
+                              {g}
+                            </button>
+                          ))}
+                          <div className="ia-divider" style={{ margin: '4px 0' }} />
+                          <form
+                            className="flex gap-1 px-1"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (newGroupText.trim()) assignGroup(interview.id, newGroupText.trim());
                             }}
                           >
-                            {interview.group_label || t('group_assign', lang)}
-                          </button>
-
-                          {/* Group Dropdown */}
-                          {isGroupOpen && (
-                            <div
-                              ref={dropdownRef}
-                              className="ia-card"
-                              style={{
-                                position: 'absolute',
-                                top: '100%',
-                                left: 0,
-                                marginTop: 4,
-                                zIndex: 50,
-                                minWidth: 180,
-                                padding: '4px',
-                                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                              }}
-                            >
-                              {/* No group option */}
-                              <button
-                                className="ia-btn ia-btn-ghost w-full justify-start text-xs py-1.5 px-2 rounded"
-                                style={{ color: 'var(--ia-text-secondary)' }}
-                                onClick={() => assignGroup(interview.id, null)}
-                              >
-                                {t('group_none', lang)}
-                              </button>
-
-                              {/* Existing groups */}
-                              {existingGroups.map(g => (
-                                <button
-                                  key={g}
-                                  className="ia-btn ia-btn-ghost w-full justify-start text-xs py-1.5 px-2 rounded"
-                                  style={{ color: groupColor(g) }}
-                                  onClick={() => assignGroup(interview.id, g)}
-                                >
-                                  <span
-                                    style={{
-                                      width: 8, height: 8, borderRadius: '50%',
-                                      background: groupColor(g), display: 'inline-block', marginRight: 6,
-                                    }}
-                                  />
-                                  {g}
-                                </button>
-                              ))}
-
-                              {/* Divider */}
-                              <div style={{ height: 1, background: 'var(--ia-border)', margin: '4px 0' }} />
-
-                              {/* New group input */}
-                              <form
-                                className="flex gap-1 px-1"
-                                onSubmit={(e) => {
-                                  e.preventDefault();
-                                  if (newGroupText.trim()) assignGroup(interview.id, newGroupText.trim());
-                                }}
-                              >
-                                <input
-                                  className="ia-input text-xs flex-1"
-                                  style={{ padding: '4px 8px' }}
-                                  placeholder={t('group_new_placeholder', lang)}
-                                  value={newGroupText}
-                                  onChange={(e) => setNewGroupText(e.target.value)}
-                                  autoFocus
-                                />
-                                <button
-                                  type="submit"
-                                  className="ia-btn ia-btn-primary text-xs"
-                                  style={{ padding: '4px 8px' }}
-                                  disabled={!newGroupText.trim()}
-                                >
-                                  +
-                                </button>
-                              </form>
-                            </div>
-                          )}
+                            <input
+                              className="ia-input text-xs flex-1"
+                              style={{ padding: '4px 8px' }}
+                              placeholder={t('group_new_placeholder', lang)}
+                              value={newGroupText}
+                              onChange={(e) => setNewGroupText(e.target.value)}
+                              autoFocus
+                            />
+                            <button type="submit" className="ia-btn ia-btn-primary text-xs" style={{ padding: '4px 8px' }} disabled={!newGroupText.trim()}>+</button>
+                          </form>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {interview.transcript_text && (
-                      <button
-                        className="ia-btn ia-btn-ghost ia-btn-sm"
-                        onClick={() => isEditing ? saveEdit(interview.id) : startEdit(interview)}
-                      >
-                        {isEditing ? t('save', lang) : t('edit', lang)}
-                      </button>
-                    )}
-                    {isEditing && (
-                      <button className="ia-btn ia-btn-ghost ia-btn-sm" onClick={() => setEditingId(null)}>
-                        {t('cancel', lang)}
-                      </button>
-                    )}
-                    <button className="ia-btn ia-btn-ghost ia-btn-sm ia-btn-danger" onClick={() => handleDelete(interview.id)}>
-                      {t('delete', lang)}
+                </div>
+                <div className="ia-interview-card-actions">
+                  {interview.transcript_text && (
+                    <button
+                      className="ia-btn ia-btn-ghost ia-btn-sm"
+                      onClick={() => isEditing ? saveEdit(interview.id) : startEdit(interview)}
+                    >
+                      {isEditing ? t('save', lang) : t('edit', lang)}
                     </button>
-                  </div>
+                  )}
+                  {isEditing && (
+                    <button className="ia-btn ia-btn-ghost ia-btn-sm" onClick={() => setEditingId(null)}>
+                      {t('cancel', lang)}
+                    </button>
+                  )}
+                  <button className="ia-btn ia-btn-ghost ia-btn-sm ia-btn-danger" onClick={() => handleDelete(interview.id)}>
+                    {t('delete', lang)}
+                  </button>
                 </div>
 
                 {/* Transcript Editor */}
                 {isEditing && (
                   <textarea
-                    className="ia-textarea mt-3 text-xs font-mono"
-                    style={{ minHeight: '200px' }}
+                    className="ia-textarea text-xs font-mono"
+                    style={{ minHeight: '200px', width: '100%', marginTop: 12 }}
                     value={editText}
                     onChange={(e) => setEditText(e.target.value)}
                   />
                 )}
 
-                {/* Transcript Preview */}
-                {!isEditing && interview.transcript_text && (
-                  <p className="mt-2 text-xs line-clamp-2" style={{ color: 'var(--ia-text-secondary)' }}>
-                    {interview.transcript_text.slice(0, 200)}
-                    {interview.transcript_text.length > 200 ? '...' : ''}
-                  </p>
-                )}
+              </div>
               </div>
             );
           })}

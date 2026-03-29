@@ -126,19 +126,19 @@ export default function ChatView({ projectId, interviewCount, answerCount, quest
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="ia-card overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 340px)', minHeight: '500px' }}>
+    <div className="ia-card overflow-hidden flex flex-col" style={{ minHeight: '500px', maxHeight: 'calc(100vh - 280px)' }}>
       {/* Header */}
-      <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--ia-border)' }}>
+      <div className="ia-section-header" style={{ padding: '16px', marginBottom: 0 }}>
         <div>
           <div className="flex items-center gap-2">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ia-accent)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ia-text-accent">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <h3 className="text-sm font-semibold" style={{ color: 'var(--ia-text)' }}>
+            <h3 className="ia-section-title">
               {t('chat_title', lang)}
             </h3>
           </div>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--ia-text-tertiary)' }}>
+          <p className="ia-section-subtitle" style={{ marginTop: '4px' }}>
             {t('chat_based_on', lang)} {interviewCount} {t('interviews', lang)}, {answerCount} {t('answers', lang)}, {questionCount} {t('questions', lang)}
           </p>
         </div>
@@ -154,24 +154,22 @@ export default function ChatView({ projectId, interviewCount, answerCount, quest
           </button>
         )}
       </div>
+      <div className="ia-divider" style={{ margin: 0 }} />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center h-full gap-6">
             <div className="text-center">
-              <div
-                className="mx-auto mb-3 w-12 h-12 rounded-full flex items-center justify-center"
-                style={{ background: 'var(--ia-accent-light)' }}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ia-accent)' }}>
+              <div className="mx-auto mb-3 w-12 h-12 rounded-full flex items-center justify-center ia-bg-accent-light">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="ia-text-accent">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
               </div>
-              <p className="text-sm font-medium" style={{ color: 'var(--ia-text)' }}>
+              <p className="ia-section-title">
                 {t('chat_title', lang)}
               </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--ia-text-tertiary)' }}>
+              <p className="ia-section-subtitle" style={{ marginTop: '4px' }}>
                 {t('chat_desc_prefix', lang)} {answerCount} {t('chat_desc_suffix', lang)}
               </p>
             </div>
@@ -216,8 +214,8 @@ export default function ChatView({ projectId, interviewCount, answerCount, quest
                 <div className="ia-chat-msg-text">
                   {msg.content || (
                     <span className="ia-chat-typing">
-                      <span className="ia-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                      <span style={{ color: 'var(--ia-text-tertiary)', fontSize: '12px' }}>{t('chat_analyzing', lang)}</span>
+                      <span className="ia-spinner ia-spinner-sm" />
+                      <span className="ia-section-subtitle">{t('chat_analyzing', lang)}</span>
                     </span>
                   )}
                 </div>
@@ -229,7 +227,8 @@ export default function ChatView({ projectId, interviewCount, answerCount, quest
       </div>
 
       {/* Input */}
-      <div className="p-4" style={{ borderTop: '1px solid var(--ia-border)' }}>
+      <div className="ia-divider" style={{ margin: 0 }} />
+      <div style={{ padding: '16px' }}>
         <div className="flex gap-2 items-end">
           <textarea
             ref={textareaRef}
@@ -243,13 +242,13 @@ export default function ChatView({ projectId, interviewCount, answerCount, quest
             rows={1}
           />
           <button
-            className="ia-btn ia-btn-primary flex-shrink-0"
-            style={{ height: '40px', width: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            className="ia-btn ia-btn-primary ia-btn-icon"
+            style={{ width: '40px', height: '40px' }}
             onClick={() => sendMessage(input)}
             disabled={!input.trim() || streaming}
           >
             {streaming ? (
-              <span className="ia-spinner" style={{ width: 16, height: 16, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
+              <span className="ia-spinner ia-spinner-sm ia-spinner-inverse" />
             ) : (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
@@ -257,7 +256,7 @@ export default function ChatView({ projectId, interviewCount, answerCount, quest
             )}
           </button>
         </div>
-        <p className="text-[10px] mt-1.5" style={{ color: 'var(--ia-text-tertiary)' }}>
+        <p className="ia-section-subtitle" style={{ fontSize: '10px', marginTop: '6px' }}>
           {t('chat_hint', lang)}
         </p>
       </div>

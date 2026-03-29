@@ -18,6 +18,14 @@ export async function POST(
   const sb = getServiceClient();
   const openai = getOpenAIClient();
 
+  // Load project language
+  const { data: projectData } = await sb
+    .from('ia_projects')
+    .select('language')
+    .eq('id', projectId)
+    .single();
+  const isEn = (projectData?.language ?? 'de') === 'en';
+
   // ── GUIDE-DIRECT MODE: create canonicals deterministically from guide questions ──
   if (guideDirect) {
     return handleGuideDirect(projectId, sb);
@@ -25,7 +33,7 @@ export async function POST(
 
   // ── INCREMENTAL MODE: match only new questions against existing canonicals ──
   if (mode === 'incremental' && interviewIds?.length) {
-    return handleIncremental(projectId, interviewIds, sb, openai);
+    return handleIncremental(projectId, interviewIds, sb, openai, isEn);
   }
 
   // ── FULL MODE (default): existing behavior — rebuild from scratch ──
@@ -77,7 +85,41 @@ export async function POST(
 
   // Build the GPT prompt — different strategy with/without guide
   const systemPrompt = hasGuide
-    ? `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst:
+    ? (isEn
+      ? `You are an expert in qualitative research methodology. You receive:
+1. Predefined guide questions (the researcher's anchor questions)
+2. Extracted questions from multiple interviews
+
+Your task: Map each extracted question to a guide question OR create new canonical questions for topics not covered in the guide.
+
+Return results as JSON:
+{
+  "guide_mappings": [
+    {
+      "guide_index": 0,
+      "question_ids": ["id1", "id2"],
+      "similarities": [0.95, 0.88]
+    }
+  ],
+  "new_canonical_questions": [
+    {
+      "canonical_text": "New question not in the guide",
+      "topic_area": "Topic area",
+      "question_ids": ["id3"],
+      "similarities": [0.90]
+    }
+  ]
+}
+
+Rules:
+- Guide questions have PRIORITY: Map extracted questions to a guide question even if wording differs significantly — topic/aspect matters
+- Similarity value (0-1): 0.5+ is sufficient for mapping with same topic
+- Create new canonical questions ONLY for topics/aspects clearly NOT in the guide
+- Follow-up questions to a guide question are mapped to it (not as new question), unless they cover a clearly independent topic
+- Each extracted question must be mapped to exactly ONE question (either guide or new)
+- question_ids MUST match exactly the provided IDs — do not invent IDs
+- Sort new canonical questions in logical order`
+      : `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst:
 1. Vordefinierte Leitfaden-Fragen (die Ankerfragen des Forschers)
 2. Extrahierte Fragen aus mehreren Interviews
 
@@ -109,8 +151,32 @@ Regeln:
 - Follow-up-Fragen zu einer Leitfaden-Frage werden dieser zugeordnet (nicht als neue Frage), es sei denn, sie behandeln ein klar eigenständiges Thema
 - Jede extrahierte Frage muss genau EINER Frage zugeordnet werden (entweder Leitfaden oder neu)
 - Die question_ids MÜSSEN exakt den übergebenen IDs entsprechen — keine eigenen IDs erfinden
-- Neue kanonische Fragen bitte in logischer Reihenfolge sortieren`
-    : `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst extrahierte Fragen aus mehreren Interviews eines Forschungsprojekts.
+- Neue kanonische Fragen bitte in logischer Reihenfolge sortieren`)
+    : (isEn
+      ? `You are an expert in qualitative research methodology. You receive extracted questions from multiple interviews of a research project.
+
+Your task: Group semantically identical/similar questions into "Canonical Questions". Even if questions are worded differently, they belong together if they ask about the same topic/aspect.
+
+Return results as JSON:
+{
+  "canonical_questions": [
+    {
+      "canonical_text": "The best standardized wording of this question",
+      "topic_area": "Overarching topic area",
+      "question_ids": ["id1", "id2", ...],
+      "similarities": [0.95, 0.88, ...]
+    }
+  ]
+}
+
+Rules:
+- Each question must be mapped to exactly ONE canonical question
+- Sort canonical questions in typical interview order (Introduction → Main part → Closing)
+- Follow-up questions can be assigned to their own canonical question if they appear in multiple interviews
+- Similarity value (0-1) indicates how similar the original question is to the canonical wording
+- question_ids MUST match exactly the provided IDs — do not invent IDs
+- Prefer the clearest/most concise wording as canonical_text`
+      : `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst extrahierte Fragen aus mehreren Interviews eines Forschungsprojekts.
 
 Deine Aufgabe: Gruppiere semantisch identische/ähnliche Fragen zu "Kanonischen Fragen". Auch wenn Fragen unterschiedlich formuliert sind, gehören sie zusammen, wenn sie dasselbe Thema/Aspekt erfragen.
 
@@ -132,14 +198,19 @@ Regeln:
 - Follow-up-Fragen können einer eigenen kanonischen Frage zugeordnet werden, wenn sie in mehreren Interviews vorkommen
 - Similarity-Wert (0-1) gibt an, wie ähnlich die Originalfrage der kanonischen Formulierung ist
 - Die question_ids MÜSSEN exakt den übergebenen IDs entsprechen — keine eigenen IDs erfinden
-- Bevorzuge die klarste/prägnanteste Formulierung als canonical_text`;
+- Bevorzuge die klarste/prägnanteste Formulierung als canonical_text`);
 
+  const defaultTopic = isEn ? 'General' : 'Allgemein';
   const userContent = hasGuide
-    ? `Leitfaden-Fragen:\n${guideQuestions!.map((g, i) => `${i}. [${g.topic_area || 'Allgemein'}] ${g.question_text}`).join('\n')}\n\nExtrahierte Fragen aus ${interviews.length} Interviews:\n\n${JSON.stringify(groupedQuestions, null, 2)}`
-    : `Fragen aus ${interviews.length} Interviews:\n\n${JSON.stringify(groupedQuestions, null, 2)}`;
+    ? isEn
+      ? `Guide questions:\n${guideQuestions!.map((g, i) => `${i}. [${g.topic_area || defaultTopic}] ${g.question_text}`).join('\n')}\n\nExtracted questions from ${interviews.length} interviews:\n\n${JSON.stringify(groupedQuestions, null, 2)}`
+      : `Leitfaden-Fragen:\n${guideQuestions!.map((g, i) => `${i}. [${g.topic_area || defaultTopic}] ${g.question_text}`).join('\n')}\n\nExtrahierte Fragen aus ${interviews.length} Interviews:\n\n${JSON.stringify(groupedQuestions, null, 2)}`
+    : isEn
+      ? `Questions from ${interviews.length} interviews:\n\n${JSON.stringify(groupedQuestions, null, 2)}`
+      : `Fragen aus ${interviews.length} Interviews:\n\n${JSON.stringify(groupedQuestions, null, 2)}`;
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
@@ -297,7 +368,56 @@ Regeln:
     }
   }
 
+  // ── Batch-translate all canonical texts to the other language ──
+  await translateCanonicals(results, isEn, sb, openai);
+
   return NextResponse.json({ canonical_questions: results });
+}
+
+/** Translate canonical question texts to the alternate language in one GPT call */
+async function translateCanonicals(
+  canonicals: Array<{ id: string; canonical_text: string }>,
+  isEn: boolean,
+  sb: ReturnType<typeof getServiceClient>,
+  openai: ReturnType<typeof getOpenAIClient>,
+) {
+  if (canonicals.length === 0) return;
+  const targetLang = isEn ? 'German' : 'English';
+  const items = canonicals.map((c, i) => `${i}. ${c.canonical_text}`).join('\n');
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-5.4-mini',
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `Translate the following numbered research interview questions to ${targetLang}. Keep the academic/research tone. Return JSON: { "translations": ["translated text 0", "translated text 1", ...] }`,
+        },
+        { role: 'user', content: items },
+      ],
+    });
+
+    const content = res.choices[0]?.message?.content;
+    if (!content) return;
+    const parsed = JSON.parse(content);
+    const translations: string[] = parsed.translations ?? [];
+
+    // Update each canonical with the alt text
+    await Promise.all(
+      canonicals.map((c, i) => {
+        const alt = translations[i];
+        if (!alt) return Promise.resolve();
+        return sb
+          .from('ia_canonical_questions')
+          .update({ canonical_text_alt: alt })
+          .eq('id', c.id);
+      })
+    );
+  } catch {
+    // Translation failure is non-critical — continue without alt text
+  }
 }
 
 // ── GUIDE-DIRECT: Deterministic canonical creation from guide questions ────────
@@ -365,6 +485,7 @@ async function handleIncremental(
   interviewIds: string[],
   sb: ReturnType<typeof getServiceClient>,
   openai: ReturnType<typeof getOpenAIClient>,
+  isEn: boolean,
 ) {
   // 1. Load existing canonical questions
   const { data: existingCanonicals } = await sb
@@ -416,13 +537,46 @@ async function handleIncremental(
   const validCanonicalIds = new Set(existingCanonicals.map(c => c.id));
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
       {
         role: 'system',
-        content: `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst:
+        content: isEn
+          ? `You are an expert in qualitative research methodology. You receive:
+1. EXISTING canonical questions (already identified from earlier interviews)
+2. NEW extracted questions from a new interview
+
+Your task: Map each NEW question to an EXISTING canonical question, OR create new canonical questions ONLY for topics NOT YET covered in existing questions.
+
+Return results as JSON:
+{
+  "existing_mappings": [
+    {
+      "canonical_id": "uuid-of-existing-canonical-question",
+      "question_ids": ["new-q-id1", "new-q-id2"],
+      "similarities": [0.92, 0.85]
+    }
+  ],
+  "new_canonical_questions": [
+    {
+      "canonical_text": "New canonical question for a previously uncovered topic",
+      "topic_area": "Topic area",
+      "question_ids": ["new-q-id3"],
+      "similarities": [0.90]
+    }
+  ]
+}
+
+Rules:
+- PREFER mapping to existing canonical questions — create new ones ONLY when the topic is truly new
+- Similarity value (0-1): 0.5+ is sufficient for thematic mapping
+- Each new question must be mapped to exactly ONE question (existing or new)
+- canonical_id MUST match exactly one of the provided existing IDs
+- question_ids MUST match exactly the provided new question IDs — do not invent IDs
+- Follow-up questions on the same topic belong to the parent canonical question`
+          : `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst:
 1. BESTEHENDE kanonische Fragen (bereits aus früheren Interviews identifiziert)
 2. NEUE extrahierte Fragen aus einem neuen Interview
 
@@ -457,7 +611,9 @@ Regeln:
       },
       {
         role: 'user',
-        content: `Bestehende kanonische Fragen:\n${JSON.stringify(existingForGPT, null, 2)}\n\nNeue extrahierte Fragen:\n${JSON.stringify(groupedNewQuestions, null, 2)}`
+        content: isEn
+          ? `Existing canonical questions:\n${JSON.stringify(existingForGPT, null, 2)}\n\nNew extracted questions:\n${JSON.stringify(groupedNewQuestions, null, 2)}`
+          : `Bestehende kanonische Fragen:\n${JSON.stringify(existingForGPT, null, 2)}\n\nNeue extrahierte Fragen:\n${JSON.stringify(groupedNewQuestions, null, 2)}`
       }
     ],
   });
@@ -535,6 +691,11 @@ Regeln:
     }
 
     newCanonicalResults.push({ ...inserted, mapping_count: mappings.length });
+  }
+
+  // Translate new canonicals to alternate language
+  if (newCanonicalResults.length > 0) {
+    await translateCanonicals(newCanonicalResults, isEn, sb, openai);
   }
 
   // Return all canonicals (existing + new)

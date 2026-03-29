@@ -1,19 +1,20 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { MatrixQuestion, IAInterview, Sentiment } from '@/types/interview-analysis';
-import { useIALang, t } from '@/lib/interview-analysis/i18n';
+import { useIALang, t, pickLang } from '@/lib/interview-analysis/i18n';
 
 interface GroupComparisonViewProps {
   questions: MatrixQuestion[];
   interviews: IAInterview[];
+  projectLanguage: string;
 }
 
 const SENTIMENT_COLORS: Record<string, string> = {
-  positive: '#22C55E',
-  negative: '#EF4444',
-  neutral: '#94A3B8',
-  ambivalent: '#F59E0B',
+  positive: 'var(--ia-success)',
+  negative: 'var(--ia-error)',
+  neutral: 'var(--ia-text-tertiary)',
+  ambivalent: 'var(--ia-warning)',
 };
 
 const GROUP_COLORS = [
@@ -99,7 +100,7 @@ function SentimentDot({ sentiment }: { sentiment: Sentiment | null }) {
   );
 }
 
-export default function GroupComparisonView({ questions, interviews }: GroupComparisonViewProps) {
+export default function GroupComparisonView({ questions, interviews, projectLanguage }: GroupComparisonViewProps) {
   const lang = useIALang();
   const [section, setSection] = useState<'overview' | 'inter' | 'intra'>('overview');
   const [groupA, setGroupA] = useState('');
@@ -122,13 +123,15 @@ export default function GroupComparisonView({ questions, interviews }: GroupComp
   }, [groupLabels, interviews, questions]);
 
   // Auto-select groups
-  if (groupLabels.length >= 2 && !groupA) {
-    setGroupA(groupLabels[0]);
-    setGroupB(groupLabels[1]);
-  }
-  if (groupLabels.length >= 1 && !intraGroup) {
-    setIntraGroup(groupLabels[0]);
-  }
+  useEffect(() => {
+    if (groupLabels.length >= 2 && !groupA) {
+      setGroupA(groupLabels[0]);
+      setGroupB(groupLabels[1]);
+    }
+    if (groupLabels.length >= 1 && !intraGroup) {
+      setIntraGroup(groupLabels[0]);
+    }
+  }, [groupLabels, groupA, intraGroup]);
 
   if (groupLabels.length === 0) {
     return (
@@ -317,6 +320,7 @@ export default function GroupComparisonView({ questions, interviews }: GroupComp
               questions={questions}
               onlyDiff={onlyDiff}
               lang={lang}
+              projectLanguage={projectLanguage}
             />
           )}
         </div>
@@ -343,6 +347,7 @@ export default function GroupComparisonView({ questions, interviews }: GroupComp
               group={groupsMap.get(intraGroup)!}
               questions={questions}
               lang={lang}
+              projectLanguage={projectLanguage}
             />
           )}
         </div>
@@ -354,10 +359,10 @@ export default function GroupComparisonView({ questions, interviews }: GroupComp
 // ─── Inter-Group Table ────────────────────────────────────────────────────────
 
 function InterGroupTable({
-  groupA, groupB, questions, onlyDiff, lang,
+  groupA, groupB, questions, onlyDiff, lang, projectLanguage,
 }: {
   groupA: GroupData; groupB: GroupData; questions: MatrixQuestion[];
-  onlyDiff: boolean; lang: 'de' | 'en';
+  onlyDiff: boolean; lang: 'de' | 'en'; projectLanguage: string;
 }) {
   const rows = questions.map(q => {
     const aAnswers = groupA.answersByQuestion.get(q.canonical.id) ?? [];
@@ -391,7 +396,7 @@ function InterGroupTable({
           style={isDifferent ? { borderLeft: `3px solid ${SENTIMENT_COLORS.ambivalent}` } : undefined}
         >
           <p className="text-xs font-medium mb-3" style={{ color: 'var(--ia-text)' }}>
-            {q.canonical.canonical_text}
+            {pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage)}
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -452,9 +457,9 @@ function dominantSentiment(counts: Record<string, number>): string {
 // ─── Intra-Group View ─────────────────────────────────────────────────────────
 
 function IntraGroupView({
-  group, questions, lang,
+  group, questions, lang, projectLanguage,
 }: {
-  group: GroupData; questions: MatrixQuestion[]; lang: 'de' | 'en';
+  group: GroupData; questions: MatrixQuestion[]; lang: 'de' | 'en'; projectLanguage: string;
 }) {
   let agreeCount = 0;
   let totalWithAnswers = 0;
@@ -526,7 +531,7 @@ function IntraGroupView({
             >
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-xs font-medium flex-1" style={{ color: 'var(--ia-text)' }}>
-                  {q.canonical.canonical_text}
+                  {pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage)}
                 </p>
                 <span
                   className="ia-badge text-[10px] flex-shrink-0"

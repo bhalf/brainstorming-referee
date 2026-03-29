@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { IAGuideQuestion } from '@/types/interview-analysis';
 import { useIALang, t } from '@/lib/interview-analysis/i18n';
 
@@ -56,13 +56,18 @@ export default function GuideEditor({ projectId, guideQuestions, rawText, onRefr
     }
   }
 
-  // Group questions by topic_area
-  const grouped = new Map<string, IAGuideQuestion[]>();
-  for (const q of guideQuestions) {
-    const key = q.topic_area || t('guide_default_topic', lang);
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(q);
-  }
+  // Group questions by topic_area, sorted by sort_order
+  const grouped = useMemo(() => {
+    const sorted = [...guideQuestions].sort((a, b) => a.sort_order - b.sort_order);
+    const map = new Map<string, IAGuideQuestion[]>();
+    for (const q of sorted) {
+      const key = q.topic_area || t('guide_default_topic', lang);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(q);
+    }
+    const entries = [...map.entries()].sort((a, b) => a[1][0].sort_order - b[1][0].sort_order);
+    return new Map(entries);
+  }, [guideQuestions, lang]);
 
   const hasQuestions = guideQuestions.length > 0;
 
@@ -71,8 +76,7 @@ export default function GuideEditor({ projectId, guideQuestions, rawText, onRefr
       {/* Info Box */}
       <div className="ia-card-sm p-4 flex items-start gap-3">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-          style={{ background: 'var(--ia-accent-light)', color: 'var(--ia-accent)' }}
+          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ia-bg-accent-light ia-text-accent"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
@@ -91,7 +95,7 @@ export default function GuideEditor({ projectId, guideQuestions, rawText, onRefr
       {/* Text Input */}
       <div className="ia-card p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold" style={{ color: 'var(--ia-text-secondary)' }}>
+          <label className="ia-section-title">
             {t('guide_text_label', lang)}
           </label>
           {hasQuestions && (
@@ -186,7 +190,7 @@ export default function GuideEditor({ projectId, guideQuestions, rawText, onRefr
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ia-accent)' }}>
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
-                <span className="text-xs font-semibold" style={{ color: 'var(--ia-text)' }}>
+                <span className="ia-section-title">
                   {topic}
                 </span>
                 <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-tertiary)' }}>

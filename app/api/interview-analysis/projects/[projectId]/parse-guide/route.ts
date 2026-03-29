@@ -44,7 +44,7 @@ export async function POST(
   const openai = getOpenAIClient();
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
@@ -65,7 +65,10 @@ export async function POST(
     return NextResponse.json({ error: 'GPT-Antwort konnte nicht geparst werden' }, { status: 500 });
   }
 
-  const questions: Array<{ question_text: string; topic_area?: string }> = parsed.questions ?? [];
+  if (!Array.isArray(parsed.questions)) {
+    return NextResponse.json({ error: 'Unexpected LLM response format: missing questions array' }, { status: 500 });
+  }
+  const questions: Array<{ question_text: string; topic_area?: string }> = parsed.questions;
 
   // Delete existing guide questions
   await sb.from('ia_guide_questions').delete().eq('project_id', projectId);

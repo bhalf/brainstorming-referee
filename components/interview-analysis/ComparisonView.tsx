@@ -1,19 +1,23 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
-import type { MatrixQuestion, IAInterview } from '@/types/interview-analysis';
-import { useIALang, t, type IALang } from '@/lib/interview-analysis/i18n';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import type { MatrixQuestion, IAInterview, IAComparisonSummary } from '@/types/interview-analysis';
+import { useIALang, t, pickLang, type IALang } from '@/lib/interview-analysis/i18n';
+
+type SummaryState = 'idle' | 'loading' | 'loaded' | 'error';
 
 interface ComparisonViewProps {
   questions: MatrixQuestion[];
   interviews: IAInterview[];
+  projectLanguage: string;
+  projectId: string;
 }
 
 const SENTIMENT_COLORS: Record<string, string> = {
-  positive: '#22C55E',
-  negative: '#EF4444',
-  neutral: '#94A3B8',
-  ambivalent: '#F59E0B',
+  positive: 'var(--ia-success)',
+  negative: 'var(--ia-error)',
+  neutral: 'var(--ia-text-tertiary)',
+  ambivalent: 'var(--ia-warning)',
 };
 
 const SENTIMENT_KEYS: Record<string, string> = {
@@ -23,7 +27,7 @@ const SENTIMENT_KEYS: Record<string, string> = {
   ambivalent: 'ambivalent',
 };
 
-export default function ComparisonView({ questions, interviews }: ComparisonViewProps) {
+export default function ComparisonView({ questions, interviews, projectLanguage, projectId }: ComparisonViewProps) {
   const lang = useIALang();
   const analyzedInterviews = useMemo(
     () => interviews.filter(i => ['transcribed', 'analyzed'].includes(i.status)),
@@ -34,10 +38,53 @@ export default function ComparisonView({ questions, interviews }: ComparisonView
   const [rightId, setRightId] = useState<string>(analyzedInterviews[1]?.id ?? analyzedInterviews[0]?.id ?? '');
   const [showOnlyDiffs, setShowOnlyDiffs] = useState(false);
 
+  // AI Summary state
+  const [summaryState, setSummaryState] = useState<SummaryState>('idle');
+  const [summary, setSummary] = useState<IAComparisonSummary | null>(null);
+  const [summaryAlt, setSummaryAlt] = useState<IAComparisonSummary | null>(null);
+  const [summaryError, setSummaryError] = useState('');
+  const [summaryPairKey, setSummaryPairKey] = useState('');
+
   useEffect(() => {
     setLeftId(analyzedInterviews[0]?.id ?? '');
     setRightId(analyzedInterviews[1]?.id ?? analyzedInterviews[0]?.id ?? '');
   }, [analyzedInterviews]);
+
+  // Reset summary when pair changes
+  const currentPairKey = useMemo(() => [leftId, rightId].sort().join('|'), [leftId, rightId]);
+  useEffect(() => {
+    if (currentPairKey !== summaryPairKey) {
+      setSummaryState('idle');
+      setSummary(null);
+      setSummaryAlt(null);
+      setSummaryError('');
+    }
+  }, [currentPairKey, summaryPairKey]);
+
+  const fetchSummary = useCallback(async (force = false) => {
+    if (leftId === rightId) return;
+    setSummaryState('loading');
+    setSummaryError('');
+    try {
+      const res = await fetch(`/api/interview-analysis/projects/${projectId}/compare-interviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interviewAId: leftId, interviewBId: rightId, force }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Request failed');
+      }
+      const data = await res.json();
+      setSummary(data.summary);
+      setSummaryAlt(data.summary_alt ?? null);
+      setSummaryPairKey(currentPairKey);
+      setSummaryState('loaded');
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : 'Unknown error');
+      setSummaryState('error');
+    }
+  }, [leftId, rightId, projectId, currentPairKey]);
 
   // Build answer lookups
   const answersByInterview = useMemo(() => {
@@ -122,8 +169,7 @@ export default function ComparisonView({ questions, interviews }: ComparisonView
   return (
     <div className="space-y-5">
       {/* Selector Row */}
-      <div className="ia-card p-4">
-        <div className="flex items-center gap-3 flex-wrap">
+      <div className="ia-filter-bar">
           <div className="flex-1 min-w-[180px]">
             <label className="text-[10px] font-semibold mb-1 block" style={{ color: 'var(--ia-text-tertiary)' }}>
               {t('comparison_a', lang)}
@@ -177,7 +223,6 @@ export default function ComparisonView({ questions, interviews }: ComparisonView
               </span>
             </label>
           </div>
-        </div>
       </div>
 
       {/* Comparison Stats */}
@@ -203,6 +248,27 @@ export default function ComparisonView({ questions, interviews }: ComparisonView
           />
         </div>
       )}
+
+      {/* AI Comparison Summary */}
+      {leftId !== rightId && (() => {
+        // API normalizes IDs (a < b), so stances may be swapped relative to left/right
+        const swapped = leftId > rightId;
+        return (
+          <AISummarySection
+            summaryState={summaryState}
+            summary={summary}
+            summaryAlt={summaryAlt}
+            summaryError={summaryError}
+            onGenerate={() => fetchSummary(false)}
+            onRegenerate={() => fetchSummary(true)}
+            leftName={leftInterview?.name ?? ''}
+            rightName={rightInterview?.name ?? ''}
+            swapStances={swapped}
+            lang={lang}
+            projectLanguage={projectLanguage}
+          />
+        );
+      })()}
 
       {/* Question-by-Question Comparison */}
       {leftId === rightId ? (
@@ -231,7 +297,7 @@ export default function ComparisonView({ questions, interviews }: ComparisonView
                 key={q.canonical.id}
                 className="ia-card"
                 style={{
-                  borderLeft: hasDiff ? '3px solid #F59E0B' : '3px solid transparent',
+                  borderLeft: hasDiff ? '3px solid var(--ia-warning)' : '3px solid transparent',
                 }}
               >
                 {/* Question Header */}
@@ -251,7 +317,7 @@ export default function ComparisonView({ questions, interviews }: ComparisonView
                     F{qIdx + 1}
                   </span>
                   <span className="text-xs font-medium" style={{ color: 'var(--ia-text)' }}>
-                    {q.canonical.canonical_text}
+                    {pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage)}
                   </span>
                   {q.canonical.topic_area && (
                     <span className="ia-badge ia-badge-info text-[10px] ml-auto flex-shrink-0">
@@ -316,9 +382,8 @@ function AnswerCell({
         </span>
       </div>
       <p
-        className="text-[12px] leading-relaxed"
+        className="ia-answer-card-text"
         style={{
-          color: 'var(--ia-text-secondary)',
           ...(!expanded && isLong
             ? { display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }
             : {}),
@@ -328,12 +393,204 @@ function AnswerCell({
       </p>
       {isLong && (
         <button
-          className="text-[11px] mt-1 font-medium"
-          style={{ color: 'var(--ia-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          className="text-[11px] mt-1 font-medium ia-text-accent"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
           onClick={() => setExpanded(!expanded)}
         >
           {expanded ? t('comparison_less', lang) : t('show_more', lang)}
         </button>
+      )}
+    </div>
+  );
+}
+
+function AISummarySection({
+  summaryState,
+  summary,
+  summaryAlt,
+  summaryError,
+  onGenerate,
+  onRegenerate,
+  leftName,
+  rightName,
+  swapStances,
+  lang,
+  projectLanguage,
+}: {
+  summaryState: SummaryState;
+  summary: IAComparisonSummary | null;
+  summaryAlt: IAComparisonSummary | null;
+  summaryError: string;
+  onGenerate: () => void;
+  onRegenerate: () => void;
+  leftName: string;
+  rightName: string;
+  swapStances: boolean;
+  lang: IALang;
+  projectLanguage: string;
+}) {
+  const displaySummary = useMemo(() => {
+    if (!summary && !summaryAlt) return null;
+    const isAltLang = (lang === 'en' && projectLanguage !== 'en') || (lang === 'de' && projectLanguage !== 'de');
+    return (isAltLang && summaryAlt) ? summaryAlt : summary;
+  }, [summary, summaryAlt, lang, projectLanguage]);
+
+  if (summaryState === 'idle') {
+    return (
+      <div className="ia-card p-5 text-center">
+        <button className="ia-btn ia-btn-primary" onClick={onGenerate}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+          </svg>
+          {t('comparison_ai_generate', lang)}
+        </button>
+      </div>
+    );
+  }
+
+  if (summaryState === 'loading') {
+    return (
+      <div className="ia-card p-6 text-center space-y-3">
+        <span className="ia-spinner" style={{ width: 24, height: 24, borderWidth: 3 }} />
+        <p className="text-sm" style={{ color: 'var(--ia-text-secondary)' }}>
+          {t('comparison_ai_generating', lang)}
+        </p>
+      </div>
+    );
+  }
+
+  if (summaryState === 'error') {
+    return (
+      <div className="ia-card p-5 space-y-3">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'var(--ia-error-light)', color: 'var(--ia-error)' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          <span className="text-xs font-medium">{t('comparison_ai_error', lang)}</span>
+        </div>
+        {summaryError && (
+          <p className="text-[11px]" style={{ color: 'var(--ia-text-tertiary)' }}>{summaryError}</p>
+        )}
+        <button className="ia-btn ia-btn-ghost ia-btn-sm" onClick={onGenerate}>
+          {t('comparison_ai_regenerate', lang)}
+        </button>
+      </div>
+    );
+  }
+
+  if (!displaySummary) return null;
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="ia-section-header">
+        <h3 className="ia-section-title">
+          {t('comparison_ai_title', lang)}
+        </h3>
+        <button className="ia-btn ia-btn-ghost ia-btn-sm" onClick={onRegenerate}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          {t('comparison_ai_regenerate', lang)}
+        </button>
+      </div>
+
+      {/* Overall Summary */}
+      {displaySummary.overall_summary && (
+        <div
+          className="ia-card p-4"
+          style={{ borderLeft: '3px solid var(--ia-accent)', background: 'var(--ia-accent-light)' }}
+        >
+          <div className="text-[10px] font-semibold mb-1.5" style={{ color: 'var(--ia-accent)' }}>
+            {t('comparison_overall', lang)}
+          </div>
+          <p className="text-[13px] leading-relaxed" style={{ color: 'var(--ia-text)' }}>
+            {displaySummary.overall_summary}
+          </p>
+        </div>
+      )}
+
+      {/* Key Differences */}
+      {displaySummary.key_differences?.length > 0 && (
+        <div className="ia-card overflow-hidden">
+          <div className="px-4 py-2.5" style={{ borderBottom: '1px solid var(--ia-border)' }}>
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--ia-text)' }}>
+              {t('comparison_key_diff', lang)}
+            </span>
+            <span className="ia-badge ia-badge-neutral text-[10px] ml-2">{displaySummary.key_differences.length}</span>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'var(--ia-border-light)' }}>
+            {displaySummary.key_differences.map((diff, i) => (
+              <div key={i} className="p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="ia-badge ia-badge-warning text-[10px]">{diff.topic}</span>
+                </div>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'var(--ia-text-secondary)' }}>
+                  {diff.description}
+                </p>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div className="p-2.5 rounded-lg" style={{ background: 'var(--ia-bg-muted)' }}>
+                    <div className="text-[10px] font-semibold mb-1" style={{ color: 'var(--ia-accent)' }}>
+                      {leftName}
+                    </div>
+                    <p className="text-[11px] leading-relaxed" style={{ color: 'var(--ia-text-secondary)' }}>
+                      {swapStances ? diff.interview_b_stance : diff.interview_a_stance}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-lg" style={{ background: 'var(--ia-bg-muted)' }}>
+                    <div className="text-[10px] font-semibold mb-1" style={{ color: '#8B5CF6' }}>
+                      {rightName}
+                    </div>
+                    <p className="text-[11px] leading-relaxed" style={{ color: 'var(--ia-text-secondary)' }}>
+                      {swapStances ? diff.interview_a_stance : diff.interview_b_stance}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Similarities */}
+      {displaySummary.similarities?.length > 0 && (
+        <div className="ia-card overflow-hidden">
+          <div className="px-4 py-2.5" style={{ borderBottom: '1px solid var(--ia-border)' }}>
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--ia-text)' }}>
+              {t('comparison_similarities', lang)}
+            </span>
+            <span className="ia-badge ia-badge-neutral text-[10px] ml-2">{displaySummary.similarities.length}</span>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'var(--ia-border-light)' }}>
+            {displaySummary.similarities.map((sim, i) => (
+              <div key={i} className="px-4 py-3">
+                <span className="ia-badge ia-badge-positive text-[10px] mb-1.5">{sim.topic}</span>
+                <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'var(--ia-text-secondary)' }}>
+                  {sim.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notable Patterns */}
+      {displaySummary.notable_patterns?.length > 0 && (
+        <div className="ia-card p-4">
+          <div className="text-[11px] font-semibold mb-2" style={{ color: 'var(--ia-text)' }}>
+            {t('comparison_patterns', lang)}
+          </div>
+          <ul className="space-y-1.5">
+            {displaySummary.notable_patterns.map((pattern, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="text-[10px] mt-0.5" style={{ color: 'var(--ia-accent)' }}>&#9679;</span>
+                <span className="text-[12px] leading-relaxed" style={{ color: 'var(--ia-text-secondary)' }}>
+                  {pattern}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -360,39 +617,40 @@ function StatCard({
   const totalSentiments = Object.values(sentiments).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="ia-card p-4" style={{ borderTop: `3px solid ${color}` }}>
-      <div className="text-xs font-semibold truncate mb-3" style={{ color: 'var(--ia-text)' }} title={name}>
+    <div className="ia-stat-card" style={{ borderTop: `3px solid ${color}` }}>
+      <div className="text-xs font-semibold truncate" style={{ color: 'var(--ia-text)' }} title={name}>
         {name}
       </div>
-      <div className="grid grid-cols-3 gap-3 mb-3">
+      <div className="grid grid-cols-3 gap-3">
         <div>
-          <div className="text-[10px]" style={{ color: 'var(--ia-text-tertiary)' }}>{t('comparison_coverage', lang)}</div>
-          <div className="text-sm font-semibold ia-data" style={{ color: 'var(--ia-text)' }}>
+          <div className="ia-stat-label">{t('comparison_coverage', lang)}</div>
+          <div className="ia-stat-value" style={{ fontSize: 14 }}>
             {coveragePct}%
           </div>
         </div>
         <div>
-          <div className="text-[10px]" style={{ color: 'var(--ia-text-tertiary)' }}>{t('answers', lang)}</div>
-          <div className="text-sm font-semibold ia-data" style={{ color: 'var(--ia-text)' }}>
+          <div className="ia-stat-label">{t('answers', lang)}</div>
+          <div className="ia-stat-value" style={{ fontSize: 14 }}>
             {answered}
           </div>
         </div>
         <div>
-          <div className="text-[10px]" style={{ color: 'var(--ia-text-tertiary)' }}>{t('words', lang)}</div>
-          <div className="text-sm font-semibold ia-data" style={{ color: 'var(--ia-text)' }}>
+          <div className="ia-stat-label">{t('words', lang)}</div>
+          <div className="ia-stat-value" style={{ fontSize: 14 }}>
             {words.toLocaleString('de-DE')}
           </div>
         </div>
       </div>
       {/* Mini sentiment bars */}
       {totalSentiments > 0 && (
-        <div className="flex h-2 rounded-full overflow-hidden" style={{ background: 'var(--ia-bg-muted)' }}>
+        <div className="ia-progress flex" style={{ height: 8 }}>
           {Object.entries(SENTIMENT_COLORS).map(([key, c]) => {
             const count = sentiments[key] || 0;
             if (!count) return null;
             return (
               <div
                 key={key}
+                className="ia-progress-fill"
                 style={{ width: `${(count / totalSentiments) * 100}%`, background: c, opacity: 0.8 }}
                 title={`${t(SENTIMENT_KEYS[key] ?? key, lang)}: ${count}`}
               />

@@ -111,11 +111,11 @@ export default function PipelineControls({
     <div className="ia-card p-5">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--ia-text)' }}>
+          <h3 className="ia-section-title">
             {t('pipeline_title', lang)}
           </h3>
           <div className="flex items-center gap-2 mt-0.5">
-            <p className="text-xs" style={{ color: 'var(--ia-text-tertiary)' }}>
+            <p className="ia-section-subtitle">
               {hasGuide ? t('pipeline_desc_guide', lang) : t('pipeline_desc_no_guide', lang)}
             </p>
             {guideQuestionCount > 0 && (

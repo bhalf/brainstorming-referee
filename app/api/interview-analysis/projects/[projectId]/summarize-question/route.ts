@@ -19,6 +19,14 @@ export async function POST(
   const sb = getServiceClient();
   const openai = getOpenAIClient();
 
+  // Load project language
+  const { data: projectData } = await sb
+    .from('ia_projects')
+    .select('language')
+    .eq('id', projectId)
+    .single();
+  const isEn = (projectData?.language ?? 'de') === 'en';
+
   // Load canonical question
   const { data: cq } = await sb
     .from('ia_canonical_questions')
@@ -65,19 +73,9 @@ export async function POST(
     .map(([s, c]) => `${s}: ${c}`)
     .join(', ');
 
-  const topicContext = cq.topic_area ? `\nThemengebiet: "${cq.topic_area}"` : '';
   const coverageGap = (count ?? 0) - answers.length;
-  const coverageNote = coverageGap > 0
-    ? `\n\nHINWEIS: ${coverageGap} von ${count} Befragten haben diese Frage NICHT beantwortet. Erwähne diese Lücke in der Zusammenfassung, falls relevant.`
-    : '';
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    temperature: 0.3,
-    messages: [
-      {
-        role: 'system',
-        content: `Du bist ein qualitativ-forschender Analyst. Erstelle eine prägnante Zusammenfassung aller Antworten auf eine Interview-Frage.
+  const summarySystemPromptDe = `Du bist ein qualitativ-forschender Analyst. Erstelle eine prägnante Zusammenfassung aller Antworten auf eine Interview-Frage.
 
 Die Zusammenfassung soll:
 - 3-5 Sätze lang sein
@@ -88,33 +86,72 @@ Die Zusammenfassung soll:
 - Wenn ein signifikanter Anteil der Befragten die Frage nicht beantwortet hat, dies erwähnen
 - Keine eigenen Interpretationen hinzufügen, nur beschreiben was in den Daten steht
 
-Schreibe auf Deutsch.`
-      },
-      {
-        role: 'user',
-        content: `Frage: "${cq.canonical_text}"${topicContext}
+Schreibe auf Deutsch.`;
 
-${answers.length} von ${count ?? answers.length} Befragten haben diese Frage beantwortet.
-Sentiment-Verteilung: ${sentimentLine}${coverageNote}
+  const summarySystemPromptEn = `You are a qualitative research analyst. Create a concise summary of all answers to an interview question.
 
-Antworten:
-${JSON.stringify(answerSummaries, null, 2)}`
-      }
-    ],
-  });
+The summary should:
+- Be 3-5 sentences long
+- State the frequency distribution of opinions/topics (absolute AND relative, e.g. "12 of 25, 48%")
+- Consider the sentiment distribution of answers (positive/negative/neutral/ambivalent)
+- Highlight dominant patterns
+- Mention notable outliers or deviations
+- If a significant share of respondents did not answer the question, mention this
+- Do not add your own interpretations, only describe what is in the data
 
-  const summaryText = response.choices[0]?.message?.content;
+Write in English.`;
+
+  const topicContextDe = cq.topic_area ? `\nThemengebiet: "${cq.topic_area}"` : '';
+  const topicContextEn = cq.topic_area ? `\nTopic area: "${cq.topic_area}"` : '';
+  const coverageNoteDe = coverageGap > 0
+    ? `\n\nHINWEIS: ${coverageGap} von ${count} Befragten haben diese Frage NICHT beantwortet. Erwähne diese Lücke in der Zusammenfassung, falls relevant.`
+    : '';
+  const coverageNoteEn = coverageGap > 0
+    ? `\n\nNOTE: ${coverageGap} of ${count} respondents did NOT answer this question. Mention this gap in the summary if relevant.`
+    : '';
+
+  const userContentDe = `Frage: "${cq.canonical_text}"${topicContextDe}\n\n${answers.length} von ${count ?? answers.length} Befragten haben diese Frage beantwortet.\nSentiment-Verteilung: ${sentimentLine}${coverageNoteDe}\n\nAntworten:\n${JSON.stringify(answerSummaries, null, 2)}`;
+  const userContentEn = `Question: "${cq.canonical_text}"${topicContextEn}\n\n${answers.length} of ${count ?? answers.length} respondents answered this question.\nSentiment distribution: ${sentimentLine}${coverageNoteEn}\n\nAnswers:\n${JSON.stringify(answerSummaries, null, 2)}`;
+
+  // Generate both language summaries in parallel
+  const [responsePrimary, responseAlt] = await Promise.all([
+    openai.chat.completions.create({
+      model: 'gpt-5.4-mini',
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: isEn ? summarySystemPromptEn : summarySystemPromptDe },
+        { role: 'user', content: isEn ? userContentEn : userContentDe },
+      ],
+    }),
+    openai.chat.completions.create({
+      model: 'gpt-5.4-mini',
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: isEn ? summarySystemPromptDe : summarySystemPromptEn },
+        { role: 'user', content: isEn ? userContentDe : userContentEn },
+      ],
+    }).catch(() => null), // Alt language failure is non-critical
+  ]);
+
+  const summaryText = responsePrimary.choices[0]?.message?.content;
   if (!summaryText) {
     return NextResponse.json({ error: 'No summary generated' }, { status: 500 });
   }
 
-  // Upsert summary (atomic to prevent race conditions)
+  const summaryTextAlt = responseAlt?.choices[0]?.message?.content ?? null;
+
+  // Upsert summary with both languages
   await sb
     .from('ia_question_summaries')
     .upsert(
-      { canonical_question_id: canonicalQuestionId, summary_text: summaryText, generated_at: new Date().toISOString() },
+      {
+        canonical_question_id: canonicalQuestionId,
+        summary_text: summaryText,
+        summary_text_alt: summaryTextAlt,
+        generated_at: new Date().toISOString(),
+      },
       { onConflict: 'canonical_question_id' }
     );
 
-  return NextResponse.json({ summary: summaryText });
+  return NextResponse.json({ summary: summaryText, summary_alt: summaryTextAlt });
 }

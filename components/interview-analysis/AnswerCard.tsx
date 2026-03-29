@@ -13,6 +13,7 @@ interface AnswerCardProps {
   matchType: AnswerMatchType | null;
   originalQuestionText: string | null;
   followUps: Array<{ question: string; answer: string }>;
+  codeBadges?: Array<{ name: string; color: string }>;
 }
 
 const SENTIMENT_CONFIG: Record<string, { className: string; barColor: string }> = {
@@ -37,6 +38,7 @@ export default function AnswerCard({
   matchType,
   originalQuestionText,
   followUps,
+  codeBadges,
 }: AnswerCardProps) {
   const lang = useIALang();
   const [expanded, setExpanded] = useState(false);
@@ -47,7 +49,7 @@ export default function AnswerCard({
 
   return (
     <div
-      className="ia-card-sm p-4 cursor-pointer transition-all relative overflow-hidden"
+      className="ia-answer-card"
       style={{ borderColor: expanded ? 'var(--ia-border-strong)' : undefined }}
       onClick={() => setExpanded(!expanded)}
     >
@@ -55,11 +57,9 @@ export default function AnswerCard({
       <div className="ia-sentiment-bar" style={{ background: config.barColor }} />
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-2 pl-1">
-        <span className="text-xs font-semibold" style={{ color: 'var(--ia-text)' }}>
-          {interviewName}
-        </span>
-        <div className="flex items-center gap-1.5">
+      <div className="ia-answer-card-header">
+        <span className="ia-answer-card-name">{interviewName}</span>
+        <div className="ia-answer-card-badges">
           {matchType && (
             <span className="ia-badge ia-badge-neutral" style={{ fontSize: '10px' }}>
               {t('match_' + matchType, lang)}
@@ -67,9 +67,9 @@ export default function AnswerCard({
           )}
           {confidence && (
             <span
-              className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+              className="ia-status-dot"
               style={{ background: CONFIDENCE_COLORS[confidence] ?? 'var(--ia-border)' }}
-              title={`Confidence: ${confidence}`}
+              title={t('confidence_' + confidence, lang)}
             />
           )}
           <span className={`ia-badge ${config.className}`}>{t(sentiment ?? 'neutral', lang)}</span>
@@ -78,19 +78,17 @@ export default function AnswerCard({
 
       {/* Original question from transcript */}
       {originalQuestionText && (
-        <div className="mb-2 pl-1">
-          <p className="text-[11px] italic" style={{ color: 'var(--ia-text-tertiary)' }}>
-            {t('original_question', lang)}: &quot;{originalQuestionText}&quot;
-          </p>
-        </div>
+        <p className="text-[11px] italic mb-2 pl-1" style={{ color: 'var(--ia-text-tertiary)' }}>
+          {t('original_question', lang)}: &quot;{originalQuestionText}&quot;
+        </p>
       )}
 
       {/* Answer Text */}
-      <p className="text-[13px] leading-relaxed pl-1" style={{ color: 'var(--ia-text-secondary)' }}>
+      <div className="ia-answer-card-text">
         {expanded || !needsTruncation
           ? answerText
           : `${answerText.slice(0, truncateLength)}...`}
-      </p>
+      </div>
 
       {/* Follow-ups (expanded only) */}
       {expanded && followUps.length > 0 && (
@@ -108,13 +106,28 @@ export default function AnswerCard({
         </div>
       )}
 
+      {/* Code badges */}
+      {codeBadges && codeBadges.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2.5 pl-1">
+          {codeBadges.map((badge, i) => (
+            <span
+              key={i}
+              className="ia-badge"
+              style={{ fontSize: '10px', backgroundColor: `${badge.color}20`, color: badge.color, border: `1px solid ${badge.color}40` }}
+            >
+              {badge.name}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Footer */}
-      <div className="flex items-center justify-between mt-2 pl-1">
+      <div className="ia-answer-card-footer">
         <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-tertiary)' }}>
           {wordCount != null ? wordCount.toLocaleString() : '–'} {t('words', lang)}
         </span>
         {needsTruncation && (
-          <span className="text-[11px] font-medium" style={{ color: 'var(--ia-accent)' }}>
+          <span className="text-[11px] font-medium ia-text-accent">
             {expanded ? t('show_less', lang) : t('show_more', lang)}
           </span>
         )}

@@ -14,8 +14,9 @@ import DashboardView from '@/components/interview-analysis/DashboardView';
 import HeatmapView from '@/components/interview-analysis/HeatmapView';
 import ComparisonView from '@/components/interview-analysis/ComparisonView';
 import GroupComparisonView from '@/components/interview-analysis/GroupComparisonView';
+import CodingView from '@/components/interview-analysis/CodingView';
 
-type Tab = 'upload' | 'guide' | 'matrix' | 'heatmap' | 'comparison' | 'groups' | 'dashboard' | 'chat';
+type Tab = 'upload' | 'guide' | 'matrix' | 'coding' | 'heatmap' | 'comparison' | 'groups' | 'dashboard' | 'chat';
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -130,6 +131,12 @@ export default function ProjectDetailPage() {
           <rect x="7" y="14" width="3" height="3" /><rect x="14" y="14" width="3" height="3" />
         </svg>
       )},
+      { key: 'coding' as Tab, label: t('tab_coding', lang), count: 0, icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+          <line x1="7" y1="7" x2="7.01" y2="7" />
+        </svg>
+      )},
       { key: 'comparison' as Tab, label: t('tab_comparison', lang), count: 0, icon: (
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="3" width="8" height="18" rx="1" /><rect x="14" y="3" width="8" height="18" rx="1" />
@@ -218,6 +225,7 @@ export default function ProjectDetailPage() {
           <UploadTab
             projectId={projectId}
             interviews={interviews}
+            projectLanguage={project?.language || 'de'}
             onRefresh={handleRefresh}
           />
         )}
@@ -236,6 +244,7 @@ export default function ProjectDetailPage() {
             questions={matrixData?.questions ?? []}
             interviews={matrixData?.interviews ?? []}
             projectId={projectId}
+            projectLanguage={project?.language || 'de'}
             onGenerateSummary={handleGenerateSummary}
             onRefresh={handleRefresh}
           />
@@ -245,6 +254,16 @@ export default function ProjectDetailPage() {
           <HeatmapView
             questions={matrixData?.questions ?? []}
             interviews={matrixData?.interviews ?? []}
+            projectLanguage={project?.language || 'de'}
+          />
+        )}
+
+        {activeTab === 'coding' && (
+          <CodingView
+            projectId={projectId}
+            projectLanguage={project?.language || 'de'}
+            questions={matrixData?.questions ?? []}
+            interviews={matrixData?.interviews ?? []}
           />
         )}
 
@@ -252,6 +271,8 @@ export default function ProjectDetailPage() {
           <ComparisonView
             questions={matrixData?.questions ?? []}
             interviews={matrixData?.interviews ?? []}
+            projectLanguage={project?.language || 'de'}
+            projectId={projectId}
           />
         )}
 
@@ -259,6 +280,7 @@ export default function ProjectDetailPage() {
           <GroupComparisonView
             questions={matrixData?.questions ?? []}
             interviews={matrixData?.interviews ?? []}
+            projectLanguage={project?.language || 'de'}
           />
         )}
 
@@ -266,6 +288,7 @@ export default function ProjectDetailPage() {
           <DashboardView
             questions={matrixData?.questions ?? []}
             interviews={matrixData?.interviews ?? []}
+            projectLanguage={project?.language || 'de'}
           />
         )}
 

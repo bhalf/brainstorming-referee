@@ -2,21 +2,22 @@
 
 import React from 'react';
 import type { MatrixQuestion, IAInterview } from '@/types/interview-analysis';
-import { useIALang, t } from '@/lib/interview-analysis/i18n';
+import { useIALang, t, pickLang } from '@/lib/interview-analysis/i18n';
 
 interface DashboardViewProps {
   questions: MatrixQuestion[];
   interviews: IAInterview[];
+  projectLanguage: string;
 }
 
 const SENTIMENT_COLORS: Record<string, string> = {
-  positive: '#22C55E',
-  negative: '#EF4444',
-  neutral: '#94A3B8',
-  ambivalent: '#F59E0B',
+  positive: 'var(--ia-success)',
+  negative: 'var(--ia-error)',
+  neutral: 'var(--ia-text-tertiary)',
+  ambivalent: 'var(--ia-warning)',
 };
 
-export default function DashboardView({ questions, interviews }: DashboardViewProps) {
+export default function DashboardView({ questions, interviews, projectLanguage }: DashboardViewProps) {
   const lang = useIALang();
   const analyzedInterviews = interviews.filter(i => ['transcribed', 'analyzed'].includes(i.status));
   const allAnswers = questions.flatMap(q => q.answers);
@@ -35,7 +36,7 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
   const coverageData = questions
     .map((q, idx) => ({
       label: `F${idx + 1}`,
-      text: q.canonical.canonical_text,
+      text: pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage),
       topic: q.canonical.topic_area,
       count: q.answers.length,
       total: q.total_interviews,
@@ -52,7 +53,7 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
     }
     return {
       label: `F${idx + 1}`,
-      text: q.canonical.canonical_text,
+      text: pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage),
       total: q.answers.length,
       ...counts,
     };
@@ -67,7 +68,7 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
   return (
     <div className="space-y-5">
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ia-stagger">
         <KPICard label={t('interviews', lang)} value={analyzedInterviews.length} icon="users" />
         <KPICard label={t('questions', lang)} value={questions.length} icon="help" />
         <KPICard label={t('answers', lang)} value={allAnswers.length} icon="message" />
@@ -77,12 +78,16 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Sentiment Distribution */}
         <div className="ia-card p-5">
-          <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--ia-text)' }}>
-            {t('dashboard_sentiment_dist', lang)}
-          </h3>
-          <p className="text-xs mb-4" style={{ color: 'var(--ia-text-tertiary)' }}>
-            {t('dashboard_over_all', lang)} {allAnswers.length} {t('answers', lang)}
-          </p>
+          <div className="ia-section-header">
+            <div>
+              <h3 className="ia-section-title">
+                {t('dashboard_sentiment_dist', lang)}
+              </h3>
+              <p className="ia-section-subtitle">
+                {t('dashboard_over_all', lang)} {allAnswers.length} {t('answers', lang)}
+              </p>
+            </div>
+          </div>
           <div className="space-y-3">
             {Object.entries(SENTIMENT_COLORS).map(([key, color]) => {
               const count = sentimentCounts[key] || 0;
@@ -97,9 +102,9 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
                       {count} ({pct}%)
                     </span>
                   </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--ia-bg-muted)' }}>
+                  <div className="ia-progress" style={{ height: '8px' }}>
                     <div
-                      className="h-full rounded-full transition-all"
+                      className="ia-progress-fill"
                       style={{ width: `${(count / maxSentiment) * 100}%`, background: color, opacity: 0.85 }}
                     />
                   </div>
@@ -111,25 +116,29 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
 
         {/* Coverage Overview */}
         <div className="ia-card p-5">
-          <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--ia-text)' }}>
-            {t('dashboard_coverage_title', lang)}
-          </h3>
-          <p className="text-xs mb-4" style={{ color: 'var(--ia-text-tertiary)' }}>
-            {t('dashboard_coverage_desc', lang)}
-          </p>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+          <div className="ia-section-header">
+            <div>
+              <h3 className="ia-section-title">
+                {t('dashboard_coverage_title', lang)}
+              </h3>
+              <p className="ia-section-subtitle">
+                {t('dashboard_coverage_desc', lang)}
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-64 ia-scroll-y">
             {coverageData.map(c => (
               <div key={c.label} className="group">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono w-6 text-right flex-shrink-0" style={{ color: 'var(--ia-text-tertiary)' }}>
                     {c.label}
                   </span>
-                  <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--ia-bg-muted)' }}>
+                  <div className="flex-1 ia-progress" style={{ height: '8px' }}>
                     <div
-                      className="h-full rounded-full transition-all"
+                      className="ia-progress-fill"
                       style={{
                         width: `${c.pct}%`,
-                        background: c.pct === 100 ? '#22C55E' : c.pct >= 70 ? 'var(--ia-accent)' : c.pct >= 40 ? '#F59E0B' : '#EF4444',
+                        background: c.pct === 100 ? 'var(--ia-success)' : c.pct >= 70 ? 'var(--ia-accent)' : c.pct >= 40 ? 'var(--ia-warning)' : 'var(--ia-error)',
                       }}
                     />
                   </div>
@@ -147,20 +156,24 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
 
         {/* Sentiment per Question (stacked bars) */}
         <div className="ia-card p-5">
-          <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--ia-text)' }}>
-            {t('dashboard_sentiment_q', lang)}
-          </h3>
-          <p className="text-xs mb-4" style={{ color: 'var(--ia-text-tertiary)' }}>
-            {t('dashboard_sentiment_q_desc', lang)}
-          </p>
-          <div className="space-y-2.5 max-h-72 overflow-y-auto">
+          <div className="ia-section-header">
+            <div>
+              <h3 className="ia-section-title">
+                {t('dashboard_sentiment_q', lang)}
+              </h3>
+              <p className="ia-section-subtitle">
+                {t('dashboard_sentiment_q_desc', lang)}
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2.5 max-h-72 ia-scroll-y">
             {sentimentPerQuestion.map(q => (
               <div key={q.label} className="group">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono w-6 text-right flex-shrink-0" style={{ color: 'var(--ia-text-tertiary)' }}>
                     {q.label}
                   </span>
-                  <div className="flex-1 h-3 rounded-full overflow-hidden flex" style={{ background: 'var(--ia-bg-muted)' }}>
+                  <div className="flex-1 ia-progress flex" style={{ height: '12px' }}>
                     {q.total > 0 && Object.entries(SENTIMENT_COLORS).map(([key, color]) => {
                       const count = q[key as keyof typeof q] as number;
                       if (!count) return null;
@@ -185,7 +198,7 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
             ))}
           </div>
           {/* Legend */}
-          <div className="flex gap-3 mt-3 pt-3" style={{ borderTop: '1px solid var(--ia-border)' }}>
+          <div className="flex gap-3 mt-3 pt-3 border-t" style={{ borderColor: 'var(--ia-border)' }}>
             {Object.entries(SENTIMENT_COLORS).map(([key, color]) => (
               <div key={key} className="flex items-center gap-1.5">
                 <div className="w-2.5 h-2.5 rounded-sm" style={{ background: color, opacity: 0.85 }} />
@@ -197,22 +210,26 @@ export default function DashboardView({ questions, interviews }: DashboardViewPr
 
         {/* Interview Lengths */}
         <div className="ia-card p-5">
-          <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--ia-text)' }}>
-            {t('dashboard_lengths', lang)}
-          </h3>
-          <p className="text-xs mb-4" style={{ color: 'var(--ia-text-tertiary)' }}>
-            {t('dashboard_lengths_desc', lang)}
-          </p>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+          <div className="ia-section-header">
+            <div>
+              <h3 className="ia-section-title">
+                {t('dashboard_lengths', lang)}
+              </h3>
+              <p className="ia-section-subtitle">
+                {t('dashboard_lengths_desc', lang)}
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-64 ia-scroll-y">
             {interviewStats.map(i => (
               <div key={i.name} className="flex items-center gap-2">
                 <span className="text-[11px] w-28 truncate flex-shrink-0" style={{ color: 'var(--ia-text-secondary)' }} title={i.name}>
                   {i.name}
                 </span>
-                <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--ia-bg-muted)' }}>
+                <div className="flex-1 ia-progress" style={{ height: '8px' }}>
                   <div
-                    className="h-full rounded-full transition-all"
-                    style={{ width: `${(i.words / maxInterviewWords) * 100}%`, background: 'var(--ia-accent)', opacity: 0.7 }}
+                    className="ia-progress-fill"
+                    style={{ width: `${(i.words / maxInterviewWords) * 100}%`, opacity: 0.7 }}
                   />
                 </div>
                 <span className="text-[10px] ia-data w-14 text-right flex-shrink-0" style={{ color: 'var(--ia-text-secondary)' }}>
@@ -236,20 +253,20 @@ function KPICard({ label, value, sublabel, icon }: { label: string; value: strin
   };
 
   return (
-    <div className="ia-card p-4">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="ia-stat-card">
+      <div className="flex items-center gap-2">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ia-text-tertiary)' }}>
           {icons[icon]}
         </svg>
-        <span className="text-[11px] font-medium" style={{ color: 'var(--ia-text-tertiary)' }}>
+        <span className="ia-stat-label">
           {label}
         </span>
       </div>
-      <div className="text-xl font-semibold ia-data" style={{ color: 'var(--ia-text)' }}>
+      <div className="ia-stat-value">
         {value}
       </div>
       {sublabel && (
-        <div className="text-[10px] mt-0.5" style={{ color: 'var(--ia-text-tertiary)' }}>
+        <div className="ia-stat-sub">
           {sublabel}
         </div>
       )}

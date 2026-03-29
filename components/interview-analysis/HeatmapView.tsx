@@ -1,19 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { MatrixQuestion, IAInterview } from '@/types/interview-analysis';
-import { useIALang, t } from '@/lib/interview-analysis/i18n';
+import { useIALang, t, pickLang } from '@/lib/interview-analysis/i18n';
 
 interface HeatmapViewProps {
   questions: MatrixQuestion[];
   interviews: IAInterview[];
+  projectLanguage: string;
 }
 
 const SENTIMENT_COLORS: Record<string, string> = {
-  positive: '#22C55E',
-  negative: '#EF4444',
-  neutral: '#94A3B8',
-  ambivalent: '#F59E0B',
+  positive: 'var(--ia-success)',
+  negative: 'var(--ia-error)',
+  neutral: 'var(--ia-text-tertiary)',
+  ambivalent: 'var(--ia-warning)',
 };
 
 const SENTIMENT_KEYS: Record<string, string> = {
@@ -24,9 +25,11 @@ const SENTIMENT_KEYS: Record<string, string> = {
 };
 
 type ColorMode = 'coverage' | 'sentiment' | 'wordcount';
+type ViewMode = 'detail' | 'overview';
 
-export default function HeatmapView({ questions, interviews }: HeatmapViewProps) {
+export default function HeatmapView({ questions, interviews, projectLanguage }: HeatmapViewProps) {
   const lang = useIALang();
+  const [viewMode, setViewMode] = useState<ViewMode>('detail');
   const [colorMode, setColorMode] = useState<ColorMode>('sentiment');
   const [hoveredCell, setHoveredCell] = useState<{ qIdx: number; iIdx: number } | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -90,7 +93,7 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
   // Per-question coverage
   const questionCoverage = questions.map((q, idx) => ({
     idx,
-    text: q.canonical.canonical_text,
+    text: pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage),
     answered: q.answers.length,
     total: analyzedInterviews.length,
   }));
@@ -115,6 +118,65 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
     );
   }
 
+  // Dynamic cell sizing based on interview count
+  const cellSize = analyzedInterviews.length > 25 ? 16 : analyzedInterviews.length > 15 ? 20 : 28;
+  const showColumnLabels = analyzedInterviews.length <= 25;
+
+  // Overview data
+  const overviewData = useMemo(() => {
+    return analyzedInterviews.map(iv => {
+      const sc: Record<string, number> = { positive: 0, negative: 0, neutral: 0, ambivalent: 0 };
+      let totalAnswerWords = 0;
+      let answerCount = 0;
+      for (const q of questions) {
+        const a = answerMap.get(q.canonical.id)?.get(iv.id);
+        if (a) {
+          sc[a.sentiment]++;
+          totalAnswerWords += a.wordCount;
+          answerCount++;
+        }
+      }
+      const dominant = Object.entries(sc).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'neutral';
+      return {
+        id: iv.id,
+        name: iv.name,
+        group: iv.group_label,
+        wordCount: iv.word_count ?? 0,
+        coverage: questions.length > 0 ? answerCount / questions.length : 0,
+        answerCount,
+        avgLength: answerCount > 0 ? Math.round(totalAnswerWords / answerCount) : 0,
+        dominantSentiment: dominant,
+        sentiments: sc,
+      };
+    });
+  }, [analyzedInterviews, questions, answerMap]);
+
+  const [overviewSort, setOverviewSort] = useState<{ col: string; asc: boolean }>({ col: 'name', asc: true });
+
+  const sortedOverview = useMemo(() => {
+    const sorted = [...overviewData];
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      switch (overviewSort.col) {
+        case 'name': cmp = a.name.localeCompare(b.name, undefined, { numeric: true }); break;
+        case 'words': cmp = a.wordCount - b.wordCount; break;
+        case 'coverage': cmp = a.coverage - b.coverage; break;
+        case 'answers': cmp = a.answerCount - b.answerCount; break;
+        case 'avgLength': cmp = a.avgLength - b.avgLength; break;
+        default: cmp = 0;
+      }
+      return overviewSort.asc ? cmp : -cmp;
+    });
+    return sorted;
+  }, [overviewData, overviewSort]);
+
+  const maxOverviewWords = Math.max(...overviewData.map(d => d.wordCount), 1);
+  const maxOverviewAvg = Math.max(...overviewData.map(d => d.avgLength), 1);
+
+  function toggleOverviewSort(col: string) {
+    setOverviewSort(prev => prev.col === col ? { col, asc: !prev.asc } : { col, asc: false });
+  }
+
   return (
     <div className="space-y-5">
       {/* Header with stats and controls */}
@@ -134,29 +196,146 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs" style={{ color: 'var(--ia-text-tertiary)' }}>{t('heatmap_color', lang)}</span>
-          {([
-            { key: 'sentiment' as ColorMode, label: t('sentiment', lang) },
-            { key: 'coverage' as ColorMode, label: t('heatmap_coverage', lang) },
-            { key: 'wordcount' as ColorMode, label: t('heatmap_wordcount', lang) },
-          ]).map(m => (
-            <button
-              key={m.key}
-              className={`ia-btn ia-btn-sm ${colorMode === m.key ? 'ia-btn-primary' : 'ia-btn-secondary'}`}
-              onClick={() => setColorMode(m.key)}
-              style={{ height: 26, fontSize: 11 }}
-            >
-              {m.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          {/* View Toggle */}
+          <div className="ia-toggle-group">
+            {([
+              { key: 'detail' as ViewMode, label: t('heatmap_detail', lang) },
+              { key: 'overview' as ViewMode, label: t('heatmap_overview', lang) },
+            ]).map(v => (
+              <button
+                key={v.key}
+                className={`ia-toggle-btn ${viewMode === v.key ? 'ia-toggle-btn--active' : ''}`}
+                onClick={() => setViewMode(v.key)}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {viewMode === 'detail' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: 'var(--ia-text-tertiary)' }}>{t('heatmap_color', lang)}</span>
+              <div className="ia-toggle-group">
+                {([
+                  { key: 'sentiment' as ColorMode, label: t('sentiment', lang) },
+                  { key: 'coverage' as ColorMode, label: t('heatmap_coverage', lang) },
+                  { key: 'wordcount' as ColorMode, label: t('heatmap_wordcount', lang) },
+                ]).map(m => (
+                  <button
+                    key={m.key}
+                    className={`ia-toggle-btn ${colorMode === m.key ? 'ia-toggle-btn--active' : ''}`}
+                    onClick={() => setColorMode(m.key)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* ─── Overview Mode ─── */}
+      {viewMode === 'overview' && (
+        <div className="ia-card" style={{ overflow: 'hidden' }}>
+          <div className="ia-scroll-x">
+            <table className="ia-table">
+              <thead>
+                <tr>
+                  {[
+                    { col: 'name', label: 'Interview', align: 'left' as const, width: 180 },
+                    { col: 'words', label: t('heatmap_col_words', lang), align: 'center' as const, width: undefined },
+                    { col: 'coverage', label: t('heatmap_col_coverage', lang), align: 'center' as const, width: undefined },
+                    { col: 'answers', label: t('heatmap_col_answers', lang), align: 'center' as const, width: undefined },
+                    { col: 'sentiment', label: t('heatmap_col_sentiment', lang), align: 'center' as const, width: 120 },
+                    { col: 'avgLength', label: t('heatmap_col_avg_length', lang), align: 'center' as const, width: undefined },
+                  ].map(h => (
+                    <th
+                      key={h.col}
+                      className="ia-table-sortable"
+                      style={{ textAlign: h.align, width: h.width }}
+                      onClick={() => toggleOverviewSort(h.col)}
+                    >
+                      <span style={{ color: overviewSort.col === h.col ? 'var(--ia-accent)' : undefined }}>
+                        {h.label} {overviewSort.col === h.col ? (overviewSort.asc ? '↑' : '↓') : ''}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedOverview.map(row => {
+                  const covPct = Math.round(row.coverage * 100);
+                  return (
+                    <tr key={row.id}>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          {row.group && (
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: 'var(--ia-accent)', opacity: 0.6 }} />
+                          )}
+                          <span className="text-xs truncate" style={{ color: 'var(--ia-text)', maxWidth: 160 }} title={row.name}>
+                            {row.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="ia-table-num">
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="ia-progress" style={{ width: 60 }}>
+                            <div className="ia-progress-fill" style={{ width: `${(row.wordCount / maxOverviewWords) * 100}%`, background: 'rgba(99,102,241,0.6)' }} />
+                          </div>
+                          <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-secondary)', minWidth: 40 }}>
+                            {row.wordCount.toLocaleString()}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="ia-table-num">
+                        <span
+                          className="text-[11px] ia-data font-semibold"
+                          style={{ color: covPct === 100 ? 'var(--ia-success)' : covPct >= 70 ? 'var(--ia-accent)' : covPct >= 40 ? 'var(--ia-warning)' : 'var(--ia-error)' }}
+                        >
+                          {covPct}%
+                        </span>
+                      </td>
+                      <td className="ia-table-num">
+                        <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-secondary)' }}>
+                          {row.answerCount}/{questions.length}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex rounded-full overflow-hidden mx-auto" style={{ width: 80, height: 6 }}>
+                          {(['positive', 'neutral', 'ambivalent', 'negative'] as const).map(s => {
+                            const total = Object.values(row.sentiments).reduce((a, b) => a + b, 0);
+                            if (total === 0 || !row.sentiments[s]) return null;
+                            return <div key={s} style={{ width: `${(row.sentiments[s] / total) * 100}%`, background: SENTIMENT_COLORS[s] }} />;
+                          })}
+                        </div>
+                      </td>
+                      <td className="ia-table-num">
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="ia-progress" style={{ width: 40 }}>
+                            <div className="ia-progress-fill" style={{ width: `${(row.avgLength / maxOverviewAvg) * 100}%`, background: 'rgba(99,102,241,0.5)' }} />
+                          </div>
+                          <span className="text-[11px] ia-data" style={{ color: 'var(--ia-text-secondary)', minWidth: 24 }}>
+                            {row.avgLength}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Detail Mode ─── */}
+      {viewMode === 'detail' && <>
       {/* Heatmap Grid */}
       <div className="ia-card" style={{ overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: analyzedInterviews.length * 44 + 200 }}>
+        <div className="ia-scroll-x">
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: analyzedInterviews.length * (cellSize + 12) + 200 }}>
             <thead>
               <tr>
                 <th
@@ -180,28 +359,32 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
                   <th
                     key={interview.id}
                     style={{
-                      padding: '8px 4px',
+                      padding: '8px 2px',
                       borderBottom: '1px solid var(--ia-border)',
-                      minWidth: 40,
+                      minWidth: cellSize + 8,
                       textAlign: 'center',
                     }}
                   >
-                    <div
-                      className="text-[9px] font-medium"
-                      style={{
-                        color: 'var(--ia-text-tertiary)',
-                        writingMode: 'vertical-lr',
-                        transform: 'rotate(180deg)',
-                        maxHeight: 80,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        margin: '0 auto',
-                      }}
-                      title={interview.name}
-                    >
-                      {interview.name.length > 15 ? interview.name.slice(0, 14) + '…' : interview.name}
-                    </div>
+                    {showColumnLabels ? (
+                      <div
+                        className="text-[9px] font-medium"
+                        style={{
+                          color: 'var(--ia-text-tertiary)',
+                          writingMode: 'vertical-lr',
+                          transform: 'rotate(180deg)',
+                          maxHeight: 80,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          margin: '0 auto',
+                        }}
+                        title={interview.name}
+                      >
+                        {interview.name.length > 15 ? interview.name.slice(0, 14) + '…' : interview.name}
+                      </div>
+                    ) : (
+                      <div style={{ height: 4 }} title={interview.name} />
+                    )}
                   </th>
                 ))}
                 <th
@@ -244,9 +427,9 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
                         <span
                           className="text-[11px] truncate"
                           style={{ color: 'var(--ia-text-secondary)' }}
-                          title={q.canonical.canonical_text}
+                          title={pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage)}
                         >
-                          {q.canonical.canonical_text}
+                          {pickLang(q.canonical.canonical_text, q.canonical.canonical_text_alt, lang, projectLanguage)}
                         </span>
                       </div>
                     </td>
@@ -266,15 +449,13 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
                           onMouseLeave={() => setHoveredCell(null)}
                         >
                           <div
+                            className="ia-heatmap-cell"
                             style={{
-                              width: 28,
-                              height: 28,
+                              width: cellSize,
+                              height: cellSize,
                               margin: '0 auto',
-                              borderRadius: 4,
                               background: answer ? getCellColor(qIdx, interview.id) : 'var(--ia-bg-muted)',
                               opacity: answer ? getCellOpacity(qIdx, interview.id) : 0.4,
-                              transition: 'all 0.15s ease',
-                              transform: isHovered ? 'scale(1.2)' : 'scale(1)',
                               boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
                               cursor: answer ? 'pointer' : 'default',
                             }}
@@ -292,7 +473,7 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
                       <span
                         className="text-[10px] ia-data font-semibold"
                         style={{
-                          color: qCov === 100 ? '#22C55E' : qCov >= 70 ? 'var(--ia-accent)' : qCov >= 40 ? '#F59E0B' : '#EF4444',
+                          color: qCov === 100 ? 'var(--ia-success)' : qCov >= 70 ? 'var(--ia-accent)' : qCov >= 40 ? 'var(--ia-warning)' : 'var(--ia-error)',
                         }}
                       >
                         {qCov}%
@@ -331,7 +512,7 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
                       <span
                         className="text-[10px] ia-data font-semibold"
                         style={{
-                          color: pct === 100 ? '#22C55E' : pct >= 70 ? 'var(--ia-accent)' : pct >= 40 ? '#F59E0B' : '#EF4444',
+                          color: pct === 100 ? 'var(--ia-success)' : pct >= 70 ? 'var(--ia-accent)' : pct >= 40 ? 'var(--ia-warning)' : 'var(--ia-error)',
                         }}
                       >
                         {pct}%
@@ -472,7 +653,7 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
 
         return (
           <div className="ia-card p-5">
-            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--ia-text)' }}>
+            <h3 className="ia-section-title mb-3">
               {t('heatmap_gap_title', lang)}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -480,18 +661,18 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
                 <p className="text-xs font-medium mb-2" style={{ color: 'var(--ia-text-secondary)' }}>
                   {t('heatmap_gap_questions', lang)}
                 </p>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                <div className="space-y-1.5 max-h-48 ia-scroll-y">
                   {gaps.slice(0, 10).map(g => (
                     <div key={g.idx} className="flex items-center gap-2">
                       <span className="text-[10px] font-mono w-6 flex-shrink-0" style={{ color: 'var(--ia-text-tertiary)' }}>
                         F{g.idx + 1}
                       </span>
-                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--ia-bg-muted)' }}>
+                      <div className="flex-1 ia-progress">
                         <div
-                          className="h-full rounded-full"
+                          className="ia-progress-fill"
                           style={{
                             width: `${(g.answered / g.total) * 100}%`,
-                            background: g.answered / g.total >= 0.7 ? 'var(--ia-accent)' : '#F59E0B',
+                            background: g.answered / g.total >= 0.7 ? 'var(--ia-accent)' : 'var(--ia-warning)',
                           }}
                         />
                       </div>
@@ -508,18 +689,18 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
                   <p className="text-xs font-medium mb-2" style={{ color: 'var(--ia-text-secondary)' }}>
                     {t('heatmap_gap_interviews', lang)}
                   </p>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  <div className="space-y-1.5 max-h-48 ia-scroll-y">
                     {missingInterviews.slice(0, 10).map(ic => (
                       <div key={ic.id} className="flex items-center gap-2">
                         <span className="text-[11px] w-28 truncate flex-shrink-0" style={{ color: 'var(--ia-text-secondary)' }} title={ic.name}>
                           {ic.name}
                         </span>
-                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--ia-bg-muted)' }}>
+                        <div className="flex-1 ia-progress">
                           <div
-                            className="h-full rounded-full"
+                            className="ia-progress-fill"
                             style={{
                               width: `${(ic.answered / ic.total) * 100}%`,
-                              background: ic.answered / ic.total >= 0.7 ? 'var(--ia-accent)' : '#F59E0B',
+                              background: ic.answered / ic.total >= 0.7 ? 'var(--ia-accent)' : 'var(--ia-warning)',
                             }}
                           />
                         </div>
@@ -535,6 +716,7 @@ export default function HeatmapView({ questions, interviews }: HeatmapViewProps)
           </div>
         );
       })()}
+      </>}
     </div>
   );
 }

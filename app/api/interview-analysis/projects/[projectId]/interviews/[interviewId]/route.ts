@@ -63,6 +63,12 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const { projectId, interviewId } = await params;
   const sb = getServiceClient();
 
+  // Clean up comparison summaries referencing this interview
+  await sb
+    .from('ia_comparison_summaries')
+    .delete()
+    .or(`interview_a_id.eq.${interviewId},interview_b_id.eq.${interviewId}`);
+
   // Delete the interview (cascades to ia_questions, ia_answers)
   const { error } = await sb
     .from('ia_interviews')
