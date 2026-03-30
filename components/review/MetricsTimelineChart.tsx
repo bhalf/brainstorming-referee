@@ -116,14 +116,6 @@ const SEMANTIC_METRICS: Record<MetricKey, MetricDef> = {
     format: (v) => `${Math.round(v)}s`,
     normalizeMax: 'auto',
   },
-  semanticExpansion: {
-    label: 'Sem. Expansion',
-    description: 'Wie weit neue Beiträge vom bisherigen semantischen Zentrum entfernt sind. Hoch = Gruppe erweitert ihren Denkraum.',
-    color: '#fb7185',
-    type: 'line',
-    extract: (m) => m.semantic_dynamics?.semantic_expansion_score ?? 0,
-    format: (v) => `${Math.round(v * 100)}%`,
-  },
 };
 
 // --- Preset groups ---
@@ -142,7 +134,7 @@ const SEMANTIC_PRESETS: PresetGroup[] = [
   { label: 'Alle', keys: Object.keys(SEMANTIC_METRICS) },
   { label: 'Novelty + Diversität', keys: ['noveltyRate', 'diversity'] },
   { label: 'Konvergenz', keys: ['clusterConcentration', 'explorationElaboration', 'piggybackingScore'] },
-  { label: 'Stagnation', keys: ['stagnation', 'noveltyRate', 'semanticExpansion'] },
+  { label: 'Stagnation', keys: ['stagnation', 'noveltyRate'] },
 ];
 
 // --- Main export: renders both charts ---

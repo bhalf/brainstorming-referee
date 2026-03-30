@@ -72,7 +72,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   escalation: 'Eskalation',
 };
 
-const MIN_DISMISS_MS = 12_000;
+const MIN_DISMISS_MS = 22_000;
 
 export default function InterventionOverlay({ intervention, onDismiss, isTTSPlaying = false, children }: InterventionOverlayProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -89,9 +89,9 @@ export default function InterventionOverlay({ intervention, onDismiss, isTTSPlay
     const wordCount = intervention.text.trim().split(/\s+/).length;
     const readingMs = wordCount * 400; // ~150 wpm comfortable reading speed
     const audioMs = intervention.audio_duration_ms ?? 0;
-    // After audio ends, keep overlay for at least 5s + half the reading time
+    // After audio ends, keep overlay for at least 10s + half the reading time
     // so users can re-read and absorb the message
-    const postAudioBuffer = Math.max(5_000, readingMs * 0.5);
+    const postAudioBuffer = Math.max(10_000, readingMs * 0.5);
     return Math.max(audioMs + postAudioBuffer, readingMs, MIN_DISMISS_MS);
   }, [intervention?.text, intervention?.audio_duration_ms]);
 

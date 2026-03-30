@@ -35,8 +35,8 @@ interface TooltipEntry { description: string; formula?: string }
 
 const METRIC_TOOLTIPS: Record<string, TooltipEntry> = {
   risk: {
-    description: 'Roh-Composite aus mehreren Signalen: Dominanz, Schweigen, Ungleichverteilung. Dieser Wert fliesst als Input in die State-Formeln ein (wird dort verstärkt).',
-    formula: 'Hoch = Diskussion ist unausgewogen. Niedrig = alle beteiligen sich fair.',
+    description: 'Partizipations-Composite: Kombination aus Ungleichverteilung und Dominanz-Streak. Wird direkt als DOMINANCE_RISK Score im Zwei-Schicht-System verwendet.',
+    formula: 'max(Hoover, Silent) × 0.65 + Dominanz-Streak × 0.35',
   },
   balance: {
     description: 'Reden alle ungefähr gleich viel? 100% bedeutet perfekt ausgeglichen, 0% bedeutet eine Person dominiert komplett.',
@@ -89,10 +89,6 @@ const METRIC_TOOLTIPS: Record<string, TooltipEntry> = {
   exploration: {
     description: 'Erforscht die Gruppe neue Richtungen (Exploration) oder vertieft sie bestehende Ideen (Vertiefung)? Zeigt die aktuelle Diskussionsdynamik.',
     formula: 'Links = neue Themen werden geöffnet. Rechts = bestehende Ideen werden ausgebaut.',
-  },
-  expansion: {
-    description: 'Wird die Diskussion gerade breiter oder enger? Ein Trend-Indikator: positiv bedeutet neue Themen kommen dazu, negativ bedeutet Einengung.',
-    formula: 'Positiv = Ideenraum wächst. Negativ = Gruppe verengt sich.',
   },
   piggybacking: {
     description: 'Wie stark baut jeder direkt auf dem Vorgänger auf? Hohe Werte bedeuten, die Gruppe denkt im Gleichschritt und baut aufeinander auf.',
@@ -662,7 +658,6 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
         </div>
         <DetailGauge label="Cluster-Anzahl" value={Math.min(sd.cluster_count / 10, 1)} tipKey="clusterCount" />
         <DetailGauge label="Konzentration" value={sd.cluster_concentration} tipKey="concentration" />
-        <DetailGauge label="Expansion" value={Math.min(Math.max(sd.semantic_expansion_score + 0.5, 0), 1)} tipKey="expansion" />
         <DetailGauge label="Piggybacking" value={sd.piggybacking_score} tipKey="piggybacking" />
         {!sd.has_embeddings && (
           <div className="p-2 rounded-lg border border-amber-500/20 bg-amber-500/5">
@@ -676,7 +671,7 @@ function RawMetricsDetails({ p, sd, inf, engineState, speakers, cumulativeSpeake
 
       <div className="space-y-2.5">
         <MetricRow label="Ideenrate" tipKey="ideaRate" displayValue={`${p.ideational_fluency_rate.toFixed(1)}/m`} status={ideaRateStatus} gaugeFill={Math.min(p.ideational_fluency_rate / 10, 1)} gaugeThreshold={0.3} />
-        <MetricRow label="Stagnation" tipKey="stagnation" displayValue={`${Math.round(sd.stagnation_duration_seconds)}s`} status={stagnationStatus} gaugeFill={Math.min(sd.stagnation_duration_seconds / 180, 1)} gaugeThreshold={0.5} />
+        <MetricRow label="Stagnation" tipKey="stagnation" displayValue={`${Math.round(sd.stagnation_duration_seconds)}s`} status={stagnationStatus} gaugeFill={Math.min(sd.stagnation_duration_seconds / 150, 1)} gaugeThreshold={0.5} />
       </div>
 
       <p className="text-[9px] text-[var(--text-tertiary)] text-center font-mono pt-1">
@@ -861,7 +856,7 @@ export default function MetricsPanel({ latest, history, engineState, participant
   };
   const sd = latest?.semantic_dynamics ?? {
     novelty_rate: 0, cluster_concentration: 0, exploration_elaboration_ratio: 1,
-    semantic_expansion_score: 0, cluster_count: 0, has_embeddings: false,
+    cluster_count: 0, has_embeddings: false,
     stagnation_duration_seconds: 0, diversity: 0, piggybacking_score: 0,
   };
   const inf = latest?.inferred_state ?? {

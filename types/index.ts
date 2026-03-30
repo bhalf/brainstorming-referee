@@ -108,7 +108,6 @@ export interface SemanticDynamicsMetrics {
   novelty_rate: number;
   cluster_concentration: number;
   exploration_elaboration_ratio: number;
-  semantic_expansion_score: number;
   cluster_count: number;
   has_embeddings: boolean;
   stagnation_duration_seconds: number;
