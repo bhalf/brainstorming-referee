@@ -22,9 +22,24 @@ export default function ParticipantBreakdown({ data }: Props) {
   const cumulative = lastMetric?.participation?.cumulative;
 
   const participantData = useMemo(() => {
+    // Backend stores volume_share keys as first names (e.g. "Maurice" not "Maurice Maslaton").
+    // Try: display_name → first name → livekit_identity → 0
+    const findShare = (shares: Record<string, number>, p: { display_name: string; livekit_identity: string }) => {
+      if (shares[p.display_name] != null) return shares[p.display_name];
+      // Try first name (split on space, take first part)
+      const firstName = p.display_name.split(' ')[0];
+      if (shares[firstName] != null) return shares[firstName];
+      if (shares[p.livekit_identity] != null) return shares[p.livekit_identity];
+      // Try partial match: any key that starts with firstName
+      const match = Object.entries(shares).find(([k]) =>
+        k.toLowerCase() === firstName.toLowerCase()
+      );
+      return match ? match[1] : 0;
+    };
+
     return participants.map((p, idx) => {
-      const volume = Math.round((volumeShare[p.display_name] ?? volumeShare[p.livekit_identity] ?? 0) * 100);
-      const turns = Math.round((turnShare[p.display_name] ?? turnShare[p.livekit_identity] ?? 0) * 100);
+      const volume = Math.round(findShare(volumeShare, p) * 100);
+      const turns = Math.round(findShare(turnShare, p) * 100);
       const finalSegments = segments.filter(
         (s) => s.speaker_identity === p.livekit_identity && s.is_final
       );
