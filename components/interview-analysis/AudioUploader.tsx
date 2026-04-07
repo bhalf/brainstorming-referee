@@ -50,13 +50,16 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
         setProgress(t('audio_splitting', lang));
         const chunks = chunkFile(file, MAX_CHUNK_SIZE_MB * 1024 * 1024);
         let fullText = '';
+        let interviewId: string | null = null;
 
         for (let i = 0; i < chunks.length; i++) {
           setProgress(`${t('audio_transcribing_part', lang)} ${i + 1}/${chunks.length}...`);
           const formData = new FormData();
           formData.append('file', chunks[i], `chunk_${i}.${file.name.split('.').pop()}`);
-          if (i === 0) formData.append('name', name || file.name);
+          formData.append('name', name || file.name);
           formData.append('language', transcriptionLanguage);
+          // Pass interviewId from first chunk so all chunks update the same interview
+          if (interviewId) formData.append('interviewId', interviewId);
 
           const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
             method: 'POST',
@@ -71,7 +74,21 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
           }
 
           const data = await res.json();
+          if (i === 0) interviewId = data.id;
           fullText += (fullText ? ' ' : '') + (data.transcript_text || '');
+        }
+
+        // Update the interview with the combined transcript from all chunks
+        if (interviewId) {
+          await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              transcript_text: fullText,
+              word_count: fullText.trim().split(/\s+/).length,
+              name: name || file.name.replace(/\.[^.]+$/, ''),
+            }),
+          });
         }
 
         setProgress(t('audio_done', lang));
