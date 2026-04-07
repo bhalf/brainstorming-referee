@@ -60,6 +60,8 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
           formData.append('language', transcriptionLanguage);
           // Pass interviewId from first chunk so all chunks update the same interview
           if (interviewId) formData.append('interviewId', interviewId);
+          // Pass end of previous chunk text to improve boundary transcription
+          if (fullText) formData.append('previousText', fullText.slice(-200));
 
           const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
             method: 'POST',
@@ -98,7 +100,7 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
         const formData = new FormData();
         formData.append('file', file);
         formData.append('name', name || file.name);
-        formData.append('language', lang);
+        formData.append('language', transcriptionLanguage);
 
         const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
           method: 'POST',

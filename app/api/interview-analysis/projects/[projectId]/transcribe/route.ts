@@ -63,6 +63,7 @@ export async function POST(
   const interviewId = formData.get('interviewId') as string | null;
   const interviewName = formData.get('name') as string | null;
   const language = (formData.get('language') as string) || 'de';
+  const previousText = (formData.get('previousText') as string) || '';
 
   if (!file) {
     return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -110,21 +111,21 @@ export async function POST(
       return NextResponse.json({ error: msg }, { status: 500 });
     }
 
-    // Transcribe via Whisper API
+    // Transcribe via OpenAI — use gpt-4o-transcribe for best accuracy
+    // Pass last ~200 chars of previous chunk as prompt to improve boundary continuity
+    const prompt = previousText
+      ? previousText.slice(-200)
+      : language === 'de'
+        ? 'Dies ist ein Interview-Transkript auf Deutsch.'
+        : 'This is an interview transcript.';
+
     const transcription = await openai.audio.transcriptions.create({
-      model: 'whisper-1',
+      model: 'gpt-4o-transcribe',
       file: audioFile,
       language,
-      response_format: 'verbose_json',
+      prompt,
+      response_format: 'json',
     });
-
-    const segments = (transcription as unknown as {
-      segments?: Array<{ start: number; end: number; text: string }>;
-    }).segments?.map((s) => ({
-      start: s.start,
-      end: s.end,
-      text: s.text.trim(),
-    })) ?? [];
 
     const fullText = (transcription as unknown as { text: string }).text;
     const wordCount = fullText.trim().split(/\s+/).length;
@@ -134,7 +135,6 @@ export async function POST(
       .from('ia_interviews')
       .update({
         transcript_text: fullText,
-        transcript_segments: segments,
         status: 'transcribed',
         word_count: wordCount,
         updated_at: new Date().toISOString(),
