@@ -64,8 +64,10 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
           });
 
           if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || t('audio_failed', lang));
+            const text = await res.text();
+            let msg = t('audio_failed', lang);
+            try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+            throw new Error(msg);
           }
 
           const data = await res.json();
@@ -87,8 +89,10 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || t('audio_failed', lang));
+          const text = await res.text();
+          let msg = t('audio_failed', lang);
+          try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+          throw new Error(msg);
         }
 
         setProgress(t('audio_done', lang));

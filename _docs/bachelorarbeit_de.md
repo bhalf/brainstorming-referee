@@ -240,83 +240,63 @@ Diese Unterscheidung ist besonders wichtig für die weitere Arbeit. Sie ermögli
 
 ## 5.1. Forschungsansatz: Szenariobasiertes Design
 
-Die vorliegende Arbeit folgt einem szenariobasierten Designansatz als übergreifendem methodischen Rahmen. Dieser Ansatz geht auf Carroll (2000) zurück und eignet sich besonders für die Gestaltung interaktiver Systeme, bei denen das Zusammenspiel von Nutzenden und Technologie im Vordergrund steht. Anstatt von technischen Spezifikationen auszugehen, werden zunächst konkrete Nutzungsszenarien entwickelt, die typische Situationen, Probleme und Handlungsabläufe beschreiben. Diese Szenarien dienen anschliessend als Grundlage für den Systementwurf.
+Methodisch orientiert sich diese Arbeit am szenariobasierten Designansatz nach Carroll (2000). Dessen Grundidee: Statt von technischen Spezifikationen auszugehen, entwickelt man zuerst konkrete Nutzungssituationen — typische Abläufe, Probleme, Handlungsmuster —, die dann als Leitplanken für den Systementwurf dienen. Gerade bei interaktiven Systemen, wo das Wechselspiel zwischen Mensch und Technologie im Mittelpunkt steht, hat sich dieser Zugang bewährt.
 
-In der vorliegenden Arbeit wurde dieses Prinzip konsequent umgesetzt. In Kapitel 3 wurden zunächst die theoretischen Grundlagen erarbeitet — kognitive, soziale und gruppendynamische Barrieren des Brainstormings. In Kapitel 4 wurden diese Erkenntnisse in drei Szenarien überführt: ein Problemszenario, das die typischen Dynamiken informeller Brainstorming-Sitzungen beschreibt, sowie zwei Interventionsszenarien, die unterschiedliche Rollen künstlicher Intelligenz im Brainstorming-Prozess darstellen. Der in Kapitel 6 beschriebene Prototyp wurde dann direkt aus diesen Szenarien abgeleitet. Jede Entwurfsentscheidung — von der Wahl der Metriken bis zur Eskalationslogik — lässt sich auf ein spezifisches theoretisches Konstrukt oder eine im Szenario identifizierte Problemdynamik zurückführen.
+Konkret sah das in dieser Arbeit so aus: Kapitel 3 legte die theoretischen Grundlagen offen — kognitive, soziale und gruppendynamische Barrieren des Brainstormings. Aus diesen Erkenntnissen entstanden in Kapitel 4 drei Szenarien: ein Problemszenario, das die üblichen Dynamiken informeller Sitzungen abbildet, sowie zwei Interventionsszenarien mit jeweils unterschiedlicher KI-Rolle. Der Prototyp in Kapitel 6 wurde direkt daraus abgeleitet, jede Entwurfsentscheidung lässt sich auf ein bestimmtes theoretisches Konstrukt oder eine im Szenario identifizierte Problemdynamik zurückführen.
 
-Der szenariobasierte Ansatz bietet mehrere Vorteile für die vorliegende Fragestellung. Er stellt sicher, dass technische Entscheidungen nicht isoliert, sondern stets in Bezug auf die zugrunde liegenden Nutzungssituationen getroffen werden. Er ermöglicht eine klare Rückverfolgbarkeit vom theoretischen Problem über das Szenario bis zur technischen Lösung. Und er unterstützt die modulare Struktur des Systems, da verschiedene Szenarien unterschiedliche Systemkonfigurationen erfordern.
+Warum dieser Ansatz? Weil er technische Entscheidungen an reale Nutzungssituationen bindet. Weil er eine nachvollziehbare Kette schafft — vom theoretischen Problem über das Szenario bis zur technischen Umsetzung. Und weil er die modulare Struktur des Systems stützt, da verschiedene Szenarien verschiedene Konfigurationen verlangen.
 
-## 5.2. Evaluationsdesign: Within-Subject-Experiment
+## 5.2. Evaluationsdesign
 
-Während der szenariobasierte Ansatz den Systementwurf leitet, dient ein experimentelles Design der empirischen Überprüfung. Die zentrale Frage lautet: Beeinflusst die KI-basierte Moderation den Verlauf und die Wahrnehmung informeller Brainstorming-Sitzungen messbar?
+Der szenariobasierte Ansatz strukturiert den Systementwurf. Für die empirische Prüfung braucht es etwas anderes: ein experimentelles Design. Die Kernfrage ist simpel formuliert, aber alles andere als trivial zu beantworten — verändert KI-basierte Moderation den Verlauf und die Wahrnehmung informeller Brainstorming-Sitzungen tatsächlich messbar?
 
-Zur Beantwortung dieser Frage wird ein Within-Subject-Design (Messwiederholungsdesign) eingesetzt. Jede Gruppe durchläuft zwei Brainstorming-Sitzungen unter unterschiedlichen Bedingungen: eine Sitzung ohne KI-Intervention (Baseline) und eine Sitzung mit KI-basierter Moderation und Ally-Unterstützung (Interventionsbedingung). Dieser Ansatz stellt sicher, dass individuelle Unterschiede in Kreativität, Kommunikationsstil und Gruppenzusammensetzung kontrolliert werden, da jede Gruppe als ihre eigene Kontrollgruppe fungiert.
+Gewählt wurde ein Within-Subject-Design, also ein Messwiederholungsansatz. Jede Gruppe durchläuft zwei Brainstorming-Sitzungen unter verschiedenen Bedingungen: einmal ohne KI-Intervention (Baseline), einmal mit KI-gestützter Moderation und Ally-Unterstützung. Der Vorteil liegt auf der Hand — individuelle Unterschiede in Kreativität, Kommunikationsstil oder Gruppendynamik fallen als Störfaktoren weitgehend weg, weil jede Gruppe quasi als ihre eigene Kontrollgruppe dient.
 
-Um potenzielle Reihenfolgeeffekte zu kontrollieren — wie Lerneffekte, Ermüdung oder Themenvertrautheit — wird ein ausbalanciertes Design angewendet. Die Hälfte der Gruppen absolviert zuerst die Baseline-Bedingung und dann die Interventionsbedingung, während die andere Hälfte in umgekehrter Reihenfolge vorgeht. Diese Ausbalancierung stellt sicher, dass beobachtete Unterschiede auf die experimentelle Bedingung und nicht auf die Aufgabenreihenfolge zurückgeführt werden können.
+Natürlich birgt ein solches Design Risiken. Lerneffekte, Ermüdung, unterschiedliche Vertrautheit mit den Themen — all das könnte die Ergebnisse verzerren. Um dem entgegenzuwirken, wurden die zehn Gruppen fortlaufend nummeriert und einem alternierenden Schema zugewiesen: Ungerade Gruppen (1, 3, 5, 7, 9) starteten ihre erste Sitzung mit KI-Intervention, die zweite ohne. Bei den geraden Gruppen (2, 4, 6, 8, 10) war es umgekehrt. So lässt sich kontrollieren, ob beobachtete Unterschiede wirklich auf die experimentelle Bedingung zurückgehen — oder bloss auf die Reihenfolge.
 
 ## 5.3. Teilnehmende und Gruppenbildung
 
-Die Studie zielt auf eine Stichprobe von 24 Teilnehmenden ab, die in acht Gruppen zu je drei Personen eingeteilt werden. Diese Gruppengrösse wurde sowohl aus praktischen als auch aus theoretischen Gründen gewählt. Gruppen von drei Personen sind klein genug, um eine bedeutungsvolle Beteiligung aller Mitglieder zu ermöglichen — was das Risiko von sozialem Faulenzen und Trittbrettfahren reduziert — und gleichzeitig gross genug, um die interpersonellen Dynamiken (Dominanz, Konformität, Konvergenz) zu erzeugen, die das System erkennen und adressieren soll. Mit acht Gruppen können jeweils vier jeder Ausbalancierungsreihenfolge zugewiesen werden, was eine ausgewogene und statistisch tragfähige Vergleichsgrundlage schafft.
+Insgesamt nahmen 30 Personen teil, aufgeteilt in zehn Dreiergruppen. Drei Personen pro Gruppe — das ist klein genug, damit alle wirklich zu Wort kommen und soziales Faulenzen weniger Spielraum hat. Gleichzeitig reicht die Grösse aus, um genau jene interpersonellen Dynamiken hervorzurufen, die das System erkennen soll: Dominanz, Konformitätsdruck, thematische Verengung. Durch die zehn Gruppen ergeben sich je fünf pro Ausbalancierungsreihenfolge, was eine solide Vergleichsbasis schafft.
 
-Die Teilnehmenden werden aus dem universitären Umfeld rekrutiert. Um verfälschende Effekte durch vorbestehende soziale Dynamiken zu minimieren, werden die Gruppen aus Personen zusammengesetzt, die sich nicht gut kennen oder zufällig zugewiesen werden. Alle Teilnehmenden erhalten eine kurze Einführung in die Brainstorming-Aufgabe, werden jedoch nicht über die spezifische KI-Interventionslogik oder die getesteten Hypothesen informiert, um Demand-Charakteristiken zu reduzieren.
+Rekrutiert wurden die Teilnehmenden aus dem universitären Umfeld. Sie erhielten vorab eine kurze Einführung in die Brainstorming-Aufgabe, erfuhren aber nichts über die genaue KI-Logik oder die getesteten Hypothesen — ein bewusster Schritt, um Demand-Charakteristiken möglichst gering zu halten.
 
 ## 5.4. Experimenteller Ablauf
 
-Jede experimentelle Sitzung folgt einem standardisierten Ablauf:
+Jeder Durchlauf folgte demselben Muster, das sich in sechs Phasen gliedert.
 
-1. **Briefing (5 Minuten):** Die Teilnehmenden erhalten eine allgemeine Einführung in das Sitzungsformat und die Brainstorming-Regeln (keine Kritik, Quantität vor Qualität, Aufgreifen fremder Ideen). Sie werden darüber informiert, dass die Sitzung aufgezeichnet wird und dass ein KI-System anwesend sein kann, erhalten aber keine Details über dessen Interventionslogik.
+Zuerst das Briefing. Die Teilnehmenden bekamen eine Einführung ins Format und die Brainstorming-Regeln: keine Kritik, Quantität vor Qualität, fremde Ideen aufgreifen und weiterdenken. Sie wussten, dass die Sitzung aufgezeichnet wird und ein KI-System dabei sein kann — die genaue Interventionslogik blieb ihnen aber verborgen.
 
-2. **Erste Brainstorming-Sitzung (15–20 Minuten):** Die Gruppe bearbeitet ein vordefiniertes Brainstorming-Thema. Je nach Gruppenzuordnung findet diese Sitzung mit oder ohne KI-Unterstützung statt.
+Dann die erste Brainstorming-Sitzung, 15 bis 20 Minuten lang. Das Thema: *«Welche konkreten Massnahmen können Uni und Studierendenschaft ergreifen, um die Prüfungsphase für alle einfacher, klarer und unterstützender zu machen?»* Je nach Gruppenzuordnung lief diese Runde mit oder ohne KI-Unterstützung.
 
-3. **Kurze Pause (5 Minuten):** Eine kurze Unterbrechung zwischen den Sitzungen zur Reduktion kognitiver Ermüdung und zur klaren Trennung der beiden Bedingungen.
+Direkt im Anschluss füllten die Teilnehmenden individuell den ersten Teil einer quantitativen Online-Umfrage aus. Erfasst wurde die subjektive Erfahrung der gerade beendeten Sitzung — wie ausgewogen die Beteiligung empfunden wurde, wie vielfältig die Ideen, wie zufrieden man insgesamt war. In der Interventionsbedingung kamen Fragen zur wahrgenommenen Nützlichkeit und Aufdringlichkeit des KI-Systems hinzu.
 
-4. **Zweite Brainstorming-Sitzung (15–20 Minuten):** Die Gruppe bearbeitet ein anderes Brainstorming-Thema unter der entgegengesetzten Bedingung.
+Es folgte die zweite Brainstorming-Sitzung, wieder 15 bis 20 Minuten. Diesmal ein anderes Thema: *«Welche konkreten Massnahmen können Uni und Studierendenschaft ergreifen, um den Start ins Studium für alle einfacher, klarer und unterstützender zu machen?»* Die Bedingung war jeweils die entgegengesetzte — wer in der ersten Runde mit KI brainstormte, tat es nun ohne, und umgekehrt.
 
-5. **Fragebogen nach der Sitzung (10 Minuten):** Die Teilnehmenden füllen einen kurzen Fragebogen aus, der die subjektive Erfahrung, die wahrgenommene Beteiligungsbalance, die Ideenvielfalt und — soweit zutreffend — die wahrgenommene Nützlichkeit und Aufdringlichkeit des KI-Systems erfasst.
+Danach der zweite Teil der Umfrage, strukturell identisch zum ersten, nur eben bezogen auf die zweite Sitzung. Der direkte Vergleich war damit angelegt.
 
-Die Brainstorming-Themen werden so gewählt, dass sie in Komplexität und Offenheit vergleichbar sind. Sie werden über die Bedingungen hinweg ausbalanciert, um themenspezifische Effekte als Störvariablen zu verhindern.
+Den Abschluss bildeten qualitative Einzelinterviews von etwa 15 Minuten pro Person. Hier ging es darum, hinter die Zahlen zu blicken. Wie hatten die Teilnehmenden die beiden Sitzungen erlebt? Was fiel ihnen an den KI-Interventionen auf? Wo sahen sie Unterschiede? Solche Nuancen lassen sich mit einem Fragebogen allein nicht einfangen.
+
+Beide Brainstorming-Themen wurden gezielt so gewählt, dass sie für Studierende gleichermassen greifbar, alltagsnah und in ihrer Offenheit vergleichbar sind. Welche Sitzung mit Intervention lief und welche ohne, bestimmte das in Abschnitt 5.2 beschriebene alternierende Schema.
 
 ## 5.5. Unabhängige und abhängige Variablen
 
-Die unabhängige Variable ist die experimentelle Bedingung: Vorhandensein oder Fehlen von KI-basierter Moderation.
+Die unabhängige Variable ist denkbar klar: ob KI-basierte Moderation vorhanden war oder nicht.
 
-Abhängige Variablen werden auf zwei Ebenen gemessen:
+Gemessen wurde auf zwei Ebenen. Einerseits über automatisch erfasste Prozessmetriken — der Hoover-Index für die Redezeitverteilung, der Anteil stiller Teilnehmender, ein Dominanz-Streak-Score und die kumulative Partizipationsungleichheit geben Aufschluss über die Beteiligungsbalance. Thematische Vielfalt wird über die Neuheitsrate, die Cluster-Konzentration (normalisierter HHI) und das Explorations-Elaborations-Verhältnis abgebildet. Hinzu kommen die Zeitanteile in den fünf inferierten Gesprächszuständen, die Anzahl der Zustandswechsel, die Dauer ohne substanziell neue Beiträge (Stagnation), eine Ideational Fluency Rate sowie ein Piggybacking-Score, der misst, inwieweit Sprechende aufeinander aufbauen.
 
-**Prozessmetriken (automatisch vom System erfasst):**
-
-- Beteiligungsbalance: Hoover-Index der Redezeitverteilung, Anteil stiller Teilnehmender, Dominanz-Streak-Score, kumulative Partizipationsungleichheit
-- Thematische Vielfalt: Neuheitsrate, Cluster-Konzentration (normalisierter HHI), Explorations-Elaborations-Verhältnis
-- Verlauf der Gesprächszustände: Zeitanteile in jedem der fünf inferierten Zustände, Anzahl der Zustandswechsel
-- Stagnation: Dauer ohne neue Beiträge
-- Ideenflüssigkeit: Substantive Beiträge pro Minute (Ideational Fluency Rate)
-- Aufbauverhalten: Piggybacking-Score (semantische Ähnlichkeit aufeinanderfolgender Sprecherwechsel)
-
-**Subjektive Masse (via Fragebogen):**
-
-- Wahrgenommene Ideenvielfalt
-- Wahrgenommene Fairness der Beteiligung
-- Wahrgenommene Nützlichkeit der KI (nur Interventionsbedingung)
-- Wahrgenommene Aufdringlichkeit der KI (nur Interventionsbedingung)
-- Gesamtzufriedenheit mit dem Brainstorming-Prozess
+Andererseits flossen subjektive Einschätzungen aus den Fragebögen ein: wahrgenommene Ideenvielfalt, wahrgenommene Fairness der Beteiligung, Gesamtzufriedenheit mit dem Prozess — und bei den Interventionssitzungen zusätzlich die eingeschätzte Nützlichkeit und Aufdringlichkeit der KI.
 
 ## 5.6. Analysestrategie
 
-Die primäre Analyse vergleicht Prozessmetriken zwischen Baseline- und Interventionsbedingung mittels gepaarter statistischer Tests, die für die Stichprobengrösse angemessen sind. Bei der erwarteten Stichprobe von acht Gruppen werden nicht-parametrische Verfahren wie der Wilcoxon-Vorzeichen-Rang-Test gegenüber parametrischen Alternativen bevorzugt, da sie keine Normalverteilung voraussetzen und mit kleinen Stichproben robuster sind.
+Bei zehn Gruppen wäre es gewagt, parametrische Verfahren mit ihren Normalverteilungsannahmen einzusetzen. Stattdessen kommt primär der Wilcoxon-Vorzeichen-Rang-Test zum Einsatz, der mit kleinen Stichproben robuster arbeitet und keine Verteilungsannahmen voraussetzt.
 
-Die wichtigsten Vergleiche umfassen:
+Verglichen werden vor allem der mittlere Hoover-Index zwischen den Bedingungen, Neuheitsrate und Cluster-Konzentration, der Anteil der Sitzungszeit in Risikozuständen gegenüber gesunden Phasen sowie die Recovery-Rate — also der Anteil der Interventionen, nach denen sich die Metriken innerhalb des Beobachtungsfensters tatsächlich verbesserten. Ob Reihenfolgeeffekte eine Rolle spielen, wird geprüft, indem die Erstrundenleistung der Gruppen mit Baseline-Start jener der Gruppen gegenübergestellt wird, die mit Intervention begannen.
 
-- Mittlerer Hoover-Index (Beteiligungsbalance) zwischen den Bedingungen
-- Mittlere Neuheitsrate und Cluster-Konzentration zwischen den Bedingungen
-- Anteil der Sitzungszeit in Risikozuständen (Dominanz, Konvergenz, Stagnation) versus gesunden Zuständen
-- Recovery-Rate: Anteil der Interventionen, die zu messbarer Metrikverbesserung innerhalb des Post-Check-Fensters führten
-
-Reihenfolgeeffekte werden bewertet, indem die Erstrundenleistung zwischen Gruppen verglichen wird, die mit der Baseline begannen, und Gruppen, die mit der Interventionsbedingung begannen.
-
-Subjektive Masse werden deskriptiv ausgewertet und zwischen den Bedingungen verglichen. Qualitatives Feedback aus offenen Fragen dient zur Ergänzung und Kontextualisierung der quantitativen Befunde.
+Die Fragebogendaten werden deskriptiv ausgewertet und zwischen den Bedingungen verglichen. Für die qualitativen Interviews kommt eine inhaltsanalytische Auswertung zum Einsatz — sie sollen die Zahlen einordnen, erklären und dort vertiefen, wo Fragebögen an ihre Grenzen stossen.
 
 ## 5.7. Ethische Aspekte
 
-Alle Teilnehmenden geben vor dem Experiment eine informierte Einwilligung ab. Sie werden darüber informiert, dass Sitzungen aufgezeichnet werden und dass ein KI-System anwesend sein kann. Die Teilnahme ist freiwillig, und die Teilnehmenden können jederzeit ohne Konsequenzen abbrechen. Audio- und Transkriptdaten werden sicher gespeichert und für die Analyse pseudonymisiert. Das Studienprotokoll wird vom betreuenden Lehrstuhl geprüft.
+Vor dem Experiment gaben alle Teilnehmenden eine informierte Einwilligung ab. Sie wussten, dass aufgezeichnet wird und dass ein KI-System anwesend sein kann. Niemand musste mitmachen, jederzeit war ein Abbruch ohne Konsequenzen möglich. Sämtliche Audio-, Transkript- und Interviewdaten werden sicher gespeichert und für die Analyse pseudonymisiert.
 
 \newpage
 
@@ -324,29 +304,27 @@ Alle Teilnehmenden geben vor dem Experiment eine informierte Einwilligung ab. Si
 
 ## 6.1. Ziele und konzeptioneller Rahmen
 
-Der entwickelte Prototyp bildet die technische Grundlage für die Umsetzung der in Kapitel 4 beschriebenen Szenarien. Während die vorangegangenen Kapitel das Problem des informellen Brainstormings theoretisch hergeleitet und konzeptionelle Interventionsmodelle entwickelt haben, geht es hier darum, diese Überlegungen in ein funktionierendes System zu übersetzen. Der Prototyp dient somit als experimentelle Umgebung, in der unterschiedliche Rollen künstlicher Intelligenz kontrolliert umgesetzt und vergleichbar gemacht werden können. Es ist wichtig, den Anspruch des Systems realistisch einzuordnen. Es handelt sich weder um ein fertiges Produkt noch um eine umfassende Plattform für kreative Zusammenarbeit. Aspekte wie Skalierbarkeit, langfristige Wartbarkeit oder kommerzielle Einsatzfähigkeit standen nicht im Fokus. Stattdessen wurde eine bewusst reduzierte, kontrollierbare Umgebung geschaffen. Das Ziel war es, die Rolle der KI isoliert untersuchen zu können, ohne dass andere Variablen — etwa Interface-Komplexität oder zusätzliche Funktionen — die Ergebnisse verzerren. Der Prototyp sollte daher weniger als «Applikation» und mehr als experimentelles Setup verstanden werden. Er schafft einen Rahmen, in dem bestimmte Dynamiken sichtbar und analysierbar werden. Gerade diese bewusste Reduktion erlaubt es, Unterschiede zwischen den Szenarien klarer zu identifizieren.
+Was genau wurde hier eigentlich gebaut — und was nicht?
+
+Der Prototyp überführt die Szenarien aus Kapitel 4 in ein funktionierendes System. Kein fertiges Produkt, keine Plattform mit Ambitionen auf Skalierbarkeit oder kommerzielle Nutzung. Eher ein experimentelles Setup, das einen klar umgrenzten Zweck erfüllt: verschiedene KI-Rollen unter kontrollierten Bedingungen aktivieren, beobachten und vergleichen. Interface-Komplexität, Zusatzfunktionen, alles was vom eigentlichen Untersuchungsgegenstand ablenken könnte — bewusst weggelassen. Gerade diese Reduktion macht den Prototyp nützlich. Unterschiede zwischen den Szenarien treten schärfer hervor, wenn das Drumherum nicht stört.
 
 ### 6.1.1. Prozessunterstützung statt Ideenersetzung
 
-Eine der zentralen Entscheidungen bestand darin, KI nicht primär als Ideenquelle einzusetzen. Obwohl grosse Sprachmodelle mittlerweile in der Lage sind, kreative Vorschläge zu formulieren und komplexe Zusammenhänge sprachlich auszuarbeiten, hätte ein solcher Fokus den Schwerpunkt dieser Arbeit verschoben. Ziel ist es hier nicht zu zeigen, dass KI bessere oder kreativere Ideen produziert als Menschen. Vielmehr geht es um die Frage, wie sich der Gruppenprozess verändert, wenn KI strukturell unterstützend eingreift.
+Eine Entscheidung fiel früh und blieb bestehen: Die KI sollte keine Ideen liefern. Sprachmodelle können das mittlerweile, keine Frage — kreative Vorschläge formulieren, Zusammenhänge sprachlich aufbereiten. Aber genau das hätte den Schwerpunkt der Arbeit verschoben. Es geht hier nicht darum zu belegen, dass Maschinen kreativer denken als Menschen.
 
-Kreativität in Gruppen entsteht nicht allein durch individuelle Geistesblitze, sondern durch Interaktion. Ideen werden aufgegriffen, verändert, weiterentwickelt oder auch verworfen. Genau diese Dynamik kann verloren gehen, wenn ein System dominante inhaltliche Beiträge liefert. Es besteht die Gefahr, dass Gruppen sich an maschinell generierten Vorschlägen orientieren oder diese unreflektiert übernehmen. In einem solchen Fall würde nicht mehr der Prozess untersucht, sondern primär die Qualität der KI-Outputs.
+Was stattdessen interessiert: Wie verändert sich der Gruppenprozess, wenn KI strukturell eingreift? Kreativität in Gruppen lebt von Interaktion. Ideen werden aufgegriffen, gedreht, weitergesponnen, manchmal verworfen. Diese Dynamik kann kippen, sobald ein System dominante inhaltliche Beiträge beisteuert — die Gefahr, dass sich die Gruppe an maschinellen Vorschlägen orientiert oder sie ungeprüft übernimmt, ist real. Dann untersucht man plötzlich nicht mehr den Prozess, sondern die Qualität der KI-Outputs.
 
-Aus diesem Grund wurde der Prototyp bewusst so konzipiert, dass die KI zunächst auf der Prozessebene operiert. Sie beobachtet, erkennt Muster und greift in einer moderierenden Rolle ein. Nur im erweiterten Szenario wird eine zusätzliche inhaltliche Impulsfunktion aktiviert — diese ist jedoch ebenfalls kontrolliert und situativ. Die kreative Hauptverantwortung bleibt stets bei der Gruppe.
+Der Prototyp wurde deshalb so angelegt, dass die KI zuerst auf der Prozessebene agiert: beobachten, Muster erkennen, moderierend eingreifen. Nur im erweiterten Szenario kommt eine inhaltliche Impulsfunktion dazu — kontrolliert und situativ. Die kreative Verantwortung? Bleibt bei der Gruppe.
 
-### 6.1.2. Theoretische Anbindung an die Systemlogik
+### 6.1.2. Theoretische Anbindung
 
-Die konzeptionelle Ausrichtung des Prototyps basiert direkt auf den in Kapitel 4 beschriebenen Problemdynamiken des informellen Brainstormings. Dazu gehören insbesondere ungleiche Beteiligung, inhaltliche Verengung, Stagnationsphasen und implizite Konformitätsprozesse. Diese Effekte treten selten isoliert auf. Sie verstärken sich häufig gegenseitig und führen schrittweise zu einer Verengung des Ideenraums, ohne dass die Gruppe dies unmittelbar bemerkt.
+Konzeptionell dockt der Prototyp direkt an die Problemdynamiken aus Kapitel 4 an: ungleiche Beteiligung, inhaltliche Verengung, Stagnation, implizite Konformität. Diese Effekte kommen selten einzeln daher. Sie schaukeln sich gegenseitig hoch und verengen den Ideenraum schrittweise — oft ohne dass die Gruppe es überhaupt bemerkt.
 
-Der Prototyp wurde daher nicht entwickelt, um ein einzelnes Problem zu lösen. Vielmehr sollte er in der Lage sein, mehrere Ebenen gleichzeitig anzusprechen. Dafür musste die Architektur Gesprächsverläufe strukturell erfassen, wiederkehrende Muster zumindest annäherungsweise erkennen und zwischen verschiedenen Interventionsarten unterscheiden können.
-
-Es ist klar, dass die Erkennung solcher Dynamiken aus technischer Sicht nur approximativ erfolgen kann. Der Prototyp stellt keine vollständige Diskursanalyse dar. Stattdessen arbeitet er mit operationalisierten Indikatoren, wie relativer Redezeit oder semantischer Ähnlichkeit von Beiträgen. Diese Annäherungen sind jedoch ausreichend, um Muster sichtbar zu machen und darauf zu reagieren.
+Das System sollte deshalb nicht ein isoliertes Problem lösen, sondern mehrere Ebenen gleichzeitig adressieren. Gesprächsverläufe strukturell erfassen, wiederkehrende Muster annäherungsweise erkennen, zwischen verschiedenen Interventionsarten unterscheiden. Natürlich stösst die automatische Erkennung solcher Dynamiken an Grenzen. Eine vollständige Diskursanalyse leistet der Prototyp nicht. Er arbeitet mit operationalisierten Indikatoren — relative Redezeit, semantische Ähnlichkeit zwischen Beiträgen. Annäherungen, ja. Aber hinreichend genau, um Muster sichtbar zu machen und darauf zu reagieren.
 
 ### 6.1.3. Szenariobasierte Struktur
 
-Ein zentrales Merkmal des Systems ist sein modularer, szenariobasierter Aufbau. Anstatt ein starres KI-Verhalten zu implementieren, wurde eine Architektur entwickelt, in der verschiedene Interventionsmodi aktiviert oder deaktiviert werden können.
-
-Daraus ergeben sich drei klar unterscheidbare Konfigurationen:
+Das System ist modular aufgebaut. Statt eines starren KI-Verhaltens lassen sich verschiedene Interventionsmodi ein- und ausschalten, woraus drei klar getrennte Konfigurationen entstehen.
 
 | Szenario | KI-Rolle | Interventionsgrad | Funktion |
 |---|---|---|---|
@@ -354,209 +332,89 @@ Daraus ergeben sich drei klar unterscheidbare Konfigurationen:
 | Szenario A | Prozessmoderation | Niedrig | Stabilisierung |
 | Szenario B | Moderation + Ally | Mittel | Reaktivierung |
 
-Diese Konfigurationen ermöglichen einen direkten Vergleich der Effekte. Die Rahmenbedingungen — Gruppengrösse, Aufgabe, Dauer — bleiben konstant. Nur die Rolle der KI ändert sich. Dadurch wird sichtbar, ob und wie sich die Prozessdynamiken verschieben.
+Gruppengrösse, Aufgabe, Dauer — alles bleibt gleich. Nur die Rolle der KI ändert sich. So wird sichtbar, ob und wie sich die Prozessdynamiken verschieben.
 
 ### 6.1.4. Leitende Designprinzipien
 
-Die Entwicklung des Prototyps folgte mehreren grundlegenden Prinzipien, die den gesamten Implementierungsprozess geleitet haben.
+Vier Prinzipien haben die Entwicklung durchgehend geprägt.
 
-Erstens: **Minimale Invasivität.** Die KI soll nur dann eingreifen, wenn es aus prozeduraler Sicht notwendig erscheint. Eine permanent aktive KI würde selbst zur dominanten Instanz werden und potenziell neue Störfaktoren erzeugen.
-
-Zweitens: **Transparenz.** Die Gruppenmitglieder müssen erkennen können, welche Rolle die KI gerade einnimmt. Ob ein Vorschlag aus der Moderationslogik stammt oder ein inhaltlicher Impuls aus dem Ally-Modus ist, wird klar angezeigt. Diese Offenheit reduziert Unsicherheit und stärkt das Vertrauen.
-
-Drittens: **Modularität.** Analyse- und Generierungskomponenten sind voneinander getrennt. Dies ermöglicht es, die Auswahl des zugrunde liegenden Sprachmodells je nach Aufgabe anzupassen.
-
-Viertens: **Theoretische Fundierung.** Technische Entscheidungen wurden nicht isoliert getroffen, sondern stets in Bezug auf die zuvor identifizierten Problemdynamiken reflektiert.
+**Minimale Invasivität** — die KI greift nur ein, wenn es prozedural nötig erscheint. Permanente Aktivität würde sie selbst zur dominanten Instanz machen und neue Störfaktoren erzeugen. **Transparenz** — jederzeit erkennbar, welche Rolle die KI gerade einnimmt, ob Moderation oder inhaltlicher Impuls. Das senkt Unsicherheit und stärkt Vertrauen. **Modularität** — Analyse- und Generierungskomponenten sind getrennt, was erlaubt, je nach Aufgabe unterschiedliche Sprachmodelle einzusetzen. Und schliesslich **theoretische Fundierung** — keine technische Entscheidung ohne Bezug zu den identifizierten Problemdynamiken.
 
 ### 6.1.5. Einordnung im Kontext aktueller KI-Forschung und Modellevaluation
 
-In den letzten zwei bis drei Jahren hat sich die Diskussion um grosse Sprachmodelle merklich verschoben. Es ist nicht nur so, dass die Modelle selbst leistungsfähiger geworden sind — obwohl das sicherlich zutrifft —, sondern auch, dass unser Verständnis davon, wie man sie evaluiert, komplizierter geworden ist. Frühere Benchmarks konzentrierten sich tendenziell auf klar definierte NLP-Aufgaben: Klassifikation, Übersetzung, Fragebeantwortung. Klare Inputs, klare Outputs. Heute versucht die Evaluation zunehmend, etwas Unordentlicheres zu erfassen — offene Interaktion, Dialog, kontextuelles Schlussfolgern. Und sobald Modelle in diese weniger strukturierten Settings wechseln, wird der Vergleich schwieriger. Gleichzeitig wird er viel wichtiger. Wie Ni et al. (2025) anmerken, kämpfen moderne Benchmark-Ökosysteme mit Problemen wie Kontaminationseffekten, Verteilungsverschiebungen und begrenzter Übertragbarkeit auf reale Anwendungsfälle. Was auf dem Papier überzeugend aussieht, hält in der Praxis nicht unbedingt stand.
+Die Diskussion um grosse Sprachmodelle hat sich in den letzten Jahren spürbar verschoben. Nicht nur die Modelle selbst sind leistungsfähiger geworden — auch die Frage, wie man ihre Leistung überhaupt misst, ist komplizierter geworden. Frühere Benchmarks hatten es leichter: Klassifikation, Übersetzung, Fragebeantwortung. Klare Inputs, klare Outputs. Heute geht es zunehmend um offene Interaktion, Dialog, kontextuelles Schlussfolgern — und sobald Modelle in solche weniger strukturierten Settings wechseln, wird der Vergleich schwieriger. Ni et al. (2025) beschreiben treffend, womit moderne Benchmark-Ökosysteme kämpfen: Kontaminationseffekte, Verteilungsverschiebungen, begrenzte Übertragbarkeit auf reale Anwendungen. Was auf dem Papier überzeugt, muss in der Praxis noch lange nicht funktionieren.
 
-Ein bekanntes Beispiel für dieses neuere Evaluationsparadigma ist Chatbot Arena (Chiang et al., 2024). Anstatt sich rein auf statische Datensätze zu verlassen, lässt die Plattform Modelle in anonymen paarweisen Vergleichen gegeneinander antreten. Echte Nutzende entscheiden, welche Antwort sie überzeugender finden. In vielerlei Hinsicht fühlt sich das erfrischend pragmatisch an. Es bringt die Evaluation näher an die Art und Weise, wie Modelle tatsächlich erlebt werden — durch menschliche Wahrnehmung. Was hier zählt, ist nicht nur, ob eine Antwort technisch korrekt ist, sondern ob sie hilfreich, klar oder kohärent wirkt.
+Chatbot Arena (Chiang et al., 2024) steht exemplarisch für einen neueren Evaluationsansatz. Statt statischer Datensätze treten Modelle in anonymen paarweisen Vergleichen gegeneinander an, und echte Nutzende entscheiden, welche Antwort überzeugender wirkt. Erfrischend pragmatisch. Was zählt, ist nicht bloss technische Korrektheit, sondern ob eine Antwort hilfreich, verständlich, kohärent rüberkommt. Allerdings hängen die Ergebnisse stark vom Kontext ab — Prompt-Typen, Nutzerbasis, Interaktionsumgebung beeinflussen alles. Ein Modell, das bei kreativen Gesprächen glänzt, kann bei strukturierten Analyseaufgaben ganz anders abschneiden. Rankings aus solchen Plattformen sind daher keine objektiven Wahrheiten, sondern Momentaufnahmen eines spezifischen Setups.
 
-Gleichzeitig führt dieser Ansatz eine andere Art von Komplexität ein. Chiang et al. (2024) erkennen an, dass die Ergebnisse stark vom Kontext abhängen. Die Art der eingereichten Prompts, die Diversität und der Hintergrund der Nutzerbasis, sogar die umgebende Interaktionsumgebung — all diese Faktoren beeinflussen die Ergebnisse. Ein Modell, das bei kreativen, offenen Gesprächen stark abschneidet, könnte bei strukturierten analytischen Aufgaben ganz andere Eigenschaften zeigen. Rankings, die in solchen Umgebungen generiert werden, können daher nicht als objektive Wahrheiten behandelt werden. Sie spiegeln ein spezifisches Evaluationssetup wider, keine absolute Qualitätshierarchie.
+Singh et al. (2025) gehen in *The Leaderboard Illusion* noch weiter. Ihre Analyse offenbart, dass Leaderboard-Systeme alles andere als neutrale Messinstrumente sind. Anbieter evaluieren intern mehrere Modellvarianten und reichen nur die stärkste öffentlich ein — das Ranking bildet also eine gefilterte Sicht ab. Proprietäre Modelle können innerhalb der Arena höhere Sampling-Raten erhalten, was ihnen mehr Evaluationsdaten verschafft und langfristig den Wettbewerb verzerrt. Die Anreize driften Richtung Arena-Overfitting statt Richtung Robustheit.
 
-Diese Spannung wird in der Kritik von Singh et al. (2025) in *The Leaderboard Illusion* noch deutlicher. Ihre Analyse legt nahe, dass Leaderboard-Systeme keine rein neutralen Messinstrumente sind. Strukturelle Asymmetrien können entstehen. Insbesondere beschreiben die Autoren nichtöffentliche Testpraktiken, bei denen Anbieter intern mehrere Modellvarianten evaluieren, bevor sie eine öffentlich einreichen. Natürlich wird die am besten abschneidende Variante ausgewählt. Das öffentliche Ranking spiegelt folglich eine gefilterte Ansicht der Leistung wider. Singh et al. (2025) weisen zudem darauf hin, dass proprietäre Modelle innerhalb der Arena höhere Sampling-Raten erhalten können, was ihnen wiederum mehr Evaluationsdaten liefert. Im Laufe der Zeit kann diese Dynamik den Wettbewerb verzerren und sogar Anreize für Overfitting an Arena-spezifische Interaktionsmuster setzen, anstatt breitere Robustheit zu fördern.
+Ni et al. (2025) identifizieren darüber hinaus allgemeinere Schwächen im Benchmark-Design. Datenkontamination bleibt ein hartnäckiges Problem, Benchmark-Overfitting lässt sich kaum restlos ausschliessen. Und starke Benchmark-Scores übersetzen sich nicht automatisch in zuverlässiges Verhalten innerhalb komplexer, interaktiver Systeme.
 
-Über Leaderboard-spezifische Dynamiken hinaus identifizieren Ni et al. (2025) allgemeinere Schwächen im zeitgenössischen Benchmark-Design. Datenkontamination bleibt ein anhaltendes Problem. Benchmark-Overfitting ist schwer vollständig auszuschliessen. Und vielleicht am wichtigsten: Starke Benchmark-Leistung übersetzt sich nicht automatisch in zuverlässiges Verhalten in komplexen, interaktiven Systemen. Scores können informativ sein — aber sie erzählen nicht die ganze Geschichte.
+Für den vorliegenden Prototyp sind das keine abstrakten Überlegungen. Dieses System soll nicht einfach polierten Text produzieren. Es muss Gesprächsverläufe analysieren, strukturelle Muster erkennen, behutsam moderierend eingreifen — und unter bestimmten Bedingungen gezielte inhaltliche Impulse setzen. Das sind grundverschiedene Aufgaben. Ein Modell, das kreatives Schreiben beherrscht, eignet sich nicht zwingend für zurückhaltende Prozessmoderation. Eines, das in präferenzbasierten Dialogvergleichen punktet, kann bei wiederholten analytischen Bewertungen schwächeln. «Modellqualität» als einheitliche Grösse zu behandeln wäre schlicht irreführend.
 
-Für den in dieser Arbeit entwickelten Prototyp sind diese Überlegungen nicht abstrakt. Das System soll nicht einfach polierten eigenständigen Text generieren. Es muss Gesprächsverläufe analysieren, strukturelle Muster erkennen, vorsichtig in einer moderierenden Rolle eingreifen und — unter bestimmten Bedingungen — gezielte Impulse einbringen. Diese Aufgaben unterscheiden sich erheblich voneinander. Ein Modell, das bei Benchmarks für kreatives Schreiben herausragt, ist möglicherweise nicht gut geeignet für zurückhaltende, prozessorientierte Moderation. Umgekehrt kann ein Modell, das in präferenzbasierten Dialogvergleichen überzeugend abschneidet, Schwächen zeigen, wenn es wiederholt strukturierte analytische Bewertungen durchführen muss. «Modellqualität» als eine einzige, einheitliche Eigenschaft zu behandeln, wäre daher irreführend.
+Neuere Arbeiten zum Model-Routing, etwa SelectLLM (Maurya et al., 2025), nehmen diese Differenzierung ernst. Statt ein Modell für alles einzusetzen, schlagen die Autoren vor, eingehende Anfragen dynamisch an das jeweils geeignetste Modell weiterzuleiten. Die Kernidee: Leistung hängt von der Aufgabe ab, und die Modellwahl sollte das widerspiegeln.
 
-Neuere Arbeiten zum Model-Routing, insbesondere SelectLLM (Maurya et al., 2025), nehmen diese Differenzierung ernst. Anstatt anzunehmen, dass ein Modell alles gleich gut kann, schlagen die Autoren einen abfragebewussten Auswahlmechanismus vor. Eingehende Anfragen werden dynamisch an das geeignetste Modell innerhalb eines grösseren Pools geleitet. Die Kernidee ist einfach, aber überzeugend: Die Leistung hängt von den Aufgabeneigenschaften ab. Die Abstimmung der Modellwahl auf den Abfragetyp kann die Effizienz verbessern und gleichzeitig die Zuverlässigkeit erhöhen.
+Das stützt die modulare Architektur dieses Prototyps. Globale Rankings und Schlagzeilen-Scores taugen als erste Orientierung — mehr nicht. Entscheidend ist, ob ein Modell zu den konkreten Anforderungen einer bestimmten Systemkomponente passt. Evaluation muss aufgabensensitiv bleiben, sonst lassen sich Architekturentscheidungen nicht sauber in der aktuellen Forschung verankern.
 
-In diesem Licht wird die modulare Architektur des vorliegenden Prototyps leichter zu rechtfertigen. Die Modellauswahl sollte sich nicht ausschliesslich auf globale Rankings oder Schlagzeilen-Benchmark-Scores stützen. Diese können als erste Orientierung dienen — sind aber allein nicht ausreichend. Was letztlich zählt, ist, ob ein Modell zu den funktionalen Anforderungen einer bestimmten Systemkomponente passt — ob es für die Analyse, die Moderation oder die Impulsgenerierung verantwortlich ist. Die Evaluation muss mit anderen Worten aufgabensensitiv bleiben. Nur dann können Architekturentscheidungen sinnvoll in der aktuellen Forschung verankert werden.
+## 6.2. Systemarchitektur
 
-## 6.2. Systemarchitektur und Interventionslogik
+Fünf funktionale Bereiche bilden das Rückgrat des Systems. Beobachtung, Bewertung und Intervention sind konsequent voneinander getrennt.
 
-### 6.2.1. Funktionale Systemarchitektur
+Den Ausgangspunkt bildet die **Videokommunikation** — ein browserbasiertes Konferenzsystem auf WebRTC-Basis mit SFU-Architektur. Teilnehmende treten direkt über den Browser bei, keine Zusatzsoftware nötig. Entscheidend: Das System erfasst individuelle Audiospuren pro Person statt eines gemischten Streams. Ohne diese Isolation wäre eine exakte Sprecherzuordnung in der Transkription nicht möglich, und sämtliche Partizipationsmetriken würden auf wackligem Fundament stehen.
 
-Die Systemarchitektur überführt die Interventionsszenarien aus Kapitel 4 in eine technisch operative Struktur. Es handelt sich nicht um eine universelle Kollaborationsplattform. Der Umfang ist bewusst eng gefasst: eine kontrollierte experimentelle Umgebung, in der verschiedene KI-Rollen unter identischen Bedingungen aktiviert, beobachtet und verglichen werden können.
+Aufbauend darauf die **Echtzeit-Transkription**. Gesprochenes wird laufend in Text umgewandelt, wobei für jede teilnehmende Person eine eigene Verbindung zu einem Streaming-Spracherkennungsdienst besteht. Serverseitige Sprachaktivitätserkennung identifiziert Pausen und erzeugt finalisierte Segmente mit Sprecheridentität und Zeitstempel. Mehrere Filterebenen fangen Halluzinationen des Spracherkennungsmodells ab — ein bei Echtzeit-Transkription bekanntes Problem, das ohne Gegenmassnahmen die gesamte Analysekette verfälschen würde.
 
-Im Kern folgt die Architektur einem modularen, schichtbasierten Design. Sechs funktionale Module übernehmen jeweils unterschiedliche Verantwortlichkeiten — von der Audioübertragung bis zur Auslieferung gesprochener Interventionen. Diese Trennung spiegelt die theoretische Unterscheidung zwischen Beobachtung, Bewertung und Intervention wider, die in den vorangegangenen Kapiteln entwickelt wurde. Jede Schicht arbeitet unabhängig, was bedeutet, dass ein Fehler im Interventionsgenerierungsmodul weder den laufenden Videoanruf noch die Transkriptionspipeline unterbricht.
+Die **Prozessanalyse** macht aus den Rohdaten messbare Grössen. Partizipationsmetriken bilden ab, wie die Beiträge über die Gruppenmitglieder verteilt sind: Redezeit-Ungleichgewichte, stille Teilnehmende, Dominanzmuster. Semantische Dynamikmetriken nutzen einbettungsbasierte Ähnlichkeitsanalyse, um die thematische Entwicklung zu verfolgen — wachsende Ähnlichkeit signalisiert Verengung, fehlende neue Cluster deuten auf Stagnation.
 
-Die sechs Module sind:
+Die **Entscheidungs- und Interventionslogik** läuft als serverseitiger Agentenprozess. Wie das Zustandsmodell und der Interventionszyklus genau funktionieren, beschreibt Abschnitt 6.3.
 
-1. Videokommunikationsschicht
-2. Speech-to-Text-Schicht
-3. Prozessanalyseschicht
-4. Entscheidungs- und Triggerschicht
-5. Interventionsgenerierungsschicht
-6. Overlay-Interface
+Die **Benutzeroberfläche** hält die KI bewusst peripher. Video bleibt im Zentrum. Interventionen erreichen die Teilnehmenden über synthetische Sprache und erscheinen gleichzeitig als Texteinblendung. Ob das System gerade als Moderator strukturelle Dynamiken reflektiert oder als Ally einen kreativen Impuls setzt — das ist jederzeit erkennbar.
 
-**Videokommunikationsschicht**
+## 6.3. Interventionslogik
 
-Die kommunikative Grundlage des Prototyps ist ein browserbasiertes Videokonferenzsystem, das auf WebRTC-Technologie mit einer Selective-Forwarding-Unit-(SFU-)Architektur aufbaut. Die Teilnehmenden treten direkt über die Webanwendung einem gemeinsamen Videoraum bei. Keine zusätzliche Software ist erforderlich.
+### 6.3.1. Fünf Gesprächszustände
 
-Diese Schicht übernimmt Audio- und Videoübertragung, Teilnehmerverwaltung und die Bereitstellung von Metadaten wie Informationen zum aktiven Sprecher. Eine architektonische Entscheidung verdient hier besondere Beachtung. Das System erfasst individuelle Audiospuren pro Teilnehmendem statt eines einzigen gemischten Audiostreams. Diese Pro-Teilnehmer-Isolation ist nicht bloss eine technische Bequemlichkeit — sie ermöglicht direkt eine genaue Sprecherzuordnung in der Transkriptionsschicht, die wiederum die Grundlage für alle Partizipationsmetriken bildet. Ohne genau zu wissen, wer was gesagt hat, würde die Messung der Redezeitverteilung oder die Erkennung von Dominanzmustern eine nachträgliche Sprecherdiarisierung erfordern — ein fehleranfälliger und rechenintensiver Prozess, der Unsicherheit am Fundament der analytischen Pipeline einführt.
+Laufend klassifiziert das System die Diskussion in einen von fünf Zuständen, gestützt auf die berechneten Partizipations- und Semantikmetriken.
 
-Die KI-Logik bleibt strikt von dieser Ebene getrennt. Das System modifiziert hier weder den Gesprächsfluss noch verändert es die Struktur des Anrufs. Selbst wenn alle analytischen Komponenten vorübergehend inaktiv wären, würde die Videositzung normal weiterlaufen.
+Zwei davon bilden produktive Phasen ab. *Gesunde Exploration* — ausgewogene Beteiligung, regelmässig neue Ideen, der thematische Raum dehnt sich aus. *Gesunde Elaboration* — die Gruppe vertieft bestehende Ansätze, weniger Neues kommt hinzu, aber die Beteiligung bleibt ausgeglichen und nichts verengt sich. Beides sind Modi, in denen das System keinen Grund zum Eingreifen sieht.
 
-**Speech-to-Text-Schicht**
+Drei Zustände markieren Risiken. Beim *Dominanzrisiko* kippt die Beteiligung: Eine oder zwei Personen bestreiten den Grossteil der Beiträge, andere verstummen. *Konvergenzrisiko* entsteht, wenn die thematische Vielfalt schrumpft und sich die Ideen zunehmend um wenige Pole gruppieren. Und eine *stagnierte Diskussion* liegt vor, wenn über einen längeren Zeitraum nichts Neues mehr auftaucht — die Gruppe redet vielleicht noch, aber kreativ bewegt sich kaum etwas.
 
-Gesprochene Beiträge müssen in maschinenlesbare Texte transformiert werden, bevor eine Analyse stattfinden kann. Die Speech-to-Text-Komponente führt diese Transformation durch kontinuierliche Echtzeit-Transkription individueller Audioströme durch.
+Statt binärer Schwellenwerte arbeitet die Klassifikation mit gewichteten Konfidenzscores. Ein Hysterese-Mechanismus verhindert nervöses Hin-und-Her-Springen zwischen Zuständen. Liegen zwei Zustände nah beieinander, bekommt der Risikozustand den Vorzug — ein übersehenes Problem wiegt schwerer als ein kurzer Fehlalarm.
 
-Die Transkription arbeitet nach einem Zweikanal-Modell. Ein Primärkanal nutzt eine Streaming-Spracherkennungs-API, die eine persistente bidirektionale Verbindung zwischen dem Browser jedes Teilnehmenden und dem Transkriptionsdienst aufrechterhält. Zwischenergebnisse erscheinen fast unmittelbar beim Sprechen, finalisierte Segmente kommen, sobald das System eine natürliche Pause erkennt. Ein Sekundärkanal auf Basis der browsereigenen Spracherkennung dient als automatischer Fallback bei Verbindungsunterbrechungen.
+### 6.3.2. Vierphasiger Interventionszyklus
 
-Die Ausgabe auf dieser Stufe besteht aus zeitgestempelten Textsegmenten mit Sprecherzuordnung und sequenzieller Ordnung. Keine bewertende oder interpretierende Verarbeitung findet hier statt.
+Ein erkannter Risikozustand allein führt noch zu nichts Sichtbarem. Zwischen Erkennung und Handlung liegen vier Phasen mit eingebauten Sicherungen.
 
-**Prozessanalyseschicht**
+Im *Monitoring* beobachtet das System still. Schwankungen in Fokus und Beteiligung gehören zum normalen Verlauf eines Brainstormings — nicht jede Delle rechtfertigt einen Eingriff. Hält ein Risikozustand über einen definierten Zeitraum an, beginnt die *Bestätigungsphase*: Das System prüft, ob die jüngsten Metrik-Snapshots konsistent auf dasselbe Problem hinweisen. Nur wenn das der Fall ist, wird tatsächlich eine Intervention erzeugt und übermittelt — die *Post-Check*-Phase. Das System beobachtet dann, ob sich die Metriken erholen. Anschliessend folgt eine *Abkühlphase*, in der keine weiteren Eingriffe stattfinden.
 
-Die Prozessanalyseschicht bildet die konzeptionelle Brücke zwischen theoretischer Problemidentifikation und technischer Messung. Ihr Zweck ist es, die in den Kapiteln 3 und 4 diskutierten kognitiven, sozialen und gruppendynamischen Mechanismen in quantifizierbarer Form zu operationalisieren.
+Ergänzend gibt es einen Ermüdungsmechanismus. Blieben vorherige Interventionen wirkungslos, verlängern sich die Wartezeiten schrittweise — das System wird vorsichtiger, statt stur weiterzufeuern.
 
-Eine vollständige Diskursanalyse würde den Rahmen eines Forschungsprototyps sprengen. Das System arbeitet daher mit Proxy-Indikatoren — approximativen Metriken, die wiederkehrende strukturelle Muster erfassen, ohne Anspruch auf erschöpfendes semantisches Verständnis zu erheben. Diese Indikatoren fallen in zwei breite Kategorien.
+### 6.3.3. Interventionsgenerierung und Eskalation
 
-Partizipationsmetriken quantifizieren die Verteilung und Balance der Beiträge über die Gruppenmitglieder. Sie erfassen Phänomene wie Redezeit-Ungleichgewichte, stille Teilnehmende und Dominanz-Streaks — Muster, die auf entstehende informelle Hierarchien oder Tendenzen zum sozialen Faulenzen hindeuten können, wie in Abschnitt 3.1.3 beschrieben.
+Steht eine Intervention an, werden Gesprächszustand, relevante Metrikwerte und ein Ausschnitt jüngster Transkriptsegmente an ein grosses Sprachmodell übergeben. Was den Eingriff auslöst, ist regelbasiert. Wie er sprachlich formuliert wird, entsteht dynamisch.
 
-Semantische Dynamikmetriken verwenden einbettungsbasierte Ähnlichkeitsanalyse zur Bewertung der thematischen Entwicklung der Diskussion. Einzelne Beiträge werden in Vektorrepräsentationen transformiert und hinsichtlich relativer Distanz verglichen. Zunehmende Ähnlichkeit über aufeinanderfolgende Segmente kann auf thematische Verengung hindeuten. Das Fehlen neuer semantischer Cluster über einen Zeitraum wird als Stagnation interpretiert.
+In Szenario A agiert das System rein als struktureller Moderator — Hinweise auf ungleiche Beteiligung, Bemerkungen zu thematischer Wiederholung, Anstösse in Richtung neuer Perspektiven. Der Ton bleibt neutral, adressiert wird immer die Gruppe, nie eine Einzelperson.
 
-Diese Indikatoren sind keine willkürlichen Auswahlen. Jeder einzelne verbindet sich mit einem spezifischen theoretischen Mechanismus, der zuvor beschrieben wurde. Ausgeprägte Redezeit-Ungleichgewichte operationalisieren beispielsweise das Konzept informeller Hierarchien und ungleicher Beteiligung. Anhaltende semantische Konvergenz approximiert den schrittweisen Einsatz von Gruppendenken-Dynamiken.
+Szenario B ergänzt das um eine inhaltsorientierte Impulsfunktion. Dieser Ally-Modus springt nur an, wenn prozessorientiertes Feedback zuvor wirkungslos geblieben ist. Er bringt dann eine hypothetische Gegenperspektive ein oder stellt eine Reframing-Frage — ohne Lösungen vorzuschreiben.
 
-**Entscheidungs- und Triggerschicht**
+Die Interventionen erreichen die Gruppe als synthetisch gesprochene Audiobeiträge, direkt in die Videokonferenz eingespeist. Die KI tritt als eigener Teilnehmer auf, dessen Rolle klar gekennzeichnet ist.
 
-Die Entscheidungslogik bildet den normativen Kern der Architektur. Hier bestimmt das System, ob und wann eingegriffen wird.
+Und die Baseline? Da laufen sämtliche analytischen Komponenten ganz normal und protokollieren alles — nur dass nie eine sichtbare Intervention daraus entsteht.
 
-Wichtig ist, dass das System nicht auf momentane Schwankungen reagiert. Eine einzelne Person, die für dreissig Sekunden etwas mehr spricht als andere, rechtfertigt keine Intervention. Stattdessen reagiert das System nur auf Muster, die über definierte Zeitfenster bestehen bleiben. Diese Designentscheidung spiegelt das theoretische Verständnis wider, dass problematische Brainstorming-Dynamiken sich schrittweise entwickeln — sie bauen sich über Minuten auf, nicht über Sekunden.
+## 6.4. Technologie-Stack
 
-Die Entscheidungsschicht arbeitet mit einem zustandsbasierten Modell. Zu jedem Zeitpunkt klassifiziert das System die Konversation in einen von fünf Zuständen, die verschiedene Aspekte der Gruppengesundheit erfassen. Zwei dieser Zustände repräsentieren produktive Dynamiken: ausgewogene Exploration und fokussierte Elaboration. Drei Zustände repräsentieren Risikobedingungen — Dominanz durch einzelne Teilnehmende, Konvergenz der Ideen in einen engen thematischen Korridor und Stagnation, bei der die Diskussion ihren kreativen Schwung vollständig verliert.
+Zwei Hauptkomponenten: ein browserbasiertes Frontend und ein serverseitiger Agentenprozess.
 
-Die Zustandsklassifikation speist sich in einen vierphasigen Interventionszyklus. Das System beginnt in einer Monitoring-Phase, wechselt in eine Bestätigungsphase wenn ein Risikozustand erkannt wird, feuert eine Intervention wenn das Risiko bestehen bleibt, und tritt dann in eine Post-Interventions-Beobachtungsphase gefolgt von einer Abkühlphase ein. Diese mehrphasige Struktur verhindert Überreaktion und operationalisiert das Prinzip der minimalen Invasivität aus Abschnitt 6.1.4.
+Das Frontend — gebaut mit Next.js und React, serverseitig gerendert — stellt die Videokonferenz dar, zeigt Interventionen an und liefert die Oberfläche für die Teilnehmenden. Browserbasiert, keine Installation nötig.
 
-**Interventionsgenerierungsschicht**
+Im Backend läuft ein Python-basierter Agentenprozess, der die eigentliche Schwerarbeit übernimmt: Echtzeit-Transkription über persistente WebSocket-Verbindungen, Metrikberechnung, Zustandsinferenz, Entscheidungslogik, Interventionsgenerierung und deren hörbare Übermittlung. Warum die Trennung? API-Schlüssel bleiben so aus dem Browser raus, und die Analysepipeline arbeitet unabhängig davon, was auf dem Gerät der Teilnehmenden gerade passiert.
 
-Sobald die Entscheidungsschicht bestimmt, dass eine Intervention gerechtfertigt ist, übersetzt das Interventionsgenerierungsmodul den aktuellen Systemzustand in einen sprachlich formulierten Prompt. Die zugrunde liegende Triggerlogik ist regelbasiert, aber die tatsächliche Formulierung wird dynamisch von einem grossen Sprachmodell generiert.
+Dazu kommen externe Dienste. Eine cloudbasierte Videokonferenzplattform auf WebRTC-Basis mit Pro-Teilnehmer-Audioisolation. Grosse Sprachmodelle für die Interventionstext-Generierung, Einbettungsmodelle für semantische Ähnlichkeitsberechnung. Ein Text-to-Speech-Dienst, der generierte Texte in Sprache umwandelt und als Audiostream direkt in die Konferenz einspeist. Und eine verwaltete PostgreSQL-Datenbank mit Echtzeit-Benachrichtigungen als zentrale Persistenz- und Synchronisationsschicht.
 
-In Szenario A operiert das System ausschliesslich als struktureller Moderator. Es kann auf ungleiche Beteiligung hinweisen, aufkommende thematische Wiederholung bemerken oder die Gruppe ermutigen, andere Blickwinkel zu erkunden. Die Sprache ist bewusst neutral und adressiert stets die Gruppe als Ganzes. Niemand wird einzeln herausgestellt.
+## 6.5. Experimentelle Konfiguration
 
-In Szenario B wird eine zusätzliche inhaltsorientierte Impulsfunktion verfügbar. Dieser Ally-Modus aktiviert sich nur, wenn vorheriges prozessorientiertes Feedback keine messbare Veränderung bewirkt hat. Der Ally kann eine hypothetische Gegenperspektive einführen, eine Reframing-Frage stellen oder einen bewusst vereinfachten Blickwinkel auf das Thema anbieten. Auch in diesem Modus bleiben Interventionen offen. Der Ally schreibt keine Lösungen vor, sondern versucht, den thematischen Suchraum der Gruppe wieder zu öffnen.
-
-Ein zentrales Designprinzip durchgängig ist Transparenz. Das System kennzeichnet explizit, ob eine Intervention aus der Moderationslogik oder aus der Ally-Funktion stammt. Diese Rollenklarheit reduziert Unsicherheit und verstärkt Vertrauen — eine Voraussetzung, die die Literatur als wesentlich für die Akzeptanz von KI in kollaborativen Settings identifiziert (Johnson et al., 2025).
-
-**Overlay-Interface**
-
-Interventionen erreichen die Teilnehmenden über ein dediziertes Interface-Panel, das neben dem Videoanruf positioniert ist. Diese räumliche Trennung ist beabsichtigt. Die Videokonferenzansicht belegt den zentralen Bildschirmbereich, während die Interface-Komponenten der KI in einem Seitenpanel erscheinen.
-
-Die KI erscheint nicht als konventioneller Dialogpartner. Sie fungiert als reflektierende Präsenz, die situativ auftaucht und sich zurückzieht, sobald ihr Impuls übermittelt wurde. Optional können Interventionen auch hörbar durch Text-to-Speech-Ausgabe übermittelt werden. Rate-Limiting-Mechanismen stellen sicher, dass gesprochene Ausgaben sich nicht überlappen oder akkumulieren, um den natürlichen Diskussionsfluss zu schützen.
-
-### 6.2.2. Interventionslogik
-
-Während der vorherige Abschnitt die strukturellen Komponenten des Systems beschrieb, konzentriert sich dieser Abschnitt darauf, wie sich das System verhält — unter welchen Bedingungen es aktiv wird und wie es seine Reaktionen eskaliert.
-
-**Fünf Gesprächszustände**
-
-Das System klassifiziert die laufende Diskussion kontinuierlich in einen von fünf Zuständen. Diese Klassifikation läuft in regelmässigen Intervallen und stützt sich sowohl auf Partizipationsmetriken als auch auf semantische Dynamikmetriken, die in der Prozessanalyseschicht berechnet werden.
-
-Zwei Zustände erfassen gesunde Dynamiken:
-
-*Gesunde Exploration* beschreibt eine Phase, in der die Beteiligung ausgewogen ist, häufig neue Ideen entstehen und der thematische Suchraum der Gruppe sich erweitert. Dies repräsentiert die Art produktiven divergenten Denkens, die informelles Brainstorming anstrebt, aber oft nicht aufrechterhalten kann.
-
-*Gesunde Elaboration* beschreibt eine Phase, in der die Gruppe sich darauf konzentriert, bestehende Ideen zu entwickeln und zu vertiefen, statt neue zu generieren. Die Neuheit ist geringer, aber die Beteiligung bleibt ausgewogen und die Diskussion verengt sich nicht. Dieser Zustand spiegelt einen natürlichen und produktiven Modus der Gruppenarbeit wider, der keine Intervention auslösen sollte.
-
-Drei Zustände erfassen Risikobedingungen:
-
-*Dominanzrisiko* wird ausgelöst, wenn die Beteiligung deutlich ungleich wird. Eine oder zwei Personen machen einen unverhältnismässig grossen Anteil der Beiträge aus, während andere verstummen oder sich auf kurze Bestätigungen beschränken. Dieser Zustand operationalisiert die in Abschnitt 3.1.3 beschriebenen informellen Hierarchie-Effekte.
-
-*Konvergenzrisiko* entsteht, wenn die thematische Vielfalt der Beiträge abnimmt. Ideen gruppieren sich zunehmend eng um wenige Themen, die Neuheit sinkt und der Suchraum der Gruppe verengt sich. Dieses Muster approximiert die frühen Stadien des Gruppendenkens, wie in der Literaturübersicht diskutiert.
-
-*Stagnierte Diskussion* beschreibt eine Situation, in der die Neuheit sehr gering ist, über einen längeren Zeitraum keine neuen semantischen Cluster aufgetaucht sind und die Diskussion effektiv ihren Vorwärtsschwung verloren hat. Die Gruppe redet möglicherweise noch, aber kreativ hat der Prozess eine Sackgasse erreicht.
-
-Die Zustandsklassifikation verwendet gewichtete Konfidenzscores über mehrere Metriken anstelle einfacher binärer Schwellenwerte. Jeder Zustand erhält einen Konfidenzwert zwischen null und eins, berechnet aus einer gewichteten Kombination der relevanten Indikatoren. Ein Hysterese-Mechanismus verhindert, dass das System als Reaktion auf geringfügige Schwankungen zwischen Zuständen flackert — der inferierte Zustand muss einen bedeutsamen Konfidenzvorsprung gewinnen, bevor das System wechselt. Wenn zwei Zustände sehr nahe in der Konfidenz liegen, priorisiert das System Risikozustände gegenüber gesunden. Diese Asymmetrie ist beabsichtigt. Sie spiegelt das Prinzip wider, dass das Nichterkennen eines Problems kostspieliger ist als eine kurze Fehlidentifikation einer gesunden Phase als riskant.
-
-**Vierphasiger Interventionszyklus**
-
-Die Zustandsklassifikation allein löst keine Intervention aus. Das System folgt einem vierphasigen Zyklus, der zeitliche Sicherungen zwischen Erkennung und Handlung einführt.
-
-In der *Monitoring*-Phase beobachtet und klassifiziert das System, ergreift aber keine sichtbare Massnahme. Brainstorming beinhaltet natürlicherweise Schwankungen in Fokus und Beteiligung. Nicht jedes vorübergehende Ungleichgewicht deutet auf ein strukturelles Problem hin. Solange der inferierte Zustand gesund bleibt oder Risikobedingungen vorübergehend sind, verbleibt das System in dieser Phase.
-
-Wenn ein Risikozustand erkannt wird und über einen definierten Bestätigungszeitraum anhält, wechselt das System in die *Bestätigungsphase*. Während dieses Fensters prüft das System, ob die Mehrheit der jüngsten Metrik-Snapshots konsistent auf dieselbe Risikobedingung hinweist. Nur wenn dieser Konsistenzschwellenwert erreicht ist, fährt das System fort. Dies verhindert Interventionen auf Basis kurzlebiger Anomalien.
-
-Bei Bestätigung tritt das System in die *Post-Check*-Phase ein. Eine Intervention wird generiert und an die Gruppe übermittelt. Das System beobachtet dann, ob sich die Metriken innerhalb eines definierten Beobachtungsfensters verbessern.
-
-Nach dem Beobachtungsfenster wechselt das System in eine *Abkühlphase*, während der keine weiteren Interventionen erlaubt sind. Dies erzwingt zeitlichen Abstand und verhindert, dass die KI die Sitzung durch übermässige Aktivität dominiert. Der Zyklus kehrt dann zum Monitoring zurück.
-
-Ein Ermüdungsmechanismus fügt eine adaptive Dimension hinzu. Wenn vorherige Interventionen keine Erholung bewirkt haben, verlängert das System sowohl die Bestätigungs- als auch die Abkühlungsdauer durch konfigurierbare Multiplikatoren. Wiederholte erfolglose Interventionen führen zu progressiv längeren Wartezeiten vor dem nächsten Versuch.
-
-**Eskalation und Szenariodifferenzierung**
-
-In Szenario A ist nur prozessorientierte Moderation verfügbar. Die Ally-Funktion bleibt unabhängig von den Post-Check-Ergebnissen inaktiv.
-
-In Szenario B ist Eskalation erlaubt. Wenn eine Moderationsintervention während des Post-Check-Fensters keine messbare Verbesserung bewirkt, kann sich die Ally-Funktion im nächsten Zyklus aktivieren. Der Ally liefert einen einzelnen inhaltsbasierten Impuls und zieht sich dann zurück.
-
-In der Baseline-Bedingung laufen alle analytischen Komponenten normal. Metriken werden berechnet, Zustände inferiert und alles wird protokolliert. Der einzige Unterschied besteht darin, dass keine sichtbare Intervention jemals generiert wird.
-
-
-## 6.3. Implementierung und technische Umsetzung
-
-### 6.3.1. Technologie-Stack und Systemumgebung
-
-Der Prototyp wurde als browserbasierte Webanwendung unter Verwendung eines modernen Full-Stack-JavaScript-Frameworks mit serverseitigem Rendering implementiert. Diese Wahl wurde von drei Überlegungen geleitet. Eine browserbasierte Implementierung erfordert keine Softwareinstallation auf den Geräten der Teilnehmenden. Sie integriert sich natürlich in die WebRTC-basierte Videoinfrastruktur. Und sie unterstützt schnelle Iteration während der Entwicklung, ohne separate Build- und Deployment-Prozesse für Client- und Serverkomponenten zu erfordern.
-
-Das System folgt einer hybriden Client-Server-Architektur. Die Aufteilung der Verantwortlichkeiten zwischen Client und Server war nicht willkürlich — sie spiegelt die unterschiedlichen Latenzanforderungen der funktionalen Komponenten des Systems wider.
-
-Auf der Client-Seite übernimmt die Anwendung Echtzeit-Transkriptionsverarbeitung, Metrikberechnung, Decision-Engine-Ausführung, Zustandsverwaltung und das Rendering der Benutzeroberfläche. Diese Aufgaben erfordern sofortige Reaktionsfähigkeit. Sie über einen Remote-Server zu leiten, würde Netzwerklatenz genau an den Stellen einführen, wo Timing am wichtigsten ist.
-
-Der Server übernimmt Aufgaben, die geschützte Anmeldedaten oder aufwändigere Berechnungen erfordern. Sprachmodell-API-Aufrufe zur Generierung von Interventionstexten laufen serverseitig, um API-Schlüssel aus der Browserumgebung herauszuhalten. Einbettungsberechnungen für semantische Ähnlichkeitsanalyse werden über einen Server-Endpunkt geleitet, der Caching verwaltet. Modell-Routing-Konfigurationen und Interventionsprotokolle werden über serverseitige API-Routen persistiert.
-
-Externe Dienste bilden die dritte Säule der Architektur. Eine cloudbasierte Videokonferenzplattform stellt die WebRTC-Infrastruktur mit SFU-Topologie und Pro-Teilnehmer-Audiospurisolation bereit. Sprachmodelle übernehmen die Interventionstext-Generierung. Einbettungsmodelle unterstützen die semantische Ähnlichkeitsberechnung. Ein Text-to-Speech-Dienst ermöglicht die hörbare Übermittlung von Interventionen. Eine verwaltete PostgreSQL-Datenbank mit integrierten Echtzeit-Benachrichtigungsfähigkeiten dient als zentrale Persistenzschicht und bietet Datensynchronisation über alle verbundenen Clients.
-
-### 6.3.2. Echtzeit-Datenfluss
-
-Der Echtzeit-Datenfluss verbindet gesprochene Worte innerhalb von Sekunden mit analysierten Gesprächszuständen.
-
-Der Prozess beginnt am Mikrofon jedes Teilnehmenden. Audio wird als isolierter Stream über die Videokonferenzinfrastruktur erfasst. Diese Pro-Teilnehmer-Erfassung eliminiert die Notwendigkeit einer Sprecherdiarisierung — den rechenintensiven und fehleranfälligen Prozess der Trennung individueller Stimmen aus einem gemischten Signal.
-
-Jeder Audiostream speist in einen dedizierten Transkriptionskanal. Der Primärkanal unterhält eine persistente bidirektionale Verbindung zu einem Streaming-Spracherkennungsdienst. Ein Fallback-Kanal auf Basis der browsereigenen Spracherkennung aktiviert sich automatisch bei Verbindungsunterbrechungen.
-
-Ein Echo-Gate-Mechanismus adressiert ein subtiles aber wichtiges Problem. Wenn eine Intervention laut durch Text-to-Speech gesprochen wird, könnte das resultierende Audio vom Mikrofon des Teilnehmenden wieder erfasst und als Phantombeitrag transkribiert werden. Das Echo-Gate unterdrückt die Transkription von Audio, das innerhalb eines kurzen Zeitfensters nach einem TTS-Ereignis auftritt.
-
-Finalisierte Transkriptsegmente werden über zwei parallele Synchronisierungskanäle verteilt. Ein Peer-to-Peer-Datenkanal verteilt Segmente mit sehr niedriger Latenz an alle verbundenen Clients. Gleichzeitig werden Segmente in der zentralen Datenbank persistiert, die wiederum alle Clients über ihren Echtzeit-Abonnementmechanismus benachrichtigt. Diese Dual-Sync-Strategie kombiniert die Geschwindigkeit der Peer-to-Peer-Verteilung mit der Dauerhaftigkeit serverseitiger Persistenz.
-
-Die Metrikberechnung läuft auf einem gleitenden Zeitfenster. In regelmässigen Intervallen schneidet das System die jüngsten Transkriptsegmente — typischerweise die letzten drei Minuten — und berechnet sowohl Partizipationsmetriken als auch semantische Dynamikmetriken.
-
-### 6.3.3. Decision Engine und Interventionsauslieferung
-
-Die Decision Engine läuft auf einem einzigen designierten Client — dem Decision Owner. Dieses Ownership-Modell verhindert widersprüchliche Entscheidungen, wenn mehrere Teilnehmende gleichzeitig verbunden sind. Nur ein Client berechnet Metriken, inferiert Zustände und evaluiert die Interventionspolitik zu jedem Zeitpunkt. Wenn der Decision Owner die Verbindung trennt oder aufhört Heartbeat-Signale zu senden, wird die Führung automatisch an einen anderen verbundenen Teilnehmenden übertragen.
-
-Die Decision-Schleife wird alle zwei Sekunden ausgeführt. Sie liest die aktuellen Metriken, den inferierten Gesprächszustand und die aktuelle Phase des Interventionszyklus. Basierend auf diesen Eingaben bestimmt die Policy Engine, ob ein Phasenübergang stattfinden und ob eine Intervention generiert werden sollte.
-
-Wenn eine Intervention gerechtfertigt ist, konstruiert das System einen Prompt, der den aktuellen Gesprächszustand, relevante Metrikwerte und eine Auswahl jüngster Transkriptsegmente als Kontext enthält. Dieser Prompt wird an einen serverseitigen API-Endpunkt gesendet, der ihn an ein grosses Sprachmodell weiterleitet.
-
-Die Modellauswahl folgt einer aufgabenspezifischen Routing-Konfiguration. Moderationsprompts erfordern Neutralität und Klarheit. Ally-Prompts profitieren von höherer Variabilität und kreativer Divergenz. Einbettungsberechnungen verlangen repräsentationale Konsistenz. Die Routing-Konfiguration spezifiziert Modellbezeichner, Temperatureinstellungen, Token-Limits und Fallback-Ketten für jede Aufgabenkategorie. Als letzter Ausweg wählt das System aus einem Pool vorgeschriebener statischer Interventionen, um sicherzustellen, dass die Gruppe immer eine Antwort erhält, selbst unter degradierten Bedingungen.
-
-Das System führt auch periodische Prüfungen gegen Osborns Brainstorming-Regeln durch. Jüngste Transkriptsegmente werden auf Anzeichen vorzeitiger Kritik, Ideenabweisung oder konformitätsgetriebener Selbstzensur evaluiert. Wird ein Regelverstoss erkannt, kann er in Kombination mit der nächsten metrikgetriggerten Intervention oder als eigenständiger Prompt behandelt werden.
-
-### 6.3.4. Interface-Design und Transparenz
-
-Die Benutzeroberfläche hält die KI visuell peripher. Die Videokonferenzansicht belegt den zentralen Bildschirmbereich. Die Interface-Komponenten der KI erscheinen in einem grössenverstellbaren Seitenpanel.
-
-Dieses Panel ist in mehrere Tab-Ansichten organisiert. Eine Chat-Ansicht zeigt den chronologischen Feed aller Interventionen mit Zeitstempeln, Rollenlabels und Intent-Klassifikationen. Eine Transkript-Ansicht zeigt den Live-Transkriptionsstrom mit Sprecheridentifikation und Wortanzahl. Eine Analyse-Ansicht präsentiert die aktuellen Metrikwerte, Zustandsinferenz-Ergebnisse und Konfidenzverteilungen. Eine Tuning-Ansicht — nur für die das Experiment durchführende Forschungsperson zugänglich — ermöglicht die Live-Anpassung von Schwellenwerten, Bestätigungsdauern und Abkühlintervallen ohne Neustart der Sitzung.
-
-Jede Intervention wird explizit gemäss ihrer Rolle gekennzeichnet. Teilnehmende können auf einen Blick unterscheiden, ob das System strukturelle Dynamiken als Moderator reflektiert oder einen kreativen Stimulus als Ally einführt.
-
-## 6.4. Experimentelle Konfiguration und Operationalisierung
-
-### 6.4.1. Szenariokonfiguration
-
-Der Prototyp unterstützt drei experimentelle Konfigurationen, die direkt den in Kapitel 4 entwickelten Szenarien entsprechen.
+Drei Konfigurationen, direkt abgeleitet aus den Szenarien in Kapitel 4:
 
 | Szenario | KI-Rolle | Interventionsumfang | Zweck |
 |---|---|---|---|
@@ -564,113 +422,35 @@ Der Prototyp unterstützt drei experimentelle Konfigurationen, die direkt den in
 | Szenario A | Prozessmoderation | Nur strukturelles Feedback | Stabilisierung |
 | Szenario B | Moderation + Ally | Strukturell + inhaltlicher Impuls | Reaktivierung |
 
-**Konstante Parameter**
+Gruppengrösse, Thema, Sitzungsdauer, analytische Konfiguration — alles bleibt über die Szenarien hinweg identisch. Variiert wird einzig die Aktivierung der Moderations- und Ally-Funktionen. Auch in der Baseline laufen Transkription, Metrikberechnung und Zustandsinferenz vollständig im Hintergrund mit und werden protokolliert. So stehen für jede Bedingung vergleichbare Datensätze zur Verfügung.
 
-Um Vergleichbarkeit zu gewährleisten, bleiben mehrere Parameter über alle Szenarien hinweg identisch: Gruppengrösse, Brainstorming-Aufgabe, Sitzungsdauer, die Länge des gleitenden Analysefensters, alle Schwellenwertdefinitionen, Abkühlintervalle und die Metrikberechnungsstrategie.
+## 6.6. Deployment-Kontext
 
-**Variable Parameter**
+Rein virtuell, rein browserbasiert. Alle Teilnehmenden verbinden sich von ihren eigenen Geräten aus über einen Standard-Webbrowser. Physische Anwesenheit am selben Ort ist nicht erforderlich.
 
-Die einzige systematische Variation betrifft die Aktivierung der Moderationsschicht, die Aktivierung der Ally-Eskalationsfunktion und den Typ des generierten Prompts. Die analytische Schicht bleibt in allen Bedingungen aktiv.
+Das hat handfeste Vorteile. Jedes Mikrofon erfasst den Input direkt, ohne Raumakustik oder Übersprechen. Die Sprecherzuordnung ist exakt, weil individuelle Audiospuren bereits auf Infrastrukturebene isoliert werden. Störvariablen wie nonverbale Signale, physische Nähe oder Raumdynamik — Dinge, die der Prototyp ohnehin nicht erfassen könnte — fallen weg.
 
-### 6.4.2. Operationalisierung der Brainstorming-Dynamiken
+Der Preis dafür: Befunde gelten primär für virtuelle Brainstorming-Situationen. Ein ko-lokalisiertes Setting bringt andere soziale Dynamiken mit sich. Für einen explorativen Prototyp, der zunächst prüfen will, ob KI-Moderation überhaupt einen messbaren Unterschied macht, ist dieser Kompromiss zugunsten interner Validität vertretbar.
 
-Abstrakte gruppendynamische Konzepte müssen in messbare Systemzustände übersetzt werden, bevor sie Interventionsentscheidungen informieren können.
+## 6.7. Forschungsdaten-Pipeline
 
-**Partizipationsungleichgewicht**
+Jede Sitzung erzeugt einen geschichteten Datensatz, der den gesamten Brainstorming-Verlauf dokumentiert. Auf der untersten Ebene: Transkriptsegmente mit Sprecheridentität und Zeitstempel. Darüber: periodische Metrik-Snapshots — Partizipationswerte, Semantikwerte, der inferierte Gesprächszustand. Dann die Interventionsprotokolle mit auslösendem Zustand, Intent-Klassifikation und Recovery-Ergebnis. Auch der interne Zustand der Entscheidungslogik wird durchgehend mitgeschrieben — Phasenübergänge, Bestätigungsergebnisse, Abkühlungseintritte.
 
-Das Partizipationsungleichgewicht wird durch mehrere komplementäre Masse quantifiziert. Der Hoover-Index erfasst die Ungleichheit in der Redezeitverteilung als Wert zwischen null und eins, wobei null perfekte Gleichheit und eins vollständige Konzentration auf einen einzelnen Sprecher repräsentiert. Ein Anteil stiller Teilnehmender berücksichtigt Gruppenmitglieder, die innerhalb des aktuellen Analysefensters nicht beigetragen haben. Eine Dominanz-Streak-Metrik misst die längste aufeinanderfolgende Sequenz von Redebeiträgen eines einzelnen Sprechers, normalisiert nach der Gesamtsegmentanzahl und angepasst für die Gruppengrösse. Eine kumulative Partizipationsungleichheit berechnet den Hoover-Index über ein längeres Zeitfenster, um langanhaltende Ungleichgewichte zu erkennen, die in kurzen Fenstern nicht sichtbar werden. Diese Einzelmasse fliessen in einen zusammengesetzten Partizipationsrisiko-Score mit konfigurierbaren Gewichten ein.
+Am Ende jeder Sitzung fasst ein strukturierter Export alles zusammen und berechnet automatisch Zusammenfassungsstatistiken.
 
-**Thematische Konvergenz**
+## 6.8. Technische und experimentelle Limitationen
 
-Thematische Konvergenz wird durch einbettungsbasierte Ähnlichkeitsanalyse approximiert. Jeder Beitrag wird in eine hochdimensionale Vektorrepräsentation transformiert. Eine Neuheitsrate erfasst den Anteil jüngster Beiträge, deren maximale Ähnlichkeit zu allen vorherigen Beiträgen unter einem definierten Schwellenwert liegt — mit anderen Worten, Beiträge, die genuines neues thematisches Material einführen. Eine Cluster-Konzentrationsmetrik wendet gieriges zentroidbasiertes Clustering auf den Einbettungsraum an und berechnet einen normalisierten Konzentrationsindex (normalisierter Herfindahl-Hirschman-Index). Hohe Konzentration zeigt an, dass die Ideen der Gruppe um eine enge Menge von Themen clustern.
+Ein paar Einschränkungen gehören offen benannt.
 
-**Stagnation**
+Die Transkriptionsgenauigkeit schwankt mit der Mikrofonqualität, der Internetbandbreite und den Spracheigenschaften der Teilnehmenden. Akzente, hohes Sprechtempo, Fachbegriffe — all das drückt die Erkennungsrate. Und Redezeit wird über Transkriptlänge approximiert, was der tatsächlichen Sprechdauer nur ungefähr entspricht.
 
-Stagnation wird als das Fehlen neuer semantischer Cluster innerhalb eines spezifizierten Zeitrahmens definiert. Das System verfolgt, wie viele Sekunden seit dem letzten Beitrag vergangen sind, der gemäss dem einbettungsbasierten Schwellenwert als neuartig qualifiziert wurde.
+Einbettungsbasierte Ähnlichkeit erfasst thematische Konvergenz brauchbar, stösst aber bei tieferen argumentativen Strukturen, bei Ironie oder pragmatischen Funktionen eines Beitrags an ihre Grenzen. Was das System erkennt, sind strukturelle Trends — keine Intentionen. Ob jemand schweigt, weil er desinteressiert ist oder weil er aufmerksam zuhört und auf den richtigen Moment wartet: Das bleibt dem System verborgen.
 
-**Diversitätsentwicklung**
+Die Zustandsinferenz beruht auf gewichteten Heuristiken mit Schwellenwerten, die durch Pilottesting kalibriert wurden. Approximationen, keine exakten Messungen. Eine stabile Internetverbindung und Zugang zu den externen API-Diensten sind ebenfalls Voraussetzung — fällt beides länger aus, werden die analytischen Komponenten funktionsunfähig.
 
-Anstatt absolute Diversität zu einem einzelnen Zeitpunkt zu messen, verfolgt das System, wie sich die Diversität im Zeitverlauf verändert. Ein semantischer Expansionsscore vergleicht aktuelle Konzentrations- und Neuheitswerte mit einer rollierenden Historie jüngster Metrik-Snapshots. Anhaltende Kontraktion — sinkende Neuheit kombiniert mit steigender Konzentration — signalisiert, dass der thematische Suchraum der Gruppe sich verengt.
+## 6.9. Kapitelzusammenfassung
 
-**Ideenflüssigkeit**
-
-Die Ideational Fluency Rate misst substantive Beiträge pro Minute. Ein Absinken der Fluenz ist ein starkes Signal für eine stagnierte Diskussion. Nur Beiträge mit mehr als zwei Wörtern werden gezählt; Backchannels wie «ja», «mhm» oder «genau» werden herausgefiltert.
-
-**Aufbauverhalten (Piggybacking)**
-
-Der Piggybacking-Score misst die semantische Ähnlichkeit zwischen aufeinanderfolgenden Sprecherwechseln. Ein hoher Score bedeutet, dass Sprechende auf den Ideen anderer aufbauen. Ein niedriger Score deutet darauf hin, dass Sprechende einander ignorieren und parallele Monologe führen.
-
-### 6.4.3. Schwellenwert- und Persistenzlogik
-
-Eine einzelne Metrikabweichung löst keine Intervention aus. Drei Kriterien müssen gleichzeitig erfüllt sein:
-
-1. Eine relevante Metrik überschreitet einen vordefinierten Schwellenwert.
-2. Die Abweichung besteht über ein definiertes Bestätigungsfenster.
-3. Das Abkühlintervall seit der letzten Intervention ist abgelaufen.
-
-Dieser dreistufige Mechanismus stellt sicher, dass vorübergehende Schwankungen — die in jeder Konversation normal sind — nicht zu unnötigen Interventionen führen.
-
-### 6.4.4. Eskalationskonfiguration
-
-In Szenario A ist nur Prozessstabilisierung erlaubt. Die Ally-Funktion bleibt inaktiv.
-
-In Szenario B ist Eskalation unter folgender Bedingung aktiviert: Wenn eine Moderationsintervention innerhalb des Post-Check-Beobachtungsintervalls keine messbare Verbesserung bewirkt, wird die Ally-Funktion im nächsten Zyklus aktiv. Die Ally-Intervention ist auf einen einzelnen Impuls pro Eskalationszyklus begrenzt.
-
-Der Ermüdungsmechanismus greift auch hier. Jede konsekutive erfolglose Intervention verlängert sowohl das Bestätigungsfenster als auch die Abkühlungsdauer. Nach zwei aufeinanderfolgenden Misserfolgen verdoppelt das System effektiv seine Wartezeiten.
-
-### 6.4.5. Experimentelle Kontrollierbarkeit
-
-Die experimentelle Konfiguration gewährleistet kontrollierte Variation der KI-Rolle unter identischen strukturellen Bedingungen. Alle operationalen Definitionen sind transparent und reproduzierbar. Die Live-Tuning-Fähigkeit beschleunigt den Kalibrierungsprozess, indem sie der Forschungsperson ermöglicht, die Effekte von Parameteränderungen während Pilotierungssitzungen zu beobachten, ohne die Codebasis zu modifizieren oder die Anwendung neu zu starten.
-
-## 6.5. Deployment-Kontext
-
-Der Prototyp operiert ausschliesslich in einer virtuellen, browserbasierten Umgebung. Alle Teilnehmenden treten von ihren eigenen Geräten über einen Standard-Webbrowser bei und verbinden sich mit einem gemeinsamen Videoraum. Es besteht keine Anforderung an physische Ko-Lokation.
-
-Dies war kein Kompromiss, sondern eine bewusste methodische Entscheidung. Ein virtuelles Deployment bietet spezifische Vorteile für die in dieser Arbeit adressierten Forschungsfragen. Die Audioqualität ist konsistent, da das Mikrofon jedes Teilnehmenden den Input direkt über den Browser erfasst, frei von Raumakustik, Übersprechen oder Umgebungsgeräuschen. Die Sprecherzuordnung ist exakt, da individuelle Audiospuren auf Infrastrukturebene isoliert werden, anstatt durch nachträgliche Diarisierung getrennt zu werden.
-
-Die kontrollierte technische Umgebung reduziert auch Störvariablen. In einem ko-lokalisierten Setting führen nonverbale Kommunikation, physische Nähe und räumliche Dynamiken zusätzliche Schichten sozialer Interaktion ein, die der Prototyp nicht beobachten oder berücksichtigen kann.
-
-Gleichzeitig führt das rein virtuelle Deployment Einschränkungen ein, die anerkannt werden müssen. Informelles Brainstorming in ko-lokalisierten Umgebungen beinhaltet soziale Dynamiken, die sich von denen in Online-Videoanrufen unterscheiden. Befunde, die in diesem Kontext gewonnen werden, gelten daher primär für virtuelle Brainstorming-Situationen.
-
-Die Entscheidung für eine rein virtuelle Umgebung spiegelt einen bewussten methodischen Kompromiss wider: Maximierung der internen Validität und Messpräzision auf Kosten ökologischer Breite. Für einen explorativen Prototyp, dessen primärer Zweck darin besteht zu testen, ob KI-basierte Moderation Brainstorming-Dynamiken messbar beeinflussen kann, ist dieser Kompromiss angemessen.
-
-## 6.6. Forschungsdaten-Pipeline
-
-Ein Merkmal, das diesen Prototyp von einem rein funktionalen Werkzeug unterscheidet, ist seine Ausrichtung auf systematische Datenerhebung. Jede experimentelle Sitzung produziert einen umfassenden Datensatz, der die vollständige Trajektorie des Brainstorming-Prozesses erfasst — von der Rohsprache bis zu den Interventionsergebnissen.
-
-Die Datenpipeline operiert auf mehreren Ebenen. Auf der Transkriptebene wird jedes finalisierte Segment mit Sprecheridentität, Zeitstempel und Textinhalt gespeichert. Auf der Metrikebene werden Snapshots in regelmässigen Intervallen persistiert, die jeweils den vollständigen Satz an Partizipationsmetriken, semantischen Dynamikmetriken und den inferierten Gesprächszustand mit Konfidenzwerten für alle fünf Zustände enthalten. Auf der Interventionsebene wird jeder generierte Prompt mit seinem auslösenden Zustand, der Intent-Klassifikation, dem verwendeten Modell, der Antwortlatenz und — nach der Post-Check-Phase — einem Recovery-Ergebnis aufgezeichnet.
-
-Der interne Zustand der Decision Engine wird als kontinuierliches Protokoll verfolgt. Phasenübergänge, Bestätigungsergebnisse, Abkühlungseintritte und Ermüdungsanpassungen werden alle mit Zeitstempeln aufgezeichnet.
-
-Am Ende jeder Sitzung aggregiert ein strukturierter Export alle Datenebenen in einen einzelnen Datensatz. Zusammenfassende Statistiken — wie die Verteilung der in jedem Gesprächszustand verbrachten Zeit, durchschnittliche Recovery-Raten pro Interventions-Intent und Gesamtzahl der Zustandsübergänge — werden automatisch als Teil des Exports berechnet.
-
-## 6.7. Technische und experimentelle Limitationen
-
-Der Prototyp operiert unter mehreren bewussten Einschränkungen, die bei der Interpretation von Befunden anerkannt werden müssen.
-
-Die Redezeit wird durch Transkriptlänge und erkannte Sprechersegmente approximiert statt durch akustische Signalanalyse. Diese Approximation erfasst relative Unterschiede in der Beteiligung, entspricht aber nicht perfekt der tatsächlichen Sprechdauer. Kurze bestätigende Einwürfe werden erkannt und separat gefiltert, um Verzerrungen der Partizipationsmetriken zu vermeiden.
-
-Die Transkriptionsgenauigkeit hängt von Mikrofonqualität, Internetbandbreite und den Spracheigenschaften jedes Teilnehmenden ab. Akzente, schnelles Sprechen oder domänenspezifische Terminologie können die Erkennungsgenauigkeit reduzieren.
-
-Einbettungsbasierte semantische Ähnlichkeit liefert eine nützliche Approximation thematischer Konvergenz, kann aber tiefere argumentative Strukturen, Ironie, implizite Referenzen oder die pragmatische Funktion eines Beitrags innerhalb der breiteren Diskussion nicht erfassen.
-
-Das System analysiert strukturelle Trends statt individueller Intentionen. Es kann weder Motivation noch emotionale Zustände noch die subjektive Erfahrung der Teilnehmenden inferieren. Ein stiller Teilnehmender mag desengagiert sein oder aufmerksam zuhören und auf den richtigen Moment zum Sprechen warten. Das System kann zwischen diesen Möglichkeiten nicht unterscheiden.
-
-Die Zustandsinferenz stützt sich auf gewichtete Heuristiken mit konfigurierbaren Schwellenwerten. Diese Schwellenwerte wurden durch iteratives Pilottesting kalibriert, bleiben aber Approximationen.
-
-Kein persistentes Gedächtnis über Sitzungen hinweg ist implementiert. Jede Brainstorming-Sitzung wird als unabhängige experimentelle Einheit behandelt.
-
-Das System benötigt stabile Internetverbindung und Zugang zu externen API-Diensten während der Sitzungen. Eine Netzwerkunterbrechung kann vorübergehend Transkription, Metrikberechnung oder Interventionsgenerierung deaktivieren. Während Fallback-Mechanismen die Auswirkungen kurzer Ausfälle mildern, machen anhaltende Konnektivitätsverluste die analytischen Komponenten funktionsunfähig.
-
-## 6.8. Kapitelzusammenfassung und Überleitung
-
-Dieses Kapitel beschrieb den Prototyp als integriertes experimentelles System. Ausgehend vom in Abschnitt 6.1 etablierten konzeptionellen Rahmen detaillierte es die funktionale Architektur und ihre sechs Schichten, die Interventionslogik mit fünf Gesprächszuständen und einem vierphasigen Eskalationszyklus, die technische Implementierung über clientseitige Echtzeit-Verarbeitung und serverseitige Sprachmodell-Integration, die experimentelle Konfiguration mit drei vergleichbaren Szenarien und den Deployment-Kontext.
-
-Das System operationalisiert theoretische Konstrukte — Partizipationsungleichgewicht, thematische Verengung, Stagnation — durch messbare Proxy-Indikatoren. Es implementiert ein zustandsbasiertes Interventionsmodell, das einer graduellen Eskalationslogik folgt und gleichzeitig das Prinzip der minimalen Invasivität wahrt. Eine Forschungsdaten-Pipeline stellt sicher, dass jede Sitzung einen strukturierten Datensatz produziert, der für systematische Evaluation geeignet ist.
-
-Ein Bekenntnis zieht sich durch jede architektonische Entscheidung, die in diesem Kapitel beschrieben wurde: Die KI bleibt eine unterstützende Präsenz, niemals eine dominante. Die kreative Verantwortung bleibt bei der Gruppe. Technische Entscheidungen — von der Pro-Teilnehmer-Audioisolation bis zur Dual-Sync-Strategie, von ermüdungsangepassten Abkühlphasen bis zur expliziten Rollenkennzeichnung — dienen konsequent diesem Bekenntnis.
-
-Mit dem technischen und operationalen Fundament etabliert, verlagert das nächste Kapitel den Fokus vom Systemdesign zur empirischen Evaluation.
+Der Prototyp gliedert Videokommunikation, Transkription, Prozessanalyse, Entscheidungslogik und Interventionsauslieferung in eigenständige Module. Fünf Gesprächszustände klassifizieren die Dynamik, ein vierphasiger Zyklus verhindert Überreaktion, eine Datenpipeline sichert strukturierte Datensätze für die Auswertung. Was sich durch jede Designentscheidung zieht: Die KI bleibt Unterstützung, nie Hauptdarstellerin. Die kreative Arbeit gehört der Gruppe.
 
 \newpage
 
