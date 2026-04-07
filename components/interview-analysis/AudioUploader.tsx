@@ -10,7 +10,7 @@ interface AudioUploaderProps {
 }
 
 const ACCEPTED = '.mp3,.wav,.m4a,.webm,.ogg,.mp4,.mov,.avi,.mkv';
-const MAX_AUDIO_SIZE_MB = 24;
+const MAX_CHUNK_SIZE_MB = 4; // Vercel serverless payload limit is 4.5MB
 const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|wmv|flv)$/i;
 
 export default function AudioUploader({ projectId, transcriptionLanguage, onComplete }: AudioUploaderProps) {
@@ -45,10 +45,10 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
       const sizeMB = file.size / (1024 * 1024);
       const isVideo = VIDEO_EXTENSIONS.test(file.name);
 
-      if (!isVideo && sizeMB > MAX_AUDIO_SIZE_MB) {
-        // Chunk large audio files (video files are extracted server-side)
+      if (!isVideo && sizeMB > MAX_CHUNK_SIZE_MB) {
+        // Chunk large audio files (Vercel payload limit is 4.5MB)
         setProgress(t('audio_splitting', lang));
-        const chunks = chunkFile(file, MAX_AUDIO_SIZE_MB * 1024 * 1024);
+        const chunks = chunkFile(file, MAX_CHUNK_SIZE_MB * 1024 * 1024);
         let fullText = '';
 
         for (let i = 0; i < chunks.length; i++) {
