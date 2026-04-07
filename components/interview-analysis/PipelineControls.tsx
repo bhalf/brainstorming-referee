@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { IAInterview } from '@/types/interview-analysis';
 import { useIALang, t } from '@/lib/interview-analysis/i18n';
 
@@ -56,10 +56,87 @@ export default function PipelineControls({
     'segment-answers': status['segment-answers'] || (hasAnswers ? 'done' : 'pending'),
   } as Record<string, string>;
 
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [currentStep, setCurrentStep] = useState('');
+  const [progressText, setProgressText] = useState('');
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  // Poll pipeline status
+  const startPolling = useCallback(() => {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/interview-analysis/projects/${projectId}/run-pipeline`);
+        const ps = await res.json();
+
+        if (ps.step) setCurrentStep(ps.step);
+        if (ps.progress) setProgressText(ps.progress);
+
+        // Map backend step to frontend status
+        if (ps.step) {
+          setStatus(prev => {
+            const updated = { ...prev };
+            const stepOrder = ['extract-questions', 'match-questions', 'segment-answers', 'summarize'];
+            const currentIdx = stepOrder.indexOf(ps.step);
+            for (let i = 0; i < stepOrder.length; i++) {
+              if (i < currentIdx) updated[stepOrder[i]] = 'done';
+              else if (i === currentIdx) updated[stepOrder[i]] = 'running';
+            }
+            return updated;
+          });
+        }
+
+        if (!ps.running) {
+          stopPolling();
+          setRunningAll(false);
+          if (ps.error) {
+            setError(ps.error);
+          } else if (ps.step === 'done') {
+            setLastMode(ps.mode ?? 'full');
+            setStatus({
+              'extract-questions': 'done',
+              'match-questions': 'done',
+              'segment-answers': 'done',
+            });
+            onRefresh();
+          }
+        }
+      } catch {
+        // Polling error, will retry
+      }
+    }, 2000);
+  }, [projectId, onRefresh, stopPolling]);
+
+  // Check if pipeline is already running on mount (e.g., page refresh)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/interview-analysis/projects/${projectId}/run-pipeline`);
+        const ps = await res.json();
+        if (!cancelled && ps.running) {
+          setRunningAll(true);
+          if (ps.step) setCurrentStep(ps.step);
+          if (ps.progress) setProgressText(ps.progress);
+          startPolling();
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; stopPolling(); };
+  }, [projectId, startPolling, stopPolling]);
+
   async function runAll(mode: 'incremental' | 'full' = 'incremental') {
     setRunningAll(true);
     setError('');
     setLastMode(null);
+    setCurrentStep('');
+    setProgressText('');
     setStatus({
       'extract-questions': 'running',
       'match-questions': 'idle',
@@ -79,17 +156,11 @@ export default function PipelineControls({
         throw new Error(data.error || t('error', lang));
       }
 
-      setLastMode(data.mode ?? mode);
-      setStatus({
-        'extract-questions': 'done',
-        'match-questions': 'done',
-        'segment-answers': 'done',
-      });
-      onRefresh();
+      // Pipeline runs in background — start polling
+      startPolling();
     } catch (err) {
       setStatus(s => ({ ...s, 'run-pipeline': 'error' }));
       setError(err instanceof Error ? err.message : t('error', lang));
-    } finally {
       setRunningAll(false);
     }
   }
@@ -153,7 +224,7 @@ export default function PipelineControls({
             {runningAll ? (
               <>
                 <span className="ia-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                {t('pipeline_running', lang)}
+                {t('pipeline_running', lang)}{progressText ? ` (${progressText})` : ''}
               </>
             ) : (
               <>

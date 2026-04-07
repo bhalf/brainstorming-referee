@@ -4,7 +4,40 @@ import { getOpenAIClient } from '@/lib/openai';
 
 export const maxDuration = 60;
 
-const PARSE_GUIDE_PROMPT = `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst den rohen Text eines Interview-Leitfadens. Dieser kann unstrukturiert sein: verschiedene Nummerierungen, Kategorien-Überschriften, Unterfragen, Notizen, etc.
+function buildParseGuidePrompt(isEn: boolean): string {
+  if (isEn) {
+    return `You are an expert in qualitative research methodology. You receive the raw text of an interview guide. It may be unstructured: mixed numbering, category headers, sub-questions, notes, etc.
+
+Your task: Extract all concrete interview questions and organize them with topic areas.
+
+Return results as JSON:
+{
+  "questions": [
+    {
+      "question_text": "The cleaned, complete question",
+      "topic_area": "Overarching topic area / category"
+    }
+  ]
+}
+
+Rules:
+- Detect categories/headers and use them as topic_area for the questions below them
+- If no categories are visible, derive meaningful topic_areas from the content
+- Preserve the original order
+- Remove numbering, bullet points, indentation from question text
+- Only split combined questions if they clearly address independent topics
+- Keep questions that cover multiple aspects of ONE topic as a single question
+- Notes, instructions for the interviewer (e.g., "If yes, probe:") are NOT separate questions
+- Follow-up prompts ("If yes: ...") CAN be extracted as questions if they are substantive standalone questions
+- Return questions in the ORIGINAL language (do not translate)
+- If the guide only has topic headers without actual questions, extract implied questions from those topics (e.g., header "Work-life balance" → "How do you experience your work-life balance?")
+- Aim for 5-30 questions. If more than 30, merge sub-questions that overlap thematically
+
+EXAMPLE:
+Input: "1. Einstieg\\n  a) Erzählen Sie kurz von sich\\n  b) Was machen Sie beruflich?\\n2. Hauptteil\\n  Wie erleben Sie die Zusammenarbeit im Team?\\n  (Nachfragen: Konflikte? Kommunikation?)\\n3. Abschluss\\n  Gibt es noch etwas, das Sie ergänzen möchten?"
+Output: {"questions": [{"question_text": "Erzählen Sie kurz von sich", "topic_area": "Einstieg"}, {"question_text": "Was machen Sie beruflich?", "topic_area": "Einstieg"}, {"question_text": "Wie erleben Sie die Zusammenarbeit im Team?", "topic_area": "Hauptteil"}, {"question_text": "Gibt es noch etwas, das Sie ergänzen möchten?", "topic_area": "Abschluss"}]}`;
+  }
+  return `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst den rohen Text eines Interview-Leitfadens. Dieser kann unstrukturiert sein: verschiedene Nummerierungen, Kategorien-Überschriften, Unterfragen, Notizen, etc.
 
 Deine Aufgabe: Extrahiere alle konkreten Interviewfragen und organisiere sie mit Themengebieten.
 
@@ -27,7 +60,14 @@ Regeln:
 - Belasse Fragen, die mehrere Aspekte eines Themas abdecken, als eine Frage
 - Notizen, Anweisungen an den Interviewer (z.B. "Falls ja, nachfragen:") werden NICHT als eigene Frage erfasst
 - Nachfrage-Hinweise ("Wenn ja: ...") können als eigene Frage erfasst werden, wenn sie eine eigenständige Frage darstellen
-- Gib die Fragen in der Sprache des Originals zurück (nicht übersetzen)`;
+- Gib die Fragen in der Sprache des Originals zurück (nicht übersetzen)
+- Wenn der Leitfaden nur Themen-Überschriften ohne echte Fragen enthält, leite implizierte Fragen daraus ab (z.B. Überschrift "Work-Life-Balance" → "Wie erleben Sie Ihre Work-Life-Balance?")
+- Ziele auf 5-30 Fragen. Bei mehr als 30: Unterfragen zusammenführen, die sich thematisch überschneiden
+
+BEISPIEL:
+Input: "1. Einstieg\\n  a) Erzählen Sie kurz von sich\\n  b) Was machen Sie beruflich?\\n2. Hauptteil\\n  Wie erleben Sie die Zusammenarbeit im Team?\\n  (Nachfragen: Konflikte? Kommunikation?)\\n3. Abschluss\\n  Gibt es noch etwas, das Sie ergänzen möchten?"
+Output: {"questions": [{"question_text": "Erzählen Sie kurz von sich", "topic_area": "Einstieg"}, {"question_text": "Was machen Sie beruflich?", "topic_area": "Einstieg"}, {"question_text": "Wie erleben Sie die Zusammenarbeit im Team?", "topic_area": "Hauptteil"}, {"question_text": "Gibt es noch etwas, das Sie ergänzen möchten?", "topic_area": "Abschluss"}]}`;
+}
 
 export async function POST(
   req: NextRequest,
@@ -43,12 +83,20 @@ export async function POST(
   const sb = getServiceClient();
   const openai = getOpenAIClient();
 
+  // Load project language
+  const { data: project } = await sb
+    .from('ia_projects')
+    .select('language')
+    .eq('id', projectId)
+    .single();
+  const isEn = (project?.language ?? 'de') === 'en';
+
   const response = await openai.chat.completions.create({
     model: 'gpt-5.4',
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: PARSE_GUIDE_PROMPT },
+      { role: 'system', content: buildParseGuidePrompt(isEn) },
       { role: 'user', content: raw_text },
     ],
   });

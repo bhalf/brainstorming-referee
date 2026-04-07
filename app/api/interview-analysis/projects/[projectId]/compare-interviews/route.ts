@@ -161,6 +161,9 @@ Regeln:
 - Nenne bei "notable_patterns" unerwartete Befunde (z.B. ein Interview deutlich ausführlicher, Stimmungswechsel bei bestimmten Themen, ein Interview vermeidet bestimmte Themen)
 - "overall_summary" sollte 3-5 Sätze lang sein
 - Nenne absolute Zahlen wo möglich
+- Liefere 3-7 key_differences, 2-5 similarities und 2-4 notable_patterns
+- Wenn ein Interview eine Frage beantwortet hat und das andere nicht, ist das ein key_difference — erwähne es explizit
+- Mit nur 2 Interviews: Identifiziere Kontraste, formuliere keine allgemeinen "Muster" oder Trends
 - Antworte auf Deutsch`;
 
   const systemPromptEn = `You are an experienced qualitative research analyst. Compare two interviews from the same research project.
@@ -180,6 +183,9 @@ Rules:
 - For "notable_patterns", highlight unexpected findings (e.g., one interview much more detailed, sentiment shifts on specific topics, one avoids certain topics)
 - Keep "overall_summary" to 3-5 sentences
 - Include absolute numbers where possible
+- Return 3-7 key_differences, 2-5 similarities, and 2-4 notable_patterns
+- If one interview answered a question but the other did not, that is a key_difference — mention it explicitly
+- With only 2 interviews: identify contrasts, do not claim general "patterns" or trends
 - Respond in English`;
 
   const primaryPrompt = isEn ? systemPromptEn : systemPromptDe;

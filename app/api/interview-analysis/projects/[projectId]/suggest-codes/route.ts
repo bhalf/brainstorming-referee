@@ -40,13 +40,29 @@ export async function POST(req: NextRequest, { params }: Params) {
   }).join('\n');
 
   const systemPrompt = isEn
-    ? `You are a qualitative research coding assistant. Given a text passage and an existing codebook, suggest 3-5 relevant codes.
-If an existing code fits, reference it by name. If no existing code fits, suggest a new code name.
-Return JSON: { "suggestions": [{ "name": "CodeName", "is_existing": true/false }] }
+    ? `You are an expert qualitative research coding assistant using open coding methodology. Given a text passage and an existing codebook, suggest 3-5 relevant codes.
+
+CODING PRINCIPLES:
+- Codes should be short noun phrases or gerunds (2-4 words), e.g., "Technology frustration", "Team collaboration", "Learning motivation"
+- BAD codes: full sentences, vague labels like "Miscellaneous", or overly broad terms like "Experience"
+- If an existing code fits, reference it EXACTLY by name
+- If a parent code exists that could contain a more specific sub-code, suggest the sub-code with the parent noted
+- Avoid suggesting codes that overlap semantically — each code should capture a DISTINCT concept
+- Prioritize existing codes over creating new ones
+
+Return JSON: { "suggestions": [{ "name": "CodeName", "is_existing": true/false, "parent": "ParentCodeName or null" }] }
 Only return valid JSON, nothing else.`
-    : `Du bist ein Assistent für qualitatives Kodieren. Gegeben ein Textausschnitt und ein bestehendes Codebuch, schlage 3-5 passende Codes vor.
-Wenn ein bestehender Code passt, nenne ihn beim Namen. Wenn nicht, schlage einen neuen Codenamen vor.
-Gib JSON zurück: { "suggestions": [{ "name": "CodeName", "is_existing": true/false }] }
+    : `Du bist ein Experte für qualitatives Kodieren nach der Open-Coding-Methodik. Gegeben ein Textausschnitt und ein bestehendes Codebuch, schlage 3-5 passende Codes vor.
+
+KODIER-PRINZIPIEN:
+- Codes sollen kurze Nominalphrasen sein (2-4 Wörter), z.B. "Frustration mit Technik", "Teamzusammenarbeit", "Lernmotivation"
+- SCHLECHTE Codes: ganze Sätze, vage Labels wie "Sonstiges", oder zu breite Begriffe wie "Erfahrung"
+- Wenn ein bestehender Code passt, nenne ihn EXAKT beim Namen
+- Wenn ein Eltern-Code existiert, der einen spezifischeren Sub-Code enthalten könnte, schlage den Sub-Code mit Verweis auf den Eltern-Code vor
+- Vermeide semantisch überlappende Codes — jeder Code soll ein EIGENES Konzept erfassen
+- Bevorzuge bestehende Codes gegenüber neuen
+
+Gib JSON zurück: { "suggestions": [{ "name": "CodeName", "is_existing": true/false, "parent": "ElternCodeName oder null" }] }
 Gib nur valides JSON zurück, sonst nichts.`;
 
   const userContent = isEn

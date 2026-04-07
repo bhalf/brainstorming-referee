@@ -85,6 +85,8 @@ Die Zusammenfassung soll:
 - Auffällige Ausreisser oder Abweichungen erwähnen
 - Wenn ein signifikanter Anteil der Befragten die Frage nicht beantwortet hat, dies erwähnen
 - Keine eigenen Interpretationen hinzufügen, nur beschreiben was in den Daten steht
+- Wenn Meinungen stark geteilt sind (z.B. ~50% positiv, ~50% negativ), weise explizit auf diese Polarisierung hin
+- Nenne einzelne Interviews NICHT namentlich in der Zusammenfassung — fasse Gruppen zusammen (z.B. "die Mehrheit", "einige wenige")
 
 Schreibe auf Deutsch.`;
 
@@ -98,6 +100,8 @@ The summary should:
 - Mention notable outliers or deviations
 - If a significant share of respondents did not answer the question, mention this
 - Do not add your own interpretations, only describe what is in the data
+- If opinions are strongly divided (e.g., ~50% positive, ~50% negative), explicitly highlight this polarization
+- Do NOT name individual interviews in the summary — summarize groups (e.g., "the majority", "a few")
 
 Write in English.`;
 

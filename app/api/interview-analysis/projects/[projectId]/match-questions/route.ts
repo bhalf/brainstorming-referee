@@ -118,6 +118,7 @@ Rules:
 - Follow-up questions to a guide question are mapped to it (not as new question), unless they cover a clearly independent topic
 - Each extracted question must be mapped to exactly ONE question (either guide or new)
 - question_ids MUST match exactly the provided IDs — do not invent IDs
+- Each question_id must appear in EXACTLY ONE group — no duplicates across guide_mappings and new_canonical_questions
 - Sort new canonical questions in logical order`
       : `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst:
 1. Vordefinierte Leitfaden-Fragen (die Ankerfragen des Forschers)
@@ -151,6 +152,7 @@ Regeln:
 - Follow-up-Fragen zu einer Leitfaden-Frage werden dieser zugeordnet (nicht als neue Frage), es sei denn, sie behandeln ein klar eigenständiges Thema
 - Jede extrahierte Frage muss genau EINER Frage zugeordnet werden (entweder Leitfaden oder neu)
 - Die question_ids MÜSSEN exakt den übergebenen IDs entsprechen — keine eigenen IDs erfinden
+- Jede question_id darf in GENAU EINER Gruppe vorkommen — keine Duplikate über guide_mappings und new_canonical_questions hinweg
 - Neue kanonische Fragen bitte in logischer Reihenfolge sortieren`)
     : (isEn
       ? `You are an expert in qualitative research methodology. You receive extracted questions from multiple interviews of a research project.
@@ -175,6 +177,7 @@ Rules:
 - Follow-up questions can be assigned to their own canonical question if they appear in multiple interviews
 - Similarity value (0-1) indicates how similar the original question is to the canonical wording
 - question_ids MUST match exactly the provided IDs — do not invent IDs
+- Each question_id must appear in EXACTLY ONE canonical group — no duplicates
 - Prefer the clearest/most concise wording as canonical_text`
       : `Du bist ein Experte für qualitative Forschungsmethodik. Du erhältst extrahierte Fragen aus mehreren Interviews eines Forschungsprojekts.
 
@@ -198,6 +201,7 @@ Regeln:
 - Follow-up-Fragen können einer eigenen kanonischen Frage zugeordnet werden, wenn sie in mehreren Interviews vorkommen
 - Similarity-Wert (0-1) gibt an, wie ähnlich die Originalfrage der kanonischen Formulierung ist
 - Die question_ids MÜSSEN exakt den übergebenen IDs entsprechen — keine eigenen IDs erfinden
+- Jede question_id darf in GENAU EINER kanonischen Gruppe vorkommen — keine Duplikate
 - Bevorzuge die klarste/prägnanteste Formulierung als canonical_text`);
 
   const defaultTopic = isEn ? 'General' : 'Allgemein';

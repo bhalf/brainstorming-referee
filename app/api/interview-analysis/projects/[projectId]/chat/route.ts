@@ -25,9 +25,10 @@ export async function POST(
   // Load project metadata
   const { data: project } = await sb
     .from('ia_projects')
-    .select('name, description')
+    .select('name, description, language')
     .eq('id', projectId)
     .single();
+  const isEn = (project?.language ?? 'de') === 'en';
 
   // Load all canonical questions + answers + summaries for context
   const { data: canonicals } = await sb
@@ -49,12 +50,12 @@ export async function POST(
   const interviewCount = (interviews ?? []).length;
   const totalAnswers = (answers ?? []).length;
 
-  // Build structured data context
+  // Build structured data context (bilingual keys)
   const dataContext = (canonicals ?? []).map((cq, idx) => {
     const cqAnswers = (answers ?? [])
       .filter(a => a.canonical_question_id === cq.id)
       .map((a: { ia_interviews: { name: string }; answer_text: string; sentiment: string; word_count: number }) => ({
-        interview: a.ia_interviews?.name ?? 'Unbekannt',
+        interview: a.ia_interviews?.name ?? (isEn ? 'Unknown' : 'Unbekannt'),
         text: a.answer_text,
         sentiment: a.sentiment,
       }));
@@ -62,20 +63,62 @@ export async function POST(
     const summary = (summaries ?? []).find(s => s.canonical_question_id === cq.id);
 
     return {
-      frage: `F${idx + 1}: ${cq.canonical_text}`,
-      thema: cq.topic_area || undefined,
-      zusammenfassung: summary?.summary_text || undefined,
-      antworten: cqAnswers,
+      question: `F${idx + 1}: ${cq.canonical_text}`,
+      topic: cq.topic_area || undefined,
+      summary: summary?.summary_text || undefined,
+      answers: cqAnswers,
     };
   });
 
-  const systemPrompt = `Du bist eine qualitative Forschungsassistenz. Du beantwortest Fragen basierend auf den Daten eines Interview-Forschungsprojekts.
+  // Truncate context to ~100k chars to avoid token overflow
+  let dataString = JSON.stringify(dataContext, null, 1);
+  const MAX_CONTEXT_CHARS = 100_000;
+  if (dataString.length > MAX_CONTEXT_CHARS) {
+    // Summarize: drop individual answers, keep only summaries
+    const truncatedContext = (canonicals ?? []).map((cq, idx) => {
+      const summary = (summaries ?? []).find(s => s.canonical_question_id === cq.id);
+      const answerCount = (answers ?? []).filter(a => a.canonical_question_id === cq.id).length;
+      return {
+        question: `F${idx + 1}: ${cq.canonical_text}`,
+        topic: cq.topic_area || undefined,
+        summary: summary?.summary_text || undefined,
+        answer_count: answerCount,
+      };
+    });
+    dataString = JSON.stringify(truncatedContext, null, 1);
+  }
 
-PROJEKT: "${project?.name ?? 'Unbekannt'}"${project?.description ? `\nBeschreibung: ${project.description}` : ''}
+  // Truncate conversation history to last 20 messages
+  const recentMessages = messages.slice(-20);
+
+  const projectLabel = project?.name ?? (isEn ? 'Unknown' : 'Unbekannt');
+
+  const systemPrompt = isEn
+    ? `You are a qualitative research assistant. You answer questions based on data from an interview research project.
+
+PROJECT: "${projectLabel}"${project?.description ? `\nDescription: ${project.description}` : ''}
+DATA BASIS: ${interviewCount} interviews, ${totalAnswers} segmented answers across ${(canonicals ?? []).length} canonical questions.
+
+DATA:
+${dataString}
+
+RULES:
+- Answer questions ONLY based on the data above. Do not make things up.
+- Always cite the source: [Interview-Name → FX] (e.g., [Anna Müller → F3])
+- Report frequencies both absolutely AND relatively (e.g., "7 of 10, 70%")
+- For comparisons: structure the answer clearly (Interview A says X, Interview B says Y)
+- If the data cannot answer a question, say so honestly
+- You may use markdown tables for quantitative overviews
+- Be precise and data-driven, no speculative interpretations
+- If asked about topics outside the interview data, politely decline
+- Respond in English`
+    : `Du bist eine qualitative Forschungsassistenz. Du beantwortest Fragen basierend auf den Daten eines Interview-Forschungsprojekts.
+
+PROJEKT: "${projectLabel}"${project?.description ? `\nBeschreibung: ${project.description}` : ''}
 DATENBASIS: ${interviewCount} Interviews, ${totalAnswers} segmentierte Antworten auf ${(canonicals ?? []).length} kanonische Fragen.
 
 DATEN:
-${JSON.stringify(dataContext, null, 1)}
+${dataString}
 
 REGELN:
 - Beantworte Fragen NUR basierend auf den obigen Daten. Erfinde nichts dazu.
@@ -83,8 +126,10 @@ REGELN:
 - Nenne Häufigkeiten absolut UND relativ (z.B. "7 von 10, 70%")
 - Bei Vergleichen: Strukturiere die Antwort klar (Interview A sagt X, Interview B sagt Y)
 - Wenn die Daten eine Frage nicht beantworten können, sage das ehrlich
-- Antworte auf Deutsch
-- Sei präzise und datengetrieben, keine spekulativen Interpretationen`;
+- Du darfst Markdown-Tabellen für quantitative Übersichten verwenden
+- Sei präzise und datengetrieben, keine spekulativen Interpretationen
+- Bei Fragen ausserhalb der Interview-Daten: höflich ablehnen
+- Antworte auf Deutsch`;
 
   const stream = await openai.chat.completions.create({
     model: 'gpt-5.4-mini',
@@ -92,7 +137,7 @@ REGELN:
     stream: true,
     messages: [
       { role: 'system', content: systemPrompt },
-      ...messages
+      ...recentMessages
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ],

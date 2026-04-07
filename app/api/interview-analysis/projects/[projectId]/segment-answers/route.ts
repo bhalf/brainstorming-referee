@@ -107,7 +107,10 @@ export async function POST(
         .filter('ia_questions.interview_id', 'eq', interview.id);
 
       if (mappings?.length) {
-        mappingContext = `\n\nBereits erkannte Interviewfragen in diesem Interview:\n${JSON.stringify(
+        const mappingLabel = projectLang === 'en'
+          ? 'Previously identified interview questions in this interview'
+          : 'Bereits erkannte Interviewfragen in diesem Interview';
+        mappingContext = `\n\n${mappingLabel}:\n${JSON.stringify(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           mappings.map((m: any) => ({
             canonical_id: m.canonical_question_id,
@@ -128,13 +131,9 @@ export async function POST(
         { role: 'system', content: systemPrompt },
         {
           role: 'user',
-          content: `Interview: "${interview.name}"
-
-Fragen (${canonicalList.length} Stück):
-${JSON.stringify(canonicalList, null, 2)}${mappingContext}
-
-Transkript:
-${interview.transcript_text}`
+          content: projectLang === 'en'
+            ? `Interview: "${interview.name}"\n\nQuestions (${canonicalList.length}):\n${JSON.stringify(canonicalList, null, 2)}${mappingContext}\n\nTranscript:\n${interview.transcript_text}`
+            : `Interview: "${interview.name}"\n\nFragen (${canonicalList.length} Stück):\n${JSON.stringify(canonicalList, null, 2)}${mappingContext}\n\nTranskript:\n${interview.transcript_text}`
         }
       ],
     });

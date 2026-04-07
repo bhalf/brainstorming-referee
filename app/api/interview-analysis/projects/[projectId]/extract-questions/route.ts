@@ -112,7 +112,12 @@ Rules:
 - For follow-ups: set is_followup=true and followup_to_index to the index of the parent question
 - Detect questions in the order they appear in the transcript
 - Better to extract one question TOO MANY than too few — when in doubt, include it
-- If no questions are found, return an empty array: {"questions": []}`
+- If no questions are found, return an empty array: {"questions": []}
+
+TRANSCRIPTION QUALITY:
+- Transcripts may come from automatic speech recognition (ASR). Expect: missing punctuation, run-on sentences, filler words ("uhm", "ähm"), and occasional garbled words.
+- Passages marked [inaudible], [unverständlich], or similar are NOT questions — skip them.
+- If a question is partially garbled but the intent is clear, include it with the best possible normalized version.`
             : `Du bist ein Experte für qualitative Forschungsmethodik. Analysiere das folgende Interview-Transkript und identifiziere alle Stellen, an denen der/die Interviewer:in eine Frage stellt oder ein neues Thema einleitet.
 
 SPEAKER-ERKENNUNG:
@@ -140,7 +145,12 @@ Regeln:
 - Bei Nachfragen: setze is_followup=true und followup_to_index auf den Index der übergeordneten Frage
 - Erkenne die Fragen in der Reihenfolge ihres Auftretens im Transkript
 - Lieber eine Frage ZU VIEL extrahieren als eine zu wenig — im Zweifel aufnehmen
-- Wenn keine Fragen erkennbar sind, gib ein leeres Array zurück: {"questions": []}`
+- Wenn keine Fragen erkennbar sind, gib ein leeres Array zurück: {"questions": []}
+
+TRANSKRIPTIONSQUALITÄT:
+- Transkripte können von automatischer Spracherkennung (ASR) stammen. Erwarte: fehlende Satzzeichen, zusammenlaufende Sätze, Füllwörter ("ähm", "also"), und gelegentlich verzerrte Wörter.
+- Passagen mit [unverständlich], [inaudible] o.ä. sind KEINE Fragen — überspringe sie.
+- Wenn eine Frage teilweise vezerrt ist aber die Absicht klar ist, nimm sie auf und erstelle die bestmögliche normalisierte Version.`
         },
         {
           role: 'user',

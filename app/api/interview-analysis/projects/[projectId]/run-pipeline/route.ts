@@ -1,8 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { getServiceClient } from '@/lib/supabase/server';
 
 export const maxDuration = 300;
 
+// ── GET: Poll pipeline status ────────────────────────────────────────────────
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  const { projectId } = await params;
+  const sb = getServiceClient();
+
+  const { data } = await sb
+    .from('ia_projects')
+    .select('pipeline_status')
+    .eq('id', projectId)
+    .single();
+
+  return NextResponse.json(data?.pipeline_status ?? { running: false });
+}
+
+// ── POST: Start pipeline (returns immediately, runs in background) ───────────
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
@@ -14,9 +33,22 @@ export async function POST(
 
   const sb = getServiceClient();
 
-  // ── Gather project state ────────────────────────────────────────────────────
+  // Check if pipeline is already running
+  const { data: projectData } = await sb
+    .from('ia_projects')
+    .select('pipeline_status')
+    .eq('id', projectId)
+    .single();
 
-  // 1. Find new (not yet analyzed) interviews
+  if (projectData?.pipeline_status?.running) {
+    return NextResponse.json({
+      error: 'Pipeline is already running',
+      pipeline_status: projectData.pipeline_status,
+    }, { status: 409 });
+  }
+
+  // ── Gather project state ──────────────────────────────────────────────────
+
   const { data: allInterviews } = await sb
     .from('ia_interviews')
     .select('id, status')
@@ -26,13 +58,11 @@ export async function POST(
     .filter(i => i.status === 'transcribed')
     .map(i => i.id);
 
-  // 2. Check if canonicals exist
   const { count: canonicalCount } = await sb
     .from('ia_canonical_questions')
     .select('*', { count: 'exact', head: true })
     .eq('project_id', projectId);
 
-  // 3. Check if guide questions exist
   const { count: guideCount } = await sb
     .from('ia_guide_questions')
     .select('*', { count: 'exact', head: true })
@@ -40,7 +70,6 @@ export async function POST(
 
   const hasGuide = (guideCount ?? 0) > 0;
 
-  // 4. Detect guide change: guide exists but no canonicals link to them
   let guideChanged = false;
   if ((canonicalCount ?? 0) > 0 && hasGuide) {
     const { count: linkedCount } = await sb
@@ -48,36 +77,94 @@ export async function POST(
       .select('*', { count: 'exact', head: true })
       .eq('project_id', projectId)
       .not('guide_question_id', 'is', null);
-
     guideChanged = (linkedCount ?? 0) === 0;
   }
 
-  // 5. Determine effective mode
   const effectiveMode: 'incremental' | 'full' =
     requestedMode === 'full' || (canonicalCount ?? 0) === 0 || guideChanged
       ? 'full'
       : 'incremental';
 
-  // 6. Early return if nothing to do
   if (effectiveMode === 'incremental' && newInterviewIds.length === 0) {
     return NextResponse.json({
-      pipeline: [],
+      pipeline_status: { running: false },
       mode: 'incremental',
-      message: 'Keine neuen Interviews zu analysieren.',
+      message: 'No new interviews to analyze.',
     });
   }
 
-  // ── Build pipeline based on guide presence ──────────────────────────────────
+  const totalInterviews = effectiveMode === 'full'
+    ? (allInterviews ?? []).filter(i => ['transcribed', 'analyzed'].includes(i.status)).length
+    : newInterviewIds.length;
+
+  // Mark pipeline as started
+  const initialStatus = {
+    running: true,
+    mode: effectiveMode,
+    step: 'starting',
+    progress: `0/${totalInterviews}`,
+    started_at: new Date().toISOString(),
+    error: null,
+  };
+
+  await sb
+    .from('ia_projects')
+    .update({ pipeline_status: initialStatus })
+    .eq('id', projectId);
+
+  // Run pipeline in background via next/server after()
+  after(async () => {
+    await runPipelineBackground(
+      projectId,
+      origin,
+      effectiveMode,
+      hasGuide,
+      newInterviewIds,
+      totalInterviews,
+    );
+  });
+
+  return NextResponse.json({
+    pipeline_status: initialStatus,
+    mode: effectiveMode,
+    has_guide: hasGuide,
+    background: true,
+  });
+}
+
+// ── Background pipeline execution ────────────────────────────────────────────
+
+async function runPipelineBackground(
+  projectId: string,
+  origin: string,
+  effectiveMode: 'incremental' | 'full',
+  hasGuide: boolean,
+  newInterviewIds: string[],
+  totalInterviews: number,
+) {
+  const sb = getServiceClient();
+
+  async function updateStatus(step: string, progress?: string, error?: string | null) {
+    await sb.from('ia_projects').update({
+      pipeline_status: {
+        running: !error,
+        mode: effectiveMode,
+        step,
+        progress: progress ?? `0/${totalInterviews}`,
+        started_at: new Date().toISOString(),
+        error: error ?? null,
+      },
+    }).eq('id', projectId);
+  }
 
   const results: Array<{ step: string; status: string; data?: unknown; error?: string }> = [];
 
-  if (hasGuide) {
-    // ── TRACK A: Guide-Direct Pipeline ──────────────────────────────────────
-    // Skip extract-questions entirely. Create canonicals from guide, then segment.
+  try {
+    if (hasGuide) {
+      // ── TRACK A: Guide-Direct Pipeline ──────────────────────────────────
 
-    if (effectiveMode === 'full') {
-      // Step 1: Create canonicals from guide (deterministic, no GPT)
-      try {
+      if (effectiveMode === 'full') {
+        await updateStatus('match-questions', `0/${totalInterviews}`);
         const res = await fetch(`${origin}/api/interview-analysis/projects/${projectId}/match-questions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -85,30 +172,17 @@ export async function POST(
         });
         const data = await res.json();
         if (!res.ok) {
-          results.push({ step: 'match-questions', status: 'error', error: data.error });
-          return NextResponse.json(
-            { pipeline: results, mode: effectiveMode, aborted_at: 'match-questions', error: 'Pipeline abgebrochen: Leitfaden-Fragen erstellen fehlgeschlagen' },
-            { status: 500 }
-          );
+          await updateStatus('match-questions', undefined, data.error || 'Failed');
+          return;
         }
         results.push({ step: 'match-questions', status: 'ok', data });
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        results.push({ step: 'match-questions', status: 'error', error: errorMsg });
-        return NextResponse.json(
-          { pipeline: results, mode: effectiveMode, aborted_at: 'match-questions', error: `Pipeline abgebrochen: ${errorMsg}` },
-          { status: 500 }
-        );
       }
-    }
-    // In incremental mode with guide, canonicals already exist → skip match-questions
 
-    // Step 2: Segment answers (guide-direct prompt)
-    const segmentBody = effectiveMode === 'incremental'
-      ? { mode: 'incremental', interviewIds: newInterviewIds, guideDirect: true }
-      : { mode: 'full', guideDirect: true };
+      await updateStatus('segment-answers', `0/${totalInterviews}`);
+      const segmentBody = effectiveMode === 'incremental'
+        ? { mode: 'incremental', interviewIds: newInterviewIds, guideDirect: true }
+        : { mode: 'full', guideDirect: true };
 
-    try {
       const res = await fetch(`${origin}/api/interview-analysis/projects/${projectId}/segment-answers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,15 +190,12 @@ export async function POST(
       });
       const data = await res.json();
       if (!res.ok) {
-        results.push({ step: 'segment-answers', status: 'error', error: data.error });
-        return NextResponse.json(
-          { pipeline: results, mode: effectiveMode, aborted_at: 'segment-answers', error: 'Pipeline abgebrochen: Antwort-Zuordnung fehlgeschlagen' },
-          { status: 500 }
-        );
+        await updateStatus('segment-answers', undefined, data.error || 'Failed');
+        return;
       }
       results.push({ step: 'segment-answers', status: 'ok', data });
 
-      // Step 3: Process additional questions discovered during segmentation
+      // Process additional questions
       const additionalQuestions: Array<{
         interview_id: string;
         question: string;
@@ -134,34 +205,22 @@ export async function POST(
 
       if (additionalQuestions.length > 0) {
         await processAdditionalQuestions(projectId, additionalQuestions, sb);
-        results.push({
-          step: 'additional-questions',
-          status: 'ok',
-          data: { count: additionalQuestions.length },
-        });
       }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      results.push({ step: 'segment-answers', status: 'error', error: errorMsg });
-      return NextResponse.json(
-        { pipeline: results, mode: effectiveMode, aborted_at: 'segment-answers', error: `Pipeline abgebrochen: ${errorMsg}` },
-        { status: 500 }
-      );
-    }
-  } else {
-    // ── TRACK B: Standard Pipeline (no guide) ───────────────────────────────
-    const pipelineBody = effectiveMode === 'incremental'
-      ? { mode: 'incremental', interviewIds: newInterviewIds }
-      : { mode: 'full' };
+    } else {
+      // ── TRACK B: Standard Pipeline (no guide) ─────────────────────────
 
-    const steps = [
-      { name: 'extract-questions', label: 'Fragen extrahieren' },
-      { name: 'match-questions', label: 'Fragen matchen' },
-      { name: 'segment-answers', label: 'Antworten segmentieren' },
-    ];
+      const pipelineBody = effectiveMode === 'incremental'
+        ? { mode: 'incremental', interviewIds: newInterviewIds }
+        : { mode: 'full' };
 
-    for (const step of steps) {
-      try {
+      const steps = [
+        { name: 'extract-questions', label: 'Extracting questions' },
+        { name: 'match-questions', label: 'Matching questions' },
+        { name: 'segment-answers', label: 'Segmenting answers' },
+      ];
+
+      for (const step of steps) {
+        await updateStatus(step.name, `0/${totalInterviews}`);
         const res = await fetch(`${origin}/api/interview-analysis/projects/${projectId}/${step.name}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -169,35 +228,23 @@ export async function POST(
         });
         const data = await res.json();
         if (!res.ok) {
-          results.push({ step: step.name, status: 'error', error: data.error });
-          return NextResponse.json(
-            { pipeline: results, mode: effectiveMode, aborted_at: step.name, error: `Pipeline abgebrochen: ${step.label} fehlgeschlagen` },
-            { status: 500 }
-          );
+          await updateStatus(step.name, undefined, data.error || `${step.label} failed`);
+          return;
         }
         results.push({ step: step.name, status: 'ok', data });
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        results.push({ step: step.name, status: 'error', error: errorMsg });
-        return NextResponse.json(
-          { pipeline: results, mode: effectiveMode, aborted_at: step.name, error: `Pipeline abgebrochen: ${errorMsg}` },
-          { status: 500 }
-        );
       }
     }
-  }
 
-  // ── Generate summaries ────────────────────────────────────────────────────
+    // ── Generate summaries ──────────────────────────────────────────────────
 
-  try {
+    await updateStatus('summarize', `0/${totalInterviews}`);
+
     let canonicalIdsToSummarize: string[] = [];
-
     if (effectiveMode === 'incremental') {
       const segmentResult = results.find(r => r.step === 'segment-answers');
       canonicalIdsToSummarize =
         (segmentResult?.data as { affected_canonical_ids?: string[] })?.affected_canonical_ids ?? [];
     } else {
-      // Full mode: summarize all canonicals
       const { data: allCanonicals } = await sb
         .from('ia_canonical_questions')
         .select('id')
@@ -205,30 +252,35 @@ export async function POST(
       canonicalIdsToSummarize = (allCanonicals ?? []).map(c => c.id);
     }
 
-    for (const cqId of canonicalIdsToSummarize) {
+    for (let i = 0; i < canonicalIdsToSummarize.length; i++) {
+      await updateStatus('summarize', `${i + 1}/${canonicalIdsToSummarize.length}`);
       try {
         await fetch(`${origin}/api/interview-analysis/projects/${projectId}/summarize-question`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ canonicalQuestionId: cqId }),
+          body: JSON.stringify({ canonicalQuestionId: canonicalIdsToSummarize[i] }),
         });
       } catch {
         // Non-critical, continue
       }
     }
 
-    results.push({ step: 'summarize', status: 'ok', data: { count: canonicalIdsToSummarize.length } });
-  } catch {
-    results.push({ step: 'summarize', status: 'skipped' });
-  }
+    // ── Done ────────────────────────────────────────────────────────────────
 
-  return NextResponse.json({
-    pipeline: results,
-    mode: effectiveMode,
-    has_guide: hasGuide,
-    ...(effectiveMode === 'incremental' ? { processed_interviews: newInterviewIds.length } : {}),
-    ...(guideChanged ? { guide_changed: true } : {}),
-  });
+    await sb.from('ia_projects').update({
+      pipeline_status: {
+        running: false,
+        mode: effectiveMode,
+        step: 'done',
+        progress: `${totalInterviews}/${totalInterviews}`,
+        finished_at: new Date().toISOString(),
+        error: null,
+      },
+    }).eq('id', projectId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    await updateStatus('error', undefined, msg);
+  }
 }
 
 // ── Process additional questions from guide-direct segmentation ───────────────
@@ -243,7 +295,6 @@ async function processAdditionalQuestions(
   }>,
   sb: ReturnType<typeof getServiceClient>,
 ) {
-  // Group similar additional questions by text similarity
   const groups = new Map<string, {
     question: string;
     topic: string;
@@ -271,7 +322,6 @@ async function processAdditionalQuestions(
     }
   }
 
-  // Get current max sort_order
   const { data: lastCanonical } = await sb
     .from('ia_canonical_questions')
     .select('sort_order')
@@ -312,7 +362,6 @@ async function processAdditionalQuestions(
   }
 }
 
-// Simple string similarity (Dice coefficient on bigrams)
 function stringSimilarity(a: string, b: string): number {
   if (a === b) return 1;
   if (a.length < 2 || b.length < 2) return 0;
