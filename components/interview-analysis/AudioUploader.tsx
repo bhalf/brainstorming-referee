@@ -10,7 +10,7 @@ interface AudioUploaderProps {
 }
 
 const ACCEPTED = '.mp3,.wav,.m4a,.webm,.ogg,.mp4,.mov,.avi,.mkv';
-const MAX_CHUNK_DURATION_SEC = 600; // 10 minutes per chunk (Whisper limit is 23min)
+const MAX_CHUNK_DURATION_SEC = 180; // 3 minutes per chunk → ~2.8MB at 128kbps mono (Vercel limit 4.5MB)
 const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|wmv|flv)$/i;
 
 export default function AudioUploader({ projectId, transcriptionLanguage, onComplete }: AudioUploaderProps) {
