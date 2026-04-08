@@ -43,8 +43,36 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
     setProgress('');
 
     try {
-      // Step 1: Convert to time-based MP3 chunks using ffmpeg.wasm
-      setProgress(lang === 'en' ? 'Processing audio...' : 'Audio wird verarbeitet...');
+      const isVideo = VIDEO_EXTENSIONS.test(file.name);
+      const sizeMB = file.size / (1024 * 1024);
+
+      // Small audio files (< 3.5MB, not video) → direct upload, skip ffmpeg
+      if (!isVideo && sizeMB < 3.5) {
+        setProgress(t('audio_transcribing', lang));
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('name', name || file.name.replace(/\.[^.]+$/, ''));
+        formData.append('language', transcriptionLanguage);
+
+        const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          let msg = t('audio_failed', lang);
+          try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+          throw new Error(msg);
+        }
+        setProgress(t('audio_done', lang));
+        setTimeout(onComplete, 500);
+        return;
+      }
+
+      // Large files or videos → split into time-based chunks with ffmpeg.wasm
+      setProgress(isVideo
+        ? (lang === 'en' ? 'Extracting audio from video...' : 'Audio wird aus Video extrahiert...')
+        : (lang === 'en' ? 'Splitting audio...' : 'Audio wird aufgeteilt...'));
       const mp3Chunks = await splitToMp3Chunks(file);
 
       // Step 2: Upload each chunk to transcribe API

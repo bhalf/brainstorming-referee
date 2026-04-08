@@ -194,17 +194,76 @@ export async function POST(
       }
     }
 
-    // Collect additional questions (guide-direct mode)
+    // Process additional questions (guide-direct mode) — create canonical + answer immediately
     if (guideDirect && parsed.additional_questions?.length) {
       for (const aq of parsed.additional_questions) {
-        if (aq.question?.trim() && aq.answer?.trim()) {
-          allAdditionalQuestions.push({
-            interview_id: interview.id,
-            question: aq.question.trim(),
-            answer: aq.answer.trim(),
-            topic: aq.topic?.trim() || 'Sonstiges',
-          });
+        if (!aq.question?.trim() || !aq.answer?.trim()) continue;
+
+        const questionText = aq.question.trim();
+        const answerText = aq.answer.trim();
+        const topic = aq.topic?.trim() || 'Sonstiges';
+
+        // Check if a similar canonical already exists (avoid duplicates across interviews)
+        const { data: existingCanonicals } = await sb
+          .from('ia_canonical_questions')
+          .select('id, canonical_text')
+          .eq('project_id', projectId)
+          .is('guide_question_id', null);
+
+        let canonicalId: string | null = null;
+        for (const ec of existingCanonicals ?? []) {
+          if (textSimilarity(ec.canonical_text.toLowerCase(), questionText.toLowerCase()) > 0.6) {
+            canonicalId = ec.id;
+            break;
+          }
         }
+
+        // Create new canonical if no match
+        if (!canonicalId) {
+          const { data: maxSort } = await sb
+            .from('ia_canonical_questions')
+            .select('sort_order')
+            .eq('project_id', projectId)
+            .order('sort_order', { ascending: false })
+            .limit(1)
+            .single();
+
+          const { data: newCanonical } = await sb
+            .from('ia_canonical_questions')
+            .insert({
+              project_id: projectId,
+              canonical_text: questionText,
+              topic_area: topic,
+              sort_order: (maxSort?.sort_order ?? 0) + 1,
+              guide_question_id: null,
+            })
+            .select('id')
+            .single();
+
+          if (newCanonical) canonicalId = newCanonical.id;
+        }
+
+        // Insert answer for this additional question
+        if (canonicalId) {
+          await sb.from('ia_answers').insert({
+            interview_id: interview.id,
+            canonical_question_id: canonicalId,
+            answer_text: answerText,
+            word_count: answerText.split(/\s+/).length,
+            sentiment: 'neutral',
+            confidence: 'medium',
+            match_type: 'direct',
+            follow_ups: [],
+          });
+          affectedCanonicalIds.add(canonicalId);
+        }
+
+        allAdditionalQuestions.push({
+          interview_id: interview.id,
+          question: questionText,
+          answer: answerText,
+          topic,
+        });
       }
     }
 
@@ -238,6 +297,19 @@ const PLACEHOLDER_PATTERNS = [
 ];
 
 /** Detect GPT placeholder answers like "Nicht explizit im Transkript erwähnt." */
+/** Dice coefficient on bigrams for fuzzy string matching */
+function textSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigramsA = new Set<string>();
+  for (let i = 0; i < a.length - 1; i++) bigramsA.add(a.slice(i, i + 2));
+  const bigramsB = new Set<string>();
+  for (let i = 0; i < b.length - 1; i++) bigramsB.add(b.slice(i, i + 2));
+  let intersection = 0;
+  for (const bg of bigramsB) if (bigramsA.has(bg)) intersection++;
+  return (2 * intersection) / (bigramsA.size + bigramsB.size);
+}
+
 function isPlaceholderAnswer(text: string): boolean {
   const trimmed = text.trim();
   // Only flag short texts (real answers are longer)
