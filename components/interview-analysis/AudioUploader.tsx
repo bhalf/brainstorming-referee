@@ -195,7 +195,9 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
       }
     }
 
-    const numChunks = Math.max(1, Math.ceil(durationSec / MAX_CHUNK_DURATION_SEC));
+    // Add 10% buffer to duration to ensure we don't miss the tail
+    const safeDuration = durationSec * 1.1 + 30;
+    const numChunks = Math.max(1, Math.ceil(safeDuration / MAX_CHUNK_DURATION_SEC));
     const chunks: File[] = [];
 
     if (numChunks === 1) {
@@ -204,29 +206,32 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
       // @ts-expect-error -- FileData is Uint8Array at runtime
       chunks.push(new File([data], 'chunk_0.mp3', { type: 'audio/mpeg' }));
     } else {
-      // Step 2: Extract each chunk with precise -ss/-t (each is a complete, valid MP3)
+      // Step 2: Extract each chunk with -ss and re-encode for frame-accurate splits
       for (let i = 0; i < numChunks; i++) {
         const startSec = i * MAX_CHUNK_DURATION_SEC;
+        const isLast = i === numChunks - 1;
         setProgress(lang === 'en'
           ? `Splitting chunk ${i + 1}/${numChunks}...`
           : `Aufteilen ${i + 1}/${numChunks}...`);
 
         const outName = `chunk_${i}.mp3`;
-        await ffmpeg.exec([
+        // Last chunk: no -t limit → captures everything until the end
+        // Re-encode (not copy) for frame-accurate boundaries → no repeated audio
+        const args = [
           '-i', 'full.mp3',
           '-ss', String(startSec),
-          '-t', String(MAX_CHUNK_DURATION_SEC),
-          '-acodec', 'copy',  // no re-encode needed, just copy
+          ...(isLast ? [] : ['-t', String(MAX_CHUNK_DURATION_SEC)]),
+          '-acodec', 'libmp3lame', '-ab', '128k', '-ar', '16000', '-ac', '1',
           outName,
-        ]);
+        ];
+        await ffmpeg.exec(args);
 
         try {
           const data = await ffmpeg.readFile(outName);
           // @ts-expect-error -- FileData is Uint8Array at runtime
           const f = new File([data], outName, { type: 'audio/mpeg' });
-          if (f.size > 100) chunks.push(f); // skip empty/trivial chunks
+          if (f.size > 500) chunks.push(f); // skip empty chunks
         } catch {
-          // Chunk beyond actual duration — stop
           break;
         }
       }
