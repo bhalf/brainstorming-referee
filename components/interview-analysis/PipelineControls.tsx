@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import type { IAInterview } from '@/types/interview-analysis';
 import { useIALang, t } from '@/lib/interview-analysis/i18n';
 
@@ -41,6 +41,8 @@ export default function PipelineControls({
   const [error, setError] = useState('');
   const [runningAll, setRunningAll] = useState(false);
   const [lastMode, setLastMode] = useState<string | null>(null);
+  const [progressText, setProgressText] = useState('');
+  const abortRef = useRef(false);
 
   const transcribedCount = interviews.filter(i => i.status === 'transcribed' || i.status === 'analyzed').length;
   const pendingCount = interviews.filter(i => i.status === 'transcribed').length;
@@ -56,116 +58,137 @@ export default function PipelineControls({
     'segment-answers': status['segment-answers'] || (hasAnswers ? 'done' : 'pending'),
   } as Record<string, string>;
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [currentStep, setCurrentStep] = useState('');
-  const [progressText, setProgressText] = useState('');
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
+  /** Safe fetch that always returns parsed data */
+  async function safeFetch(url: string, body: unknown): Promise<Record<string, unknown>> {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text || `HTTP ${res.status}` };
     }
-  }, []);
-
-  // Poll pipeline status
-  const startPolling = useCallback(() => {
-    stopPolling();
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/interview-analysis/projects/${projectId}/run-pipeline`);
-        const ps = await res.json();
-
-        if (ps.step) setCurrentStep(ps.step);
-        if (ps.progress) setProgressText(ps.progress);
-
-        // Map backend step to frontend status
-        if (ps.step) {
-          setStatus(prev => {
-            const updated = { ...prev };
-            const stepOrder = ['extract-questions', 'match-questions', 'segment-answers', 'summarize'];
-            const currentIdx = stepOrder.indexOf(ps.step);
-            for (let i = 0; i < stepOrder.length; i++) {
-              if (i < currentIdx) updated[stepOrder[i]] = 'done';
-              else if (i === currentIdx) updated[stepOrder[i]] = 'running';
-            }
-            return updated;
-          });
-        }
-
-        if (!ps.running) {
-          stopPolling();
-          setRunningAll(false);
-          if (ps.error) {
-            setError(ps.error);
-          } else if (ps.step === 'done') {
-            setLastMode(ps.mode ?? 'full');
-            setStatus({
-              'extract-questions': 'done',
-              'match-questions': 'done',
-              'segment-answers': 'done',
-            });
-            onRefresh();
-          }
-        }
-      } catch {
-        // Polling error, will retry
-      }
-    }, 2000);
-  }, [projectId, onRefresh, stopPolling]);
-
-  // Check if pipeline is already running on mount (e.g., page refresh)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/interview-analysis/projects/${projectId}/run-pipeline`);
-        const ps = await res.json();
-        if (!cancelled && ps.running) {
-          setRunningAll(true);
-          if (ps.step) setCurrentStep(ps.step);
-          if (ps.progress) setProgressText(ps.progress);
-          startPolling();
-        }
-      } catch { /* ignore */ }
-    })();
-    return () => { cancelled = true; stopPolling(); };
-  }, [projectId, startPolling, stopPolling]);
+    if (!res.ok) throw new Error(String(data.error || `Step failed (HTTP ${res.status})`));
+    return data;
+  }
 
   async function runAll(mode: 'incremental' | 'full' = 'incremental') {
     setRunningAll(true);
     setError('');
     setLastMode(null);
-    setCurrentStep('');
     setProgressText('');
-    setStatus({
-      'extract-questions': 'running',
-      'match-questions': 'idle',
-      'segment-answers': 'idle',
-    });
+    abortRef.current = false;
+    setStatus({});
 
     try {
-      const res = await fetch(`/api/interview-analysis/projects/${projectId}/run-pipeline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
-      });
+      // Determine which interviews to process
+      const targetIds = mode === 'full'
+        ? interviews.filter(i => i.status === 'transcribed' || i.status === 'analyzed').map(i => i.id)
+        : interviews.filter(i => i.status === 'transcribed').map(i => i.id);
 
-      const data = await res.json();
+      const effectiveMode = mode === 'full' || !hasCanonicalQuestions ? 'full' : 'incremental';
 
-      if (!res.ok) {
-        throw new Error(data.error || t('error', lang));
+      if (effectiveMode === 'incremental' && targetIds.length === 0) {
+        setLastMode('incremental');
+        return;
       }
 
-      // Pipeline runs in background — start polling
-      startPolling();
+      const base = `/api/interview-analysis/projects/${projectId}`;
+
+      if (hasGuide) {
+        // ── TRACK A: Guide-Direct ─────────────────────────────────────────
+
+        if (effectiveMode === 'full') {
+          setStatus(s => ({ ...s, 'match-questions': 'running' }));
+          setProgressText('');
+          await safeFetch(`${base}/match-questions`, { guideDirect: true });
+          setStatus(s => ({ ...s, 'match-questions': 'done' }));
+        }
+
+        // Segment answers — one interview at a time
+        setStatus(s => ({ ...s, 'segment-answers': 'running' }));
+        for (let i = 0; i < targetIds.length; i++) {
+          if (abortRef.current) throw new Error('Aborted');
+          setProgressText(`${i + 1}/${targetIds.length}`);
+          await safeFetch(`${base}/segment-answers`, {
+            mode: 'incremental',
+            interviewIds: [targetIds[i]],
+            guideDirect: true,
+          });
+        }
+        setStatus(s => ({ ...s, 'segment-answers': 'done' }));
+
+      } else {
+        // ── TRACK B: Standard Pipeline ────────────────────────────────────
+
+        // Step 1: Extract questions — one interview at a time
+        setStatus(s => ({ ...s, 'extract-questions': 'running' }));
+        for (let i = 0; i < targetIds.length; i++) {
+          if (abortRef.current) throw new Error('Aborted');
+          setProgressText(`${i + 1}/${targetIds.length}`);
+          await safeFetch(`${base}/extract-questions`, {
+            interviewIds: [targetIds[i]],
+          });
+        }
+        setStatus(s => ({ ...s, 'extract-questions': 'done' }));
+
+        // Step 2: Match questions — one call for all
+        setStatus(s => ({ ...s, 'match-questions': 'running' }));
+        setProgressText('');
+        const matchBody = effectiveMode === 'incremental'
+          ? { mode: 'incremental', interviewIds: targetIds }
+          : { mode: 'full' };
+        await safeFetch(`${base}/match-questions`, matchBody);
+        setStatus(s => ({ ...s, 'match-questions': 'done' }));
+
+        // Step 3: Segment answers — one interview at a time
+        setStatus(s => ({ ...s, 'segment-answers': 'running' }));
+        for (let i = 0; i < targetIds.length; i++) {
+          if (abortRef.current) throw new Error('Aborted');
+          setProgressText(`${i + 1}/${targetIds.length}`);
+          await safeFetch(`${base}/segment-answers`, {
+            mode: 'incremental',
+            interviewIds: [targetIds[i]],
+          });
+        }
+        setStatus(s => ({ ...s, 'segment-answers': 'done' }));
+      }
+
+      // Step 4: Summarize — fetch canonical question IDs, then summarize one at a time
+      setProgressText(lang === 'en' ? 'Summarizing...' : 'Zusammenfassungen...');
+      try {
+        const cqRes = await fetch(`${base}/match-questions`);
+        if (cqRes.ok) {
+          const cqData = await cqRes.json();
+          const canonicalIds: string[] = (cqData.canonical_questions ?? []).map((c: { id: string }) => c.id);
+          for (let i = 0; i < canonicalIds.length; i++) {
+            if (abortRef.current) break;
+            setProgressText(`${lang === 'en' ? 'Summary' : 'Zusammenfassung'} ${i + 1}/${canonicalIds.length}`);
+            await safeFetch(`${base}/summarize-question`, { canonicalQuestionId: canonicalIds[i] }).catch(() => {});
+          }
+        }
+      } catch {
+        // Summarize is non-critical — continue
+      }
+
+      setProgressText('');
+      setLastMode(effectiveMode);
+      onRefresh();
     } catch (err) {
-      setStatus(s => ({ ...s, 'run-pipeline': 'error' }));
-      setError(err instanceof Error ? err.message : t('error', lang));
+      if (!abortRef.current) {
+        setError(err instanceof Error ? err.message : t('error', lang));
+      }
+    } finally {
       setRunningAll(false);
+      setProgressText('');
     }
   }
 
-  const isRunning = runningAll || Object.values(status).some(s => s === 'running');
+  const isRunning = runningAll;
 
   // Determine button label
   let buttonLabel = t('pipeline_start', lang);

@@ -4,6 +4,20 @@ import { getOpenAIClient } from '@/lib/openai';
 
 export const maxDuration = 120;
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  const { projectId } = await params;
+  const sb = getServiceClient();
+  const { data } = await sb
+    .from('ia_canonical_questions')
+    .select('id, canonical_text, topic_area, sort_order')
+    .eq('project_id', projectId)
+    .order('sort_order');
+  return NextResponse.json({ canonical_questions: data ?? [] });
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
