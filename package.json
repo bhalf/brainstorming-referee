@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@livekit/components-react": "^2.9.20",
     "@livekit/components-styles": "^1.2.0",
     "@supabase/supabase-js": "^2.98.0",
