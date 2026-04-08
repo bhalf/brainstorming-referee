@@ -10,7 +10,7 @@ interface AudioUploaderProps {
 }
 
 const ACCEPTED = '.mp3,.wav,.m4a,.webm,.ogg,.mp4,.mov,.avi,.mkv';
-const MAX_CHUNK_SIZE_MB = 4; // Vercel serverless payload limit is 4.5MB
+const MAX_CHUNK_SIZE_MB = 2; // Keep small: Vercel 4.5MB limit + Whisper 23min limit
 const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|wmv|flv)$/i;
 
 export default function AudioUploader({ projectId, transcriptionLanguage, onComplete }: AudioUploaderProps) {

@@ -112,22 +112,57 @@ export async function POST(
     }
 
     // Transcribe via OpenAI — use gpt-4o-transcribe for best accuracy
-    // Pass last ~200 chars of previous chunk as prompt to improve boundary continuity
-    const prompt = previousText
+    // gpt-4o-transcribe has a 1400s (~23 min) duration limit per file.
+    // If the audio exceeds this, split it into smaller byte-chunks and retry.
+    const basePrompt = previousText
       ? previousText.slice(-200)
       : language === 'de'
         ? 'Dies ist ein Interview-Transkript auf Deutsch.'
         : 'This is an interview transcript.';
 
-    const transcription = await openai.audio.transcriptions.create({
-      model: 'gpt-4o-transcribe',
-      file: audioFile,
-      language,
-      prompt,
-      response_format: 'json',
-    });
-
-    const fullText = (transcription as unknown as { text: string }).text;
+    let fullText: string;
+    try {
+      const transcription = await openai.audio.transcriptions.create({
+        model: 'gpt-4o-transcribe',
+        file: audioFile,
+        language,
+        prompt: basePrompt,
+        response_format: 'json',
+      });
+      fullText = (transcription as unknown as { text: string }).text;
+    } catch (transcribeErr) {
+      const errMsg = transcribeErr instanceof Error ? transcribeErr.message : String(transcribeErr);
+      // If duration limit exceeded, split the audio and transcribe in parts
+      if (errMsg.includes('duration') && errMsg.includes('longer than')) {
+        const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
+        const partSize = Math.ceil(audioBuffer.length / 4); // split into 4 parts
+        let combined = '';
+        for (let p = 0; p < 4; p++) {
+          const start = p * partSize;
+          const end = Math.min(start + partSize, audioBuffer.length);
+          if (start >= audioBuffer.length) break;
+          const partBuf = audioBuffer.subarray(start, end);
+          const partFile = new File(
+            [new Uint8Array(partBuf)],
+            `part_${p}.${audioFile.name.split('.').pop()}`,
+            { type: audioFile.type || 'audio/mpeg' }
+          );
+          const partPrompt = combined ? combined.slice(-200) : basePrompt;
+          const partResult = await openai.audio.transcriptions.create({
+            model: 'gpt-4o-transcribe',
+            file: partFile,
+            language,
+            prompt: partPrompt,
+            response_format: 'json',
+          });
+          const partText = (partResult as unknown as { text: string }).text;
+          combined += (combined ? ' ' : '') + partText;
+        }
+        fullText = combined;
+      } else {
+        throw transcribeErr;
+      }
+    }
     const wordCount = fullText.trim().split(/\s+/).length;
 
     // Update interview with transcript
