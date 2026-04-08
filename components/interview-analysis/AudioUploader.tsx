@@ -10,7 +10,7 @@ interface AudioUploaderProps {
 }
 
 const ACCEPTED = '.mp3,.wav,.m4a,.webm,.ogg,.mp4,.mov,.avi,.mkv';
-const MAX_CHUNK_SIZE_MB = 2; // Keep small: Vercel 4.5MB limit + Whisper 23min limit
+const MAX_CHUNK_DURATION_SEC = 600; // 10 minutes per chunk (Whisper limit is 23min)
 const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|wmv|flv)$/i;
 
 export default function AudioUploader({ projectId, transcriptionLanguage, onComplete }: AudioUploaderProps) {
@@ -43,18 +43,54 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
     setProgress('');
 
     try {
-      const isVideo = VIDEO_EXTENSIONS.test(file.name);
-      let audioFile = file;
+      // Step 1: Convert to time-based MP3 chunks using ffmpeg.wasm
+      setProgress(lang === 'en' ? 'Processing audio...' : 'Audio wird verarbeitet...');
+      const mp3Chunks = await splitToMp3Chunks(file);
 
-      // Convert video to MP3 client-side using ffmpeg.wasm
-      if (isVideo) {
-        setProgress(lang === 'en' ? 'Extracting audio from video...' : 'Audio wird aus Video extrahiert...');
-        audioFile = await convertVideoToMp3(file);
+      // Step 2: Upload each chunk to transcribe API
+      let fullText = '';
+      let interviewId: string | null = null;
+
+      for (let i = 0; i < mp3Chunks.length; i++) {
+        setProgress(`${t('audio_transcribing_part', lang)} ${i + 1}/${mp3Chunks.length}...`);
+        const formData = new FormData();
+        formData.append('file', mp3Chunks[i], `chunk_${i}.mp3`);
+        formData.append('name', name || file.name.replace(/\.[^.]+$/, ''));
+        formData.append('language', transcriptionLanguage);
+        if (interviewId) formData.append('interviewId', interviewId);
+        if (fullText) formData.append('previousText', fullText.slice(-200));
+
+        const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          let msg = t('audio_failed', lang);
+          try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+          throw new Error(msg);
+        }
+
+        const data = await res.json();
+        if (i === 0) interviewId = data.id;
+        fullText += (fullText ? ' ' : '') + (data.transcript_text || '');
       }
 
-      // Now upload the audio file in chunks
-      await uploadChunked(audioFile);
+      // Step 3: Update with combined transcript if multiple chunks
+      if (interviewId && mp3Chunks.length > 1) {
+        await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcript_text: fullText,
+            word_count: fullText.trim().split(/\s+/).length,
+            name: name || file.name.replace(/\.[^.]+$/, ''),
+          }),
+        });
+      }
 
+      setProgress(t('audio_done', lang));
       setTimeout(onComplete, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('audio_failed', lang));
@@ -63,88 +99,88 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
     }
   }
 
-  /** Convert video to MP3 using ffmpeg.wasm (runs in browser) */
-  async function convertVideoToMp3(videoFile: File): Promise<File> {
+  /**
+   * Convert any audio/video file to time-based MP3 chunks using ffmpeg.wasm.
+   * Each chunk is exactly MAX_CHUNK_DURATION_SEC seconds (last may be shorter).
+   * This ensures each chunk is a valid MP3 with correct duration metadata.
+   */
+  async function splitToMp3Chunks(inputFile: File): Promise<File[]> {
     const { FFmpeg } = await import('@ffmpeg/ffmpeg');
     const { fetchFile } = await import('@ffmpeg/util');
 
     const ffmpeg = new FFmpeg();
     await ffmpeg.load();
 
-    const inputName = `input.${videoFile.name.split('.').pop()}`;
-    const outputName = 'output.mp3';
+    const ext = inputFile.name.split('.').pop()?.toLowerCase() || 'mp3';
+    const inputName = `input.${ext}`;
 
-    await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
-    await ffmpeg.exec([
-      '-i', inputName,
-      '-vn',             // strip video
-      '-acodec', 'libmp3lame',
-      '-ab', '128k',
-      '-ar', '16000',    // 16kHz speech-optimized
-      '-ac', '1',        // mono
-      outputName,
-    ]);
+    await ffmpeg.writeFile(inputName, await fetchFile(inputFile));
 
-    const data = await ffmpeg.readFile(outputName);
-    // @ts-expect-error -- ffmpeg.wasm FileData is Uint8Array at runtime
-    const mp3Blob = new Blob([data], { type: 'audio/mpeg' });
-    const mp3Name = videoFile.name.replace(/\.[^.]+$/, '.mp3');
+    // Get duration first
+    let durationSec = 0;
+    ffmpeg.on('log', ({ message }) => {
+      // Parse "Duration: HH:MM:SS.xx" from ffmpeg output
+      const match = message.match(/Duration:\s*(\d+):(\d+):(\d+)\.(\d+)/);
+      if (match) {
+        durationSec = parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3]) + parseInt(match[4]) / 100;
+      }
+    });
+
+    // Run a quick probe to get duration
+    await ffmpeg.exec(['-i', inputName, '-f', 'null', '-']);
+
+    if (durationSec <= 0) {
+      // Fallback: estimate from file size (assume ~128kbps)
+      durationSec = (inputFile.size / (128 * 1024 / 8));
+    }
+
+    const numChunks = Math.ceil(durationSec / MAX_CHUNK_DURATION_SEC);
+    const chunks: File[] = [];
+
+    if (numChunks <= 1) {
+      // Single chunk — just convert to MP3
+      const outName = 'chunk_0.mp3';
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-vn', '-acodec', 'libmp3lame', '-ab', '128k', '-ar', '16000', '-ac', '1',
+        outName,
+      ]);
+      const data = await ffmpeg.readFile(outName);
+      // @ts-expect-error -- FileData is Uint8Array at runtime
+      chunks.push(new File([data], outName, { type: 'audio/mpeg' }));
+    } else {
+      // Multiple chunks — use ffmpeg segment muxer
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-vn', '-acodec', 'libmp3lame', '-ab', '128k', '-ar', '16000', '-ac', '1',
+        '-f', 'segment',
+        '-segment_time', String(MAX_CHUNK_DURATION_SEC),
+        '-reset_timestamps', '1',
+        'chunk_%03d.mp3',
+      ]);
+
+      // Read all generated chunk files
+      for (let i = 0; i < numChunks + 1; i++) {
+        const chunkName = `chunk_${String(i).padStart(3, '0')}.mp3`;
+        try {
+          const data = await ffmpeg.readFile(chunkName);
+          // @ts-expect-error -- FileData is Uint8Array at runtime
+          const blob = new File([data], chunkName, { type: 'audio/mpeg' });
+          if (blob.size > 0) chunks.push(blob);
+        } catch {
+          break; // No more chunks
+        }
+      }
+    }
 
     // Cleanup
-    await ffmpeg.deleteFile(inputName).catch(() => {});
-    await ffmpeg.deleteFile(outputName).catch(() => {});
     ffmpeg.terminate();
 
-    return new File([mp3Blob], mp3Name, { type: 'audio/mpeg' });
-  }
-
-  /** Upload audio file — always chunked to stay under Vercel + Whisper limits */
-  async function uploadChunked(audioFile: File) {
-    setProgress(t('audio_splitting', lang));
-    const chunks = chunkFile(audioFile, MAX_CHUNK_SIZE_MB * 1024 * 1024);
-    let fullText = '';
-    let interviewId: string | null = null;
-
-    for (let i = 0; i < chunks.length; i++) {
-      setProgress(`${t('audio_transcribing_part', lang)} ${i + 1}/${chunks.length}...`);
-      const formData = new FormData();
-      formData.append('file', chunks[i], `chunk_${i}.mp3`);
-      formData.append('name', name || file!.name.replace(/\.[^.]+$/, ''));
-      formData.append('language', transcriptionLanguage);
-      if (interviewId) formData.append('interviewId', interviewId);
-      if (fullText) formData.append('previousText', fullText.slice(-200));
-
-      const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        let msg = t('audio_failed', lang);
-        try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
-        throw new Error(msg);
-      }
-
-      const data = await res.json();
-      if (i === 0) interviewId = data.id;
-      fullText += (fullText ? ' ' : '') + (data.transcript_text || '');
+    if (chunks.length === 0) {
+      throw new Error('Audio processing failed — no output generated');
     }
 
-    // Update with combined transcript
-    if (interviewId) {
-      await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript_text: fullText,
-          word_count: fullText.trim().split(/\s+/).length,
-          name: name || file!.name.replace(/\.[^.]+$/, ''),
-        }),
-      });
-    }
-
-    setProgress(t('audio_done', lang));
+    return chunks;
   }
 
   return (
@@ -249,12 +285,3 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
   );
 }
 
-function chunkFile(file: File | Blob, chunkSize: number): Blob[] {
-  const chunks: Blob[] = [];
-  let offset = 0;
-  while (offset < file.size) {
-    chunks.push(file.slice(offset, offset + chunkSize));
-    offset += chunkSize;
-  }
-  return chunks;
-}
