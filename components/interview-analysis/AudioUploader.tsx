@@ -112,7 +112,8 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
 
         const data = await res.json();
         if (i === 0) interviewId = data.id;
-        fullText += (fullText ? ' ' : '') + (data.transcript_text || '');
+        const chunkText = (data.transcript_text || '').trim();
+        if (chunkText) fullText += (fullText ? ' ' : '') + chunkText;
       }
 
       // Step 3: Update with combined transcript

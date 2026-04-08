@@ -120,6 +120,11 @@ export async function POST(
 
     let fullText: string;
     try {
+      // Skip empty/corrupted chunks (can happen with last chunk beyond actual duration)
+      if (audioFile.size < 1000) {
+        return NextResponse.json({ id: iId, transcript_text: '', word_count: 0 });
+      }
+
       const transcription = await openai.audio.transcriptions.create({
         model: 'gpt-4o-transcribe',
         file: audioFile,
@@ -131,6 +136,12 @@ export async function POST(
       fullText = (transcription as unknown as { text: string }).text;
     } catch (transcribeErr) {
       const errMsg = transcribeErr instanceof Error ? transcribeErr.message : String(transcribeErr);
+
+      // Corrupted/empty chunk — skip it, return empty text
+      if (errMsg.includes('corrupted') || errMsg.includes('unsupported') || errMsg.includes('Could not process')) {
+        return NextResponse.json({ id: iId, transcript_text: '', word_count: 0 });
+      }
+
       // If duration limit exceeded, split the audio and transcribe in parts
       if (errMsg.includes('duration') && errMsg.includes('longer than')) {
         const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
