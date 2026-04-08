@@ -146,7 +146,8 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
 
   /**
    * Convert any audio/video file to time-based MP3 chunks using ffmpeg.wasm.
-   * Uses segment muxer in a single pass — no probe step needed.
+   * Step 1: Convert to single MP3 + detect duration from logs.
+   * Step 2: Extract each chunk with -ss/-t for guaranteed complete output.
    */
   async function splitToMp3Chunks(inputFile: File): Promise<File[]> {
     const { FFmpeg } = await import('@ffmpeg/ffmpeg');
@@ -155,12 +156,19 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
     const ffmpeg = new FFmpeg();
     await ffmpeg.load();
 
-    // Show progress based on ffmpeg time output
+    let durationSec = 0;
+
     ffmpeg.on('log', ({ message }) => {
-      const match = message.match(/time=(\d+):(\d+):(\d+)/);
-      if (match) {
-        const mins = parseInt(match[1]) * 60 + parseInt(match[2]);
-        setProgress(lang === 'en' ? `Processing... ${mins} min done` : `Verarbeitung... ${mins} Min. fertig`);
+      // Capture duration from ffmpeg output
+      const durMatch = message.match(/Duration:\s*(\d+):(\d+):(\d+)\.(\d+)/);
+      if (durMatch) {
+        durationSec = parseInt(durMatch[1]) * 3600 + parseInt(durMatch[2]) * 60 + parseInt(durMatch[3]) + parseInt(durMatch[4]) / 100;
+      }
+      // Show progress
+      const timeMatch = message.match(/time=(\d+):(\d+):(\d+)/);
+      if (timeMatch) {
+        const mins = parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]);
+        setProgress(lang === 'en' ? `Converting... ${mins} min done` : `Konvertierung... ${mins} Min. fertig`);
       }
     });
 
@@ -168,31 +176,59 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
     const inputName = `input.${ext}`;
     await ffmpeg.writeFile(inputName, await fetchFile(inputFile));
 
-    // Single-pass: convert + segment in one ffmpeg call
+    // Step 1: Convert entire file to a single MP3
+    setProgress(lang === 'en' ? 'Converting audio...' : 'Audio wird konvertiert...');
     await ffmpeg.exec([
       '-i', inputName,
-      '-vn',                          // strip video
-      '-acodec', 'libmp3lame',
-      '-ab', '128k',
-      '-ar', '16000',                 // 16kHz speech-optimized
-      '-ac', '1',                     // mono
-      '-f', 'segment',
-      '-segment_time', String(MAX_CHUNK_DURATION_SEC),
-      '-reset_timestamps', '1',
-      'chunk_%03d.mp3',
+      '-vn', '-acodec', 'libmp3lame', '-ab', '128k', '-ar', '16000', '-ac', '1',
+      'full.mp3',
     ]);
 
-    // Read all generated chunk files
-    const chunks: File[] = [];
-    for (let i = 0; i < 999; i++) {
-      const chunkName = `chunk_${String(i).padStart(3, '0')}.mp3`;
+    // Fallback duration estimate if not detected
+    if (durationSec <= 0) {
       try {
-        const data = await ffmpeg.readFile(chunkName);
-        // @ts-expect-error -- FileData is Uint8Array at runtime
-        const f = new File([data], chunkName, { type: 'audio/mpeg' });
-        if (f.size > 0) chunks.push(f);
+        const fullData = await ffmpeg.readFile('full.mp3');
+        // 128kbps mono = 16000 bytes/sec
+        durationSec = (fullData as Uint8Array).length / 16000;
       } catch {
-        break;
+        durationSec = 600; // fallback 10 min
+      }
+    }
+
+    const numChunks = Math.max(1, Math.ceil(durationSec / MAX_CHUNK_DURATION_SEC));
+    const chunks: File[] = [];
+
+    if (numChunks === 1) {
+      // Single chunk — use the full MP3
+      const data = await ffmpeg.readFile('full.mp3');
+      // @ts-expect-error -- FileData is Uint8Array at runtime
+      chunks.push(new File([data], 'chunk_0.mp3', { type: 'audio/mpeg' }));
+    } else {
+      // Step 2: Extract each chunk with precise -ss/-t (each is a complete, valid MP3)
+      for (let i = 0; i < numChunks; i++) {
+        const startSec = i * MAX_CHUNK_DURATION_SEC;
+        setProgress(lang === 'en'
+          ? `Splitting chunk ${i + 1}/${numChunks}...`
+          : `Aufteilen ${i + 1}/${numChunks}...`);
+
+        const outName = `chunk_${i}.mp3`;
+        await ffmpeg.exec([
+          '-i', 'full.mp3',
+          '-ss', String(startSec),
+          '-t', String(MAX_CHUNK_DURATION_SEC),
+          '-acodec', 'copy',  // no re-encode needed, just copy
+          outName,
+        ]);
+
+        try {
+          const data = await ffmpeg.readFile(outName);
+          // @ts-expect-error -- FileData is Uint8Array at runtime
+          const f = new File([data], outName, { type: 'audio/mpeg' });
+          if (f.size > 100) chunks.push(f); // skip empty/trivial chunks
+        } catch {
+          // Chunk beyond actual duration — stop
+          break;
+        }
       }
     }
 
