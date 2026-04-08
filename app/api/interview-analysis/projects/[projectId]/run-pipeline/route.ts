@@ -194,17 +194,26 @@ async function runPipelineBackground(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    // Read body as text first, then try to parse as JSON
+    const text = await res.text().catch(() => '');
     let data: Record<string, unknown>;
     try {
-      data = await res.json();
+      data = JSON.parse(text);
     } catch {
-      const text = await res.text().catch(() => 'Unknown response');
-      data = { error: text };
+      data = { error: text || `HTTP ${res.status}` };
     }
     return { ok: res.ok, data };
   }
 
-  const results: Array<{ step: string; status: string; data?: unknown; error?: string }> = [];
+  // Get all interview IDs to process
+  const interviewIds = effectiveMode === 'incremental' ? newInterviewIds : await getAllInterviewIds(sb, projectId);
+
+  const allAdditionalQuestions: Array<{
+    interview_id: string;
+    question: string;
+    answer: string;
+    topic: string;
+  }> = [];
 
   try {
     if (hasGuide) {
@@ -220,77 +229,78 @@ async function runPipelineBackground(
           await updateStatus('match-questions', undefined, String(data.error || 'Failed'));
           return;
         }
-        results.push({ step: 'match-questions', status: 'ok', data });
       }
 
-      await updateStatus('segment-answers', `0/${totalInterviews}`);
-      const segmentBody = effectiveMode === 'incremental'
-        ? { mode: 'incremental', interviewIds: newInterviewIds, guideDirect: true }
-        : { mode: 'full', guideDirect: true };
-
-      const { ok, data } = await safeFetch(
-        `${origin}/api/interview-analysis/projects/${projectId}/segment-answers`,
-        segmentBody,
-      );
-      if (!ok) {
-        await updateStatus('segment-answers', undefined, String(data.error || 'Failed'));
-        return;
+      // Segment answers one interview at a time to avoid timeout
+      for (let i = 0; i < interviewIds.length; i++) {
+        await updateStatus('segment-answers', `${i + 1}/${interviewIds.length}`);
+        const { ok, data } = await safeFetch(
+          `${origin}/api/interview-analysis/projects/${projectId}/segment-answers`,
+          { mode: 'incremental', interviewIds: [interviewIds[i]], guideDirect: true },
+        );
+        if (!ok) {
+          await updateStatus('segment-answers', `${i + 1}/${interviewIds.length}`, String(data.error || 'Failed'));
+          return;
+        }
+        // Collect additional questions
+        const aqs = (data.additional_questions ?? []) as typeof allAdditionalQuestions;
+        allAdditionalQuestions.push(...aqs);
       }
-      results.push({ step: 'segment-answers', status: 'ok', data });
 
-      const additionalQuestions = (data.additional_questions ?? []) as Array<{
-        interview_id: string;
-        question: string;
-        answer: string;
-        topic: string;
-      }>;
-
-      if (additionalQuestions.length > 0) {
-        await processAdditionalQuestions(projectId, additionalQuestions, sb);
+      if (allAdditionalQuestions.length > 0) {
+        await processAdditionalQuestions(projectId, allAdditionalQuestions, sb);
       }
     } else {
       // ── TRACK B: Standard Pipeline (no guide) ─────────────────────────
 
-      const pipelineBody = effectiveMode === 'incremental'
-        ? { mode: 'incremental', interviewIds: newInterviewIds }
-        : { mode: 'full' };
-
-      const steps = [
-        { name: 'extract-questions', label: 'Extracting questions' },
-        { name: 'match-questions', label: 'Matching questions' },
-        { name: 'segment-answers', label: 'Segmenting answers' },
-      ];
-
-      for (const step of steps) {
-        await updateStatus(step.name, `0/${totalInterviews}`);
+      // Step 1: Extract questions — one interview at a time
+      for (let i = 0; i < interviewIds.length; i++) {
+        await updateStatus('extract-questions', `${i + 1}/${interviewIds.length}`);
         const { ok, data } = await safeFetch(
-          `${origin}/api/interview-analysis/projects/${projectId}/${step.name}`,
-          pipelineBody,
+          `${origin}/api/interview-analysis/projects/${projectId}/extract-questions`,
+          { interviewIds: [interviewIds[i]] },
         );
         if (!ok) {
-          await updateStatus(step.name, undefined, String(data.error || `${step.label} failed`));
+          await updateStatus('extract-questions', `${i + 1}/${interviewIds.length}`, String(data.error || 'Failed'));
           return;
         }
-        results.push({ step: step.name, status: 'ok', data });
+      }
+
+      // Step 2: Match questions — one call for all (lightweight, no transcript processing)
+      await updateStatus('match-questions', `0/1`);
+      const matchBody = effectiveMode === 'incremental'
+        ? { mode: 'incremental', interviewIds: newInterviewIds }
+        : { mode: 'full' };
+      const { ok: matchOk, data: matchData } = await safeFetch(
+        `${origin}/api/interview-analysis/projects/${projectId}/match-questions`,
+        matchBody,
+      );
+      if (!matchOk) {
+        await updateStatus('match-questions', undefined, String(matchData.error || 'Failed'));
+        return;
+      }
+
+      // Step 3: Segment answers — one interview at a time
+      for (let i = 0; i < interviewIds.length; i++) {
+        await updateStatus('segment-answers', `${i + 1}/${interviewIds.length}`);
+        const { ok, data } = await safeFetch(
+          `${origin}/api/interview-analysis/projects/${projectId}/segment-answers`,
+          { mode: 'incremental', interviewIds: [interviewIds[i]] },
+        );
+        if (!ok) {
+          await updateStatus('segment-answers', `${i + 1}/${interviewIds.length}`, String(data.error || 'Failed'));
+          return;
+        }
       }
     }
 
     // ── Generate summaries ──────────────────────────────────────────────────
 
-    await updateStatus('summarize', `0/${totalInterviews}`);
-
-    let canonicalIdsToSummarize: string[] = [];
-    if (effectiveMode === 'incremental') {
-      const segmentResult = results.find(r => r.step === 'segment-answers');
-      canonicalIdsToSummarize =
-        (segmentResult?.data as { affected_canonical_ids?: string[] })?.affected_canonical_ids ?? [];
-    } else {
-      const { data: allCanonicals } = await sb
-        .from('ia_canonical_questions')
-        .select('id')
-        .eq('project_id', projectId);
-      canonicalIdsToSummarize = (allCanonicals ?? []).map(c => c.id);
-    }
+    const { data: allCanonicals } = await sb
+      .from('ia_canonical_questions')
+      .select('id')
+      .eq('project_id', projectId);
+    const canonicalIdsToSummarize = (allCanonicals ?? []).map(c => c.id);
 
     for (let i = 0; i < canonicalIdsToSummarize.length; i++) {
       await updateStatus('summarize', `${i + 1}/${canonicalIdsToSummarize.length}`);
@@ -318,6 +328,15 @@ async function runPipelineBackground(
     const msg = err instanceof Error ? err.message : 'Unknown error';
     await updateStatus('error', undefined, msg);
   }
+}
+
+async function getAllInterviewIds(sb: ReturnType<typeof getServiceClient>, projectId: string): Promise<string[]> {
+  const { data } = await sb
+    .from('ia_interviews')
+    .select('id')
+    .eq('project_id', projectId)
+    .in('status', ['transcribed', 'analyzed']);
+  return (data ?? []).map(i => i.id);
 }
 
 // ── Process additional questions from guide-direct segmentation ───────────────
