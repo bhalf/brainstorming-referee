@@ -98,35 +98,8 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
     return new File([mp3Blob], mp3Name, { type: 'audio/mpeg' });
   }
 
-  /** Upload audio file, chunked if needed */
+  /** Upload audio file — always chunked to stay under Vercel + Whisper limits */
   async function uploadChunked(audioFile: File) {
-    const sizeMB = audioFile.size / (1024 * 1024);
-
-    if (sizeMB <= MAX_CHUNK_SIZE_MB) {
-      // Small file — single upload
-      setProgress(t('audio_transcribing', lang));
-      const formData = new FormData();
-      formData.append('file', audioFile);
-      formData.append('name', name || file!.name.replace(/\.[^.]+$/, ''));
-      formData.append('language', transcriptionLanguage);
-
-      const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        let msg = t('audio_failed', lang);
-        try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
-        throw new Error(msg);
-      }
-
-      setProgress(t('audio_done', lang));
-      return;
-    }
-
-    // Large file — chunk and upload
     setProgress(t('audio_splitting', lang));
     const chunks = chunkFile(audioFile, MAX_CHUNK_SIZE_MB * 1024 * 1024);
     let fullText = '';
