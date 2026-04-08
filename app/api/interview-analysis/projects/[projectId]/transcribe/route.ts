@@ -164,24 +164,31 @@ export async function POST(
     }
     const wordCount = fullText.trim().split(/\s+/).length;
 
-    // Update interview with transcript
-    const { data, error } = await sb
-      .from('ia_interviews')
-      .update({
-        transcript_text: fullText,
-        status: 'transcribed',
-        word_count: wordCount,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', iId)
-      .select()
-      .single();
+    // Only update DB if this is NOT a chunked upload (client will PATCH combined text later)
+    // A chunked upload sends interviewId for chunks 2+
+    if (!interviewId) {
+      // First or only chunk — update interview with transcript
+      const { data, error } = await sb
+        .from('ia_interviews')
+        .update({
+          transcript_text: fullText,
+          status: 'transcribed',
+          word_count: wordCount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', iId)
+        .select()
+        .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json(data);
     }
 
-    return NextResponse.json(data);
+    // Chunked upload — just return the transcript text, don't update DB
+    // Client will PATCH combined text when all chunks are done
+    return NextResponse.json({ id: iId, transcript_text: fullText, word_count: wordCount });
   } catch (err) {
     // Mark as failed
     await sb.from('ia_interviews').update({ status: 'pending' }).eq('id', iId);

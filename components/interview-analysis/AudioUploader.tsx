@@ -115,17 +115,24 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
         fullText += (fullText ? ' ' : '') + (data.transcript_text || '');
       }
 
-      // Step 3: Update with combined transcript if multiple chunks
-      if (interviewId && mp3Chunks.length > 1) {
-        await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
+      // Step 3: Update with combined transcript
+      if (interviewId) {
+        const patchRes = await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             transcript_text: fullText,
             word_count: fullText.trim().split(/\s+/).length,
             name: name || file.name.replace(/\.[^.]+$/, ''),
+            status: 'transcribed',
           }),
         });
+        if (!patchRes.ok) {
+          const text = await patchRes.text();
+          let msg = t('audio_failed', lang);
+          try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+          throw new Error(msg);
+        }
       }
 
       setProgress(t('audio_done', lang));
