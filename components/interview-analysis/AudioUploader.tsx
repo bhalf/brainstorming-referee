@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { useIALang, t } from '@/lib/interview-analysis/i18n';
+import { supabase } from '@/lib/supabase/client';
 
 interface AudioUploaderProps {
   projectId: string;
@@ -10,7 +11,7 @@ interface AudioUploaderProps {
 }
 
 const ACCEPTED = '.mp3,.wav,.m4a,.webm,.ogg,.mp4,.mov,.avi,.mkv';
-const MAX_CHUNK_SIZE_MB = 4; // Vercel serverless payload limit is 4.5MB
+const MAX_DIRECT_SIZE_MB = 4; // Vercel serverless payload limit is 4.5MB
 const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|wmv|flv)$/i;
 
 export default function AudioUploader({ projectId, transcriptionLanguage, onComplete }: AudioUploaderProps) {
@@ -45,62 +46,84 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
       const sizeMB = file.size / (1024 * 1024);
       const isVideo = VIDEO_EXTENSIONS.test(file.name);
 
-      if (!isVideo && sizeMB > MAX_CHUNK_SIZE_MB) {
-        // Chunk large audio files (Vercel payload limit is 4.5MB)
-        setProgress(t('audio_splitting', lang));
-        const chunks = chunkFile(file, MAX_CHUNK_SIZE_MB * 1024 * 1024);
-        let fullText = '';
-        let interviewId: string | null = null;
-
-        for (let i = 0; i < chunks.length; i++) {
-          setProgress(`${t('audio_transcribing_part', lang)} ${i + 1}/${chunks.length}...`);
-          const formData = new FormData();
-          formData.append('file', chunks[i], `chunk_${i}.${file.name.split('.').pop()}`);
-          formData.append('name', name || file.name);
-          formData.append('language', transcriptionLanguage);
-          // Pass interviewId from first chunk so all chunks update the same interview
-          if (interviewId) formData.append('interviewId', interviewId);
-          // Pass end of previous chunk text to improve boundary transcription
-          if (fullText) formData.append('previousText', fullText.slice(-200));
-
-          const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!res.ok) {
-            const text = await res.text();
-            let msg = t('audio_failed', lang);
-            try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
-            throw new Error(msg);
-          }
-
-          const data = await res.json();
-          if (i === 0) interviewId = data.id;
-          fullText += (fullText ? ' ' : '') + (data.transcript_text || '');
-        }
-
-        // Update the interview with the combined transcript from all chunks
-        if (interviewId) {
-          await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              transcript_text: fullText,
-              word_count: fullText.trim().split(/\s+/).length,
-              name: name || file.name.replace(/\.[^.]+$/, ''),
-            }),
-          });
-        }
-
-        setProgress(t('audio_done', lang));
+      if (isVideo || sizeMB > MAX_DIRECT_SIZE_MB) {
+        // Large file or video → upload to Supabase Storage, then process server-side
+        await uploadViaStorage(file, isVideo);
       } else {
-        // Single upload (audio files < 24MB, or video files — server extracts audio)
-        setProgress(isVideo ? t('audio_extracting_video', lang) : t('audio_transcribing', lang));
+        // Small audio file → direct upload
+        await uploadDirect(file);
+      }
+
+      setTimeout(onComplete, 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('audio_failed', lang));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  /** Upload large files / videos via Supabase Storage → server-side processing */
+  async function uploadViaStorage(file: File, isVideo: boolean) {
+    setProgress(isVideo ? t('audio_extracting_video', lang) : t('audio_transcribing', lang));
+
+    // 1. Upload to Supabase Storage
+    const storagePath = `${projectId}/${Date.now()}_${file.name}`;
+    setProgress(lang === 'en' ? 'Uploading file...' : 'Datei wird hochgeladen...');
+
+    const { error: uploadErr } = await supabase.storage
+      .from('ia-uploads')
+      .upload(storagePath, file, { upsert: true });
+
+    if (uploadErr) {
+      throw new Error(uploadErr.message);
+    }
+
+    // 2. Call server to process from storage
+    setProgress(isVideo
+      ? (lang === 'en' ? 'Extracting audio & transcribing...' : 'Audio wird extrahiert & transkribiert...')
+      : (lang === 'en' ? 'Transcribing...' : 'Wird transkribiert...'));
+
+    const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe-storage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        storagePath,
+        name: name || file.name.replace(/\.[^.]+$/, ''),
+        language: transcriptionLanguage,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = t('audio_failed', lang);
+      try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+      // Clean up storage on error
+      await supabase.storage.from('ia-uploads').remove([storagePath]).catch(() => {});
+      throw new Error(msg);
+    }
+
+    setProgress(t('audio_done', lang));
+  }
+
+  /** Direct upload for small audio files (chunked if > 4MB) */
+  async function uploadDirect(file: File) {
+    const sizeMB = file.size / (1024 * 1024);
+
+    if (sizeMB > MAX_DIRECT_SIZE_MB) {
+      // Chunk large audio files
+      setProgress(t('audio_splitting', lang));
+      const chunks = chunkFile(file, MAX_DIRECT_SIZE_MB * 1024 * 1024);
+      let fullText = '';
+      let interviewId: string | null = null;
+
+      for (let i = 0; i < chunks.length; i++) {
+        setProgress(`${t('audio_transcribing_part', lang)} ${i + 1}/${chunks.length}...`);
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', chunks[i], `chunk_${i}.${file.name.split('.').pop()}`);
         formData.append('name', name || file.name);
         formData.append('language', transcriptionLanguage);
+        if (interviewId) formData.append('interviewId', interviewId);
+        if (fullText) formData.append('previousText', fullText.slice(-200));
 
         const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
           method: 'POST',
@@ -114,14 +137,46 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
           throw new Error(msg);
         }
 
-        setProgress(t('audio_done', lang));
+        const data = await res.json();
+        if (i === 0) interviewId = data.id;
+        fullText += (fullText ? ' ' : '') + (data.transcript_text || '');
       }
 
-      setTimeout(onComplete, 500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('audio_failed', lang));
-    } finally {
-      setUploading(false);
+      // Update with combined transcript
+      if (interviewId) {
+        await fetch(`/api/interview-analysis/projects/${projectId}/interviews/${interviewId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcript_text: fullText,
+            word_count: fullText.trim().split(/\s+/).length,
+            name: name || file.name.replace(/\.[^.]+$/, ''),
+          }),
+        });
+      }
+
+      setProgress(t('audio_done', lang));
+    } else {
+      // Single small file upload
+      setProgress(t('audio_transcribing', lang));
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', name || file.name);
+      formData.append('language', transcriptionLanguage);
+
+      const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        let msg = t('audio_failed', lang);
+        try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+        throw new Error(msg);
+      }
+
+      setProgress(t('audio_done', lang));
     }
   }
 
