@@ -13,10 +13,20 @@ const ACCEPTED = '.mp3,.wav,.m4a,.webm,.ogg,.mp4,.mov,.avi,.mkv';
 const MAX_CHUNK_DURATION_SEC = 180; // 3 minutes per chunk → ~2.8MB at 128kbps mono (Vercel limit 4.5MB)
 const VIDEO_EXTENSIONS = /\.(mp4|mov|avi|mkv|wmv|flv)$/i;
 
+const LANG_OPTIONS = [
+  { value: '', label: 'Auto-Detect' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'en', label: 'English' },
+  { value: 'fr', label: 'Français' },
+  { value: 'it', label: 'Italiano' },
+  { value: 'es', label: 'Español' },
+];
+
 export default function AudioUploader({ projectId, transcriptionLanguage, onComplete }: AudioUploaderProps) {
   const lang = useIALang();
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
+  const [audioLang, setAudioLang] = useState(transcriptionLanguage);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
@@ -52,7 +62,7 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
         const formData = new FormData();
         formData.append('file', file);
         formData.append('name', name || file.name.replace(/\.[^.]+$/, ''));
-        formData.append('language', transcriptionLanguage);
+        if (audioLang) formData.append('language', audioLang);
 
         const res = await fetch(`/api/interview-analysis/projects/${projectId}/transcribe`, {
           method: 'POST',
@@ -84,7 +94,7 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
         const formData = new FormData();
         formData.append('file', mp3Chunks[i], `chunk_${i}.mp3`);
         formData.append('name', name || file.name.replace(/\.[^.]+$/, ''));
-        formData.append('language', transcriptionLanguage);
+        if (audioLang) formData.append('language', audioLang);
         if (interviewId) formData.append('interviewId', interviewId);
         if (fullText) formData.append('previousText', fullText.slice(-200));
 
@@ -190,16 +200,32 @@ export default function AudioUploader({ projectId, transcriptionLanguage, onComp
 
   return (
     <div className="space-y-4">
-      <div>
-        <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--ia-text-secondary)' }}>
-          {t('audio_name', lang)}
-        </label>
-        <input
-          className="ia-input"
-          placeholder={t('audio_name_placeholder', lang)}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--ia-text-secondary)' }}>
+            {t('audio_name', lang)}
+          </label>
+          <input
+            className="ia-input"
+            placeholder={t('audio_name_placeholder', lang)}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div style={{ width: 140 }}>
+          <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--ia-text-secondary)' }}>
+            {lang === 'en' ? 'Language' : 'Sprache'}
+          </label>
+          <select
+            className="ia-input"
+            value={audioLang}
+            onChange={(e) => setAudioLang(e.target.value)}
+          >
+            {LANG_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Premium Drop Zone */}

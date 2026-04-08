@@ -62,7 +62,7 @@ export async function POST(
   const file = formData.get('file') as File | null;
   const interviewId = formData.get('interviewId') as string | null;
   const interviewName = formData.get('name') as string | null;
-  const language = (formData.get('language') as string) || 'de';
+  const language = (formData.get('language') as string) || '';
   const previousText = (formData.get('previousText') as string) || '';
 
   if (!file) {
@@ -116,16 +116,15 @@ export async function POST(
     // If the audio exceeds this, split it into smaller byte-chunks and retry.
     const basePrompt = previousText
       ? previousText.slice(-200)
-      : language === 'de'
-        ? 'Dies ist ein Interview-Transkript auf Deutsch.'
-        : 'This is an interview transcript.';
+      : 'This is an interview transcript.';
 
     let fullText: string;
     try {
       const transcription = await openai.audio.transcriptions.create({
         model: 'gpt-4o-transcribe',
         file: audioFile,
-        language,
+        // Only pass language if explicitly set — otherwise let Whisper auto-detect
+        ...(language ? { language } : {}),
         prompt: basePrompt,
         response_format: 'json',
       });
@@ -151,7 +150,7 @@ export async function POST(
           const partResult = await openai.audio.transcriptions.create({
             model: 'gpt-4o-transcribe',
             file: partFile,
-            language,
+            ...(language ? { language } : {}),
             prompt: partPrompt,
             response_format: 'json',
           });
