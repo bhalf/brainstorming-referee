@@ -288,21 +288,39 @@ export async function POST(
           if (newCanonical) canonicalId = newCanonical.id;
         }
 
-        // Insert answer for this additional question
+        // Insert or merge answer for this additional question
         if (canonicalId) {
-          const aqSentiment = ['positive', 'negative', 'neutral', 'ambivalent'].includes(aq.sentiment ?? '')
-            ? aq.sentiment!
-            : 'neutral';
-          await sb.from('ia_answers').insert({
-            interview_id: interview.id,
-            canonical_question_id: canonicalId,
-            answer_text: answerText,
-            word_count: answerText.split(/\s+/).length,
-            sentiment: aqSentiment,
-            confidence: 'medium',
-            match_type: 'direct',
-            follow_ups: [],
-          });
+          // Check if this interview already has an answer for this canonical question
+          const { data: existingAnswer } = await sb
+            .from('ia_answers')
+            .select('id, answer_text')
+            .eq('interview_id', interview.id)
+            .eq('canonical_question_id', canonicalId)
+            .single();
+
+          if (existingAnswer) {
+            // Merge: append the additional text to the existing answer
+            const merged = existingAnswer.answer_text + '\n\n' + answerText;
+            await sb.from('ia_answers').update({
+              answer_text: merged,
+              word_count: merged.split(/\s+/).length,
+            }).eq('id', existingAnswer.id);
+          } else {
+            // No existing answer — insert new
+            const aqSentiment = ['positive', 'negative', 'neutral', 'ambivalent'].includes(aq.sentiment ?? '')
+              ? aq.sentiment!
+              : 'neutral';
+            await sb.from('ia_answers').insert({
+              interview_id: interview.id,
+              canonical_question_id: canonicalId,
+              answer_text: answerText,
+              word_count: answerText.split(/\s+/).length,
+              sentiment: aqSentiment,
+              confidence: 'medium',
+              match_type: 'direct',
+              follow_ups: [],
+            });
+          }
           affectedCanonicalIds.add(canonicalId);
         }
 
