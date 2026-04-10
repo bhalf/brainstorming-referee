@@ -196,29 +196,74 @@ export async function POST(
 
     // Process additional questions (guide-direct mode) — create canonical + answer immediately
     if (guideDirect && parsed.additional_questions?.length) {
-      for (const aq of parsed.additional_questions) {
+      // Load all existing canonicals ONCE (not per-question)
+      const { data: allCanonicals } = await sb
+        .from('ia_canonical_questions')
+        .select('id, canonical_text, canonical_text_alt, topic_area, guide_question_id')
+        .eq('project_id', projectId);
+
+      for (const aq of parsed.additional_questions as Array<{
+        question?: string;
+        answer?: string;
+        topic?: string;
+        sentiment?: string;
+      }>) {
         if (!aq.question?.trim() || !aq.answer?.trim()) continue;
 
         const questionText = aq.question.trim();
         const answerText = aq.answer.trim();
         const topic = aq.topic?.trim() || 'Sonstiges';
 
-        // Check if a similar canonical already exists (avoid duplicates across interviews)
-        const { data: existingCanonicals } = await sb
-          .from('ia_canonical_questions')
-          .select('id, canonical_text')
-          .eq('project_id', projectId)
-          .is('guide_question_id', null);
-
+        // Step 1: Quick string similarity check (same language)
         let canonicalId: string | null = null;
-        for (const ec of existingCanonicals ?? []) {
-          if (textSimilarity(ec.canonical_text.toLowerCase(), questionText.toLowerCase()) > 0.6) {
+        let bestSimilarity = 0;
+
+        for (const ec of allCanonicals ?? []) {
+          // Check against both primary and alt text (covers DE + EN)
+          const sim1 = textSimilarity(ec.canonical_text.toLowerCase(), questionText.toLowerCase());
+          const sim2 = ec.canonical_text_alt
+            ? textSimilarity(ec.canonical_text_alt.toLowerCase(), questionText.toLowerCase())
+            : 0;
+          const sim = Math.max(sim1, sim2);
+          const threshold = ec.guide_question_id ? 0.3 : 0.45;
+          if (sim > threshold && sim > bestSimilarity) {
+            bestSimilarity = sim;
             canonicalId = ec.id;
-            break;
           }
         }
 
-        // Create new canonical if no match
+        // Step 2: If no string match found, use GPT for cross-language semantic matching
+        if (!canonicalId && (allCanonicals?.length ?? 0) > 0) {
+          try {
+            const canonicalList = (allCanonicals ?? []).map((c, i) => `${i}: ${c.canonical_text}`).join('\n');
+            const matchRes = await openai.chat.completions.create({
+              model: 'gpt-5.4-mini',
+              temperature: 0,
+              response_format: { type: 'json_object' },
+              messages: [
+                {
+                  role: 'system',
+                  content: 'You match interview questions across languages. Given a new question and a numbered list of existing questions, return the index of the best semantic match OR -1 if the new question is about a COMPLETELY different topic. Questions in different languages that ask about the same topic MUST be matched. Return JSON: {"match_index": 0} or {"match_index": -1}',
+                },
+                {
+                  role: 'user',
+                  content: `New question: "${questionText}"\n\nExisting questions:\n${canonicalList}`,
+                },
+              ],
+            });
+            const matchContent = matchRes.choices[0]?.message?.content;
+            if (matchContent) {
+              const { match_index } = JSON.parse(matchContent);
+              if (match_index >= 0 && match_index < (allCanonicals?.length ?? 0)) {
+                canonicalId = allCanonicals![match_index].id;
+              }
+            }
+          } catch {
+            // GPT matching failed — fall through to create new canonical
+          }
+        }
+
+        // Only create new canonical if NOTHING matches — not even semantically
         if (!canonicalId) {
           const { data: maxSort } = await sb
             .from('ia_canonical_questions')
@@ -245,12 +290,15 @@ export async function POST(
 
         // Insert answer for this additional question
         if (canonicalId) {
+          const aqSentiment = ['positive', 'negative', 'neutral', 'ambivalent'].includes(aq.sentiment ?? '')
+            ? aq.sentiment!
+            : 'neutral';
           await sb.from('ia_answers').insert({
             interview_id: interview.id,
             canonical_question_id: canonicalId,
             answer_text: answerText,
             word_count: answerText.split(/\s+/).length,
-            sentiment: 'neutral',
+            sentiment: aqSentiment,
             confidence: 'medium',
             match_type: 'direct',
             follow_ups: [],
@@ -321,7 +369,11 @@ function isPlaceholderAnswer(text: string): boolean {
 
 function buildGuideDirectPrompt(projectLang: string): string {
   const crossLangNote = `
-SPRACHÜBERGREIFEND: Das Transkript und die Leitfaden-Fragen können in VERSCHIEDENEN Sprachen sein (z.B. Fragen auf Deutsch, Interview auf Englisch oder umgekehrt). Ordne Fragen INHALTLICH zu — die Sprache spielt keine Rolle. Antworte in der Sprache des Transkripts.`;
+SPRACHÜBERGREIFEND (KRITISCH): Das Transkript und die Leitfaden-Fragen können in VERSCHIEDENEN Sprachen sein.
+- Beispiel: Leitfaden auf Deutsch ("Wie empfanden Sie die KI-Interventionen?"), Transkript auf Englisch ("I found the AI interventions quite helpful")
+- Ordne IMMER INHALTLICH zu — die Sprache spielt KEINE Rolle
+- Auch wenn die Formulierung komplett anders ist: gleiches Thema = gleiche Leitfragen-Zuordnung
+- Antworte in der Sprache des Transkripts`;
 
   const responseLang = projectLang === 'en'
     ? '\nRESPONSE LANGUAGE: Write answer_text, original_question_text, not_found reasons, and additional_questions in the language of the transcript.'
@@ -368,7 +420,8 @@ Gib die Ergebnisse als JSON zurück:
     {
       "question": "Eine Frage/ein Thema das NICHT in der Frageliste steht",
       "answer": "Die Antwort darauf aus dem Transkript",
-      "topic": "Themengebiet in 2-3 Wörtern"
+      "topic": "Themengebiet in 2-3 Wörtern",
+      "sentiment": "positive|negative|neutral|ambivalent"
     }
   ]
 }
@@ -391,7 +444,13 @@ Regeln:
 - JEDE Leitfaden-Frage muss entweder in "answers" ODER "not_found" erscheinen — keine darf fehlen
 - Bei verstreuten Antworten: ALLE relevanten Passagen in answer_text zusammenfassen (mit "..." zwischen den Teilen)
 - Interviewer-Einwürfe ("mhm", "verstehe", "ja genau") gehören NICHT zur Antwort
-- additional_questions: Nur SUBSTANTIELLE Fragen/Themen die klar NICHT in der Frageliste abgedeckt sind
+- additional_questions: NUR Fragen/Themen die ein KOMPLETT NEUES Themengebiet eröffnen, das in KEINER der Leitfaden-Fragen auch nur annähernd abgedeckt ist. SEHR STRENGER Massstab:
+  * Wenn eine Frage das GLEICHE THEMA behandelt wie eine Leitfaden-Frage, aber ANDERS FORMULIERT ist → ordne sie der Leitfaden-Frage zu (als paraphrased/implicit), NICHT als additional_question
+  * Wenn eine Frage ein TEILASPEKT einer Leitfaden-Frage ist → ordne sie der Leitfaden-Frage zu, NICHT als additional_question
+  * Wenn eine Nachfrage oder Vertiefung zu einem bestehenden Thema gestellt wird → ordne sie der passendsten Leitfaden-Frage zu
+  * NUR wenn das Thema wirklich NULL Überlappung mit ALLEN Leitfaden-Fragen hat → additional_question
+  * Im Zweifel: IMMER einer bestehenden Leitfaden-Frage zuordnen, NICHT als neue Frage anlegen
+  * Erwarte maximal 0-3 additional_questions pro Interview — wenn du mehr findest, bist du zu streng beim Matching
 - Die canonical_question_id MUSS exakt einer der übergebenen IDs entsprechen`;
 }
 

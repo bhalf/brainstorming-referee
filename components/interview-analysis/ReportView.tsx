@@ -533,12 +533,16 @@ function buildPlainTextReport(data: ReportData, aiAnalyses: Record<string, AIAna
   const sep = '═'.repeat(80);
   const subsep = '─'.repeat(60);
 
+  const hasAI = Object.keys(aiAnalyses).length > 0;
   lines.push(sep);
   lines.push(`INTERVIEW ANALYSIS REPORT`);
   lines.push(`Project: ${data.project.name}`);
   if (data.project.description) lines.push(`Description: ${data.project.description}`);
+  lines.push(`Project language: ${data.project.language}`);
   lines.push(`Interviews: ${data.meta.total_interviews}`);
   lines.push(`Questions analyzed: ${data.meta.total_canonical_questions} (${data.meta.total_guide_questions} guide + ${data.meta.total_additional_questions} additional)`);
+  lines.push(`Generated: ${new Date().toISOString().split('T')[0]}`);
+  if (hasAI) lines.push(`Analysis: AI-verified (GPT-5.4, temperature 0.15)`);
   lines.push(sep);
   lines.push('');
 
@@ -620,7 +624,8 @@ function formatQuestion(q: ReportQuestion, totalInterviews: number, ai?: AIAnaly
 
     lines.push(`Quotes (${ai.selected_quotes.length}):`);
     for (const quote of ai.selected_quotes) {
-      lines.push(`  [${quote.participant}]`);
+      const verifiedTag = quote.verified === false ? ' [UNVERIFIED]' : '';
+      lines.push(`  [${quote.participant}]${verifiedTag}`);
       lines.push(`  "${quote.quote}"`);
       lines.push(`  → ${quote.relevance}`);
       lines.push('');
