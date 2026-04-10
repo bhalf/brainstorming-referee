@@ -7,14 +7,11 @@ export const maxDuration = 120;
 /**
  * POST: Generate AI-verified scientific analysis for one canonical question.
  *
- * The AI receives ALL verbatim answers and must:
- * 1. Write a scientific summary (trends, consensus, disagreements)
- * 2. Identify notable patterns / surprising findings
- * 3. Select the 3-5 most meaningful quotes WITH justification
- * 4. Cross-check: flag any answers that seem inconsistent or possibly misclassified
- *
- * CRITICAL: The AI must ONLY use verbatim quotes from the provided answers.
- * It must NOT invent, paraphrase, or embellish any quotes.
+ * SCIENTIFIC GUARANTEES:
+ * - Quotes are verified server-side against actual answer texts
+ * - Unverified quotes are flagged
+ * - Frequencies are pre-computed and injected, not left to the model
+ * - The model receives ALL answers, no sampling
  */
 export async function POST(
   req: NextRequest,
@@ -31,7 +28,6 @@ export async function POST(
   const sb = getServiceClient();
   const openai = getOpenAIClient();
 
-  // Load project
   const { data: project } = await sb
     .from('ia_projects')
     .select('language')
@@ -39,7 +35,6 @@ export async function POST(
     .single();
   const isEn = (project?.language ?? 'de') === 'en';
 
-  // Load canonical question
   const { data: cq } = await sb
     .from('ia_canonical_questions')
     .select('*')
@@ -50,7 +45,6 @@ export async function POST(
     return NextResponse.json({ error: 'Question not found' }, { status: 404 });
   }
 
-  // Load all answers with interview names
   const { data: answers } = await sb
     .from('ia_answers')
     .select('*, ia_interviews(name, group_label)')
@@ -60,14 +54,17 @@ export async function POST(
     return NextResponse.json({ error: 'No answers' }, { status: 400 });
   }
 
-  // Load total interview count
+  // Total number of analyzed interviews in the project
   const { count: totalInterviews } = await sb
     .from('ia_interviews')
     .select('*', { count: 'exact', head: true })
     .eq('project_id', projectId)
     .in('status', ['transcribed', 'analyzed']);
 
-  // Build answer data for GPT
+  const N = totalInterviews ?? answers.length;
+  const n = answers.length;
+
+  // Build answer data — each answer gets a stable ID tied to participant name
   const answerData = answers.map((a: {
     ia_interviews: { name: string; group_label: string | null };
     answer_text: string;
@@ -86,127 +83,36 @@ export async function POST(
     word_count: a.word_count,
   }));
 
-  // Sentiment distribution
+  // Pre-compute sentiment distribution
   const sentimentCounts: Record<string, number> = { positive: 0, negative: 0, neutral: 0, ambivalent: 0 };
   for (const a of answers) sentimentCounts[a.sentiment || 'neutral']++;
+  const sentimentLine = Object.entries(sentimentCounts)
+    .filter(([, c]) => c > 0)
+    .map(([s, c]) => `${s}: ${c}/${n}`)
+    .join(', ');
 
   const systemPrompt = isEn
-    ? `You are a senior qualitative research analyst preparing a peer-reviewed scientific interview analysis report. You have extensive experience with thematic analysis (Braun & Clarke) and content analysis methodology.
+    ? buildEnglishPrompt(N, n)
+    : buildGermanPrompt(N, n);
 
-You receive one research question and ALL verbatim participant responses. Your task is a rigorous, publication-ready structured analysis.
-
-═══ SCIENTIFIC INTEGRITY REQUIREMENTS ═══
-
-QUOTING:
-- The "quote" field must contain text EXACTLY as it appears in the provided answers — character for character, including grammar errors, filler words, and incomplete sentences.
-- Do NOT clean up, paraphrase, shorten, combine, or improve quotes in any way.
-- If a quote is too long, you may truncate it with "[...]" but the included parts must be VERBATIM.
-- If you cannot find a suitable verbatim passage, do NOT fabricate one — explain in the relevance field.
-
-ANALYSIS:
-- Every factual claim must cite frequencies: "X of Y participants" (absolute AND relative).
-- Distinguish clearly: consensus (>80%), majority (>50%), split opinion (~50/50), minority (<30%), individual outlier (1 person).
-- Use appropriate hedging language: "tended to", "several reported", "one participant noted" — NOT "everyone", "always", "clearly".
-- Note the STRENGTH of positions, not just their direction (e.g., "strongly positive" vs. "mildly positive").
-- If group labels exist, note any between-group differences.
-
-CRITICAL SELF-CHECK before returning:
-1. Are all frequency claims correct? Count again.
-2. Does each quote appear VERBATIM in the provided answers? Verify character by character.
-3. Are the selected quotes truly representative, or do they over-represent one viewpoint?
-4. Are any sentiment classifications obviously wrong? Flag them.
-
-═══ OUTPUT FORMAT ═══
-
-Return JSON:
-{
-  "summary": "4-6 sentences. Structure: (1) Overall tendency, (2) Points of agreement with frequency, (3) Points of disagreement with frequency, (4) Notable nuances. Always use 'X of Y participants (Z%)' format.",
-  "notable_patterns": "2-4 sentences. Focus on: (a) Surprising or counter-intuitive findings, (b) Answers that contradicted the majority, (c) Unexpected connections between ideas, (d) Particularly strong emotional responses. Do NOT repeat what the summary already says.",
-  "selected_quotes": [
-    {
-      "answer_id": "A1",
-      "participant": "Name",
-      "quote": "EXACT verbatim text — character for character from the answer",
-      "relevance": "Scientific justification: 'Represents the majority position held by X of Y participants' / 'Strongest dissenting view' / 'Only participant to mention [aspect]' / 'Illustrates the ambivalence present in X responses'"
-    }
-  ],
-  "quality_notes": "Flag: (a) sentiment misclassifications with correction suggestion, (b) answers that may not actually address this question (off-topic), (c) near-duplicate answers that may indicate a data issue, (d) answers where the match_type seems wrong. Return null ONLY if genuinely no issues found — err on the side of flagging."
-}
-
-QUOTE SELECTION STRATEGY (select exactly 3-5):
-1. One quote representing the MAJORITY position (most common theme/sentiment)
-2. One quote representing a DISSENTING or MINORITY view (if exists)
-3. One quote that is particularly ARTICULATE or INSIGHTFUL
-4. One quote showing AMBIVALENCE or NUANCE (if exists)
-5. One quote that is SURPRISING or UNIQUE (if exists)
-Each quote must come from a DIFFERENT participant.
-
-Write in English.`
-
-    : `Du bist ein erfahrener qualitativer Forschungsanalyst, der einen peer-review-fähigen wissenschaftlichen Interview-Analysebericht erstellt. Du hast umfassende Erfahrung mit thematischer Analyse (Braun & Clarke) und Inhaltsanalyse-Methodik.
-
-Du erhältst eine Forschungsfrage und ALLE wörtlichen Teilnehmerantworten. Deine Aufgabe ist eine rigorose, publikationsreife strukturierte Analyse.
-
-═══ WISSENSCHAFTLICHE INTEGRITÄTSANFORDERUNGEN ═══
-
-ZITIEREN:
-- Das "quote"-Feld muss Text EXAKT so enthalten, wie er in den bereitgestellten Antworten erscheint — Zeichen für Zeichen, inklusive Grammatikfehler, Füllwörter und unvollständiger Sätze.
-- NICHT bereinigen, paraphrasieren, kürzen, kombinieren oder verbessern.
-- Bei zu langen Zitaten darfst du mit "[...]" kürzen, aber die enthaltenen Teile müssen WÖRTLICH sein.
-- Wenn du keine passende wörtliche Passage findest, erfinde KEINE — erkläre es im relevance-Feld.
-
-ANALYSE:
-- Jede faktische Aussage muss Häufigkeiten nennen: "X von Y Teilnehmenden" (absolut UND relativ).
-- Unterscheide klar: Konsens (>80%), Mehrheit (>50%), geteilte Meinung (~50/50), Minderheit (<30%), Einzelmeinung (1 Person).
-- Verwende angemessene Hedging-Sprache: "tendierten dazu", "mehrere berichteten", "eine Person merkte an" — NICHT "alle", "immer", "eindeutig".
-- Beachte die STÄRKE der Positionen, nicht nur deren Richtung (z.B. "stark positiv" vs. "leicht positiv").
-- Falls Gruppenlabels existieren, notiere Unterschiede zwischen den Gruppen.
-
-KRITISCHE SELBSTPRÜFUNG vor der Rückgabe:
-1. Sind alle Häufigkeitsangaben korrekt? Nochmals zählen.
-2. Erscheint jedes Zitat WÖRTLICH in den bereitgestellten Antworten? Zeichen für Zeichen prüfen.
-3. Sind die ausgewählten Zitate wirklich repräsentativ oder überrepräsentieren sie eine Sichtweise?
-4. Sind Sentiment-Klassifikationen offensichtlich falsch? Markieren.
-
-═══ AUSGABEFORMAT ═══
-
-Gib JSON zurück:
-{
-  "summary": "4-6 Sätze. Struktur: (1) Allgemeine Tendenz, (2) Übereinstimmungspunkte mit Häufigkeit, (3) Unterschiede mit Häufigkeit, (4) Bemerkenswerte Nuancen. Immer 'X von Y Teilnehmenden (Z%)' Format verwenden.",
-  "notable_patterns": "2-4 Sätze. Fokus auf: (a) Überraschende oder kontraintuitive Befunde, (b) Antworten die der Mehrheit widersprachen, (c) Unerwartete Verbindungen zwischen Ideen, (d) Besonders starke emotionale Reaktionen. NICHT wiederholen was die Zusammenfassung schon sagt.",
-  "selected_quotes": [
-    {
-      "answer_id": "A1",
-      "participant": "Name",
-      "quote": "EXAKTER wörtlicher Text — Zeichen für Zeichen aus der Antwort",
-      "relevance": "Wissenschaftliche Begründung: 'Repräsentiert die Mehrheitsposition von X von Y Teilnehmenden' / 'Stärkste Gegenmeinung' / 'Einzige Person die [Aspekt] erwähnte' / 'Illustriert die Ambivalenz in X Antworten'"
-    }
-  ],
-  "quality_notes": "Markiere: (a) Sentiment-Fehlklassifikationen mit Korrekturvorschlag, (b) Antworten die die Frage möglicherweise nicht adressieren (off-topic), (c) Fast-Duplikate die auf ein Datenproblem hindeuten, (d) Antworten bei denen der match_type falsch erscheint. Nur null zurückgeben wenn WIRKLICH keine Auffälligkeiten — im Zweifel markieren."
-}
-
-ZITAT-AUSWAHL-STRATEGIE (genau 3-5 auswählen):
-1. Ein Zitat das die MEHRHEITSPOSITION repräsentiert (häufigstes Thema/Sentiment)
-2. Ein Zitat einer GEGENMEINUNG oder MINDERHEITSPOSITION (falls vorhanden)
-3. Ein Zitat das besonders ARTIKULIERT oder AUFSCHLUSSREICH ist
-4. Ein Zitat das AMBIVALENZ oder NUANCE zeigt (falls vorhanden)
-5. Ein Zitat das ÜBERRASCHEND oder EINZIGARTIG ist (falls vorhanden)
-Jedes Zitat muss von einem ANDEREN Teilnehmenden stammen.
-
-Schreibe auf Deutsch.`;
-
-  const userContent = `${isEn ? 'Question' : 'Frage'}: "${cq.canonical_text}"
-${cq.topic_area ? `Topic: ${cq.topic_area}` : ''}
-${isEn ? 'Coverage' : 'Abdeckung'}: ${answers.length}/${totalInterviews ?? answers.length}
-Sentiment: ${Object.entries(sentimentCounts).filter(([,c]) => c > 0).map(([s,c]) => `${s}: ${c}`).join(', ')}
-
-${isEn ? 'All answers' : 'Alle Antworten'}:
-${JSON.stringify(answerData, null, 2)}`;
+  const userContent = [
+    `${isEn ? 'Question' : 'Frage'}: "${cq.canonical_text}"`,
+    cq.topic_area ? `Topic: ${cq.topic_area}` : '',
+    '',
+    `${isEn ? 'IMPORTANT NUMBERS' : 'WICHTIGE ZAHLEN'}:`,
+    `- ${isEn ? 'Total interviews in project' : 'Interviews im Projekt gesamt'}: ${N}`,
+    `- ${isEn ? 'Answered this question' : 'Haben diese Frage beantwortet'}: ${n}/${N}`,
+    n < N ? `- ${isEn ? 'Did NOT answer' : 'Haben NICHT geantwortet'}: ${N - n}/${N}` : '',
+    `- Sentiment: ${sentimentLine}`,
+    '',
+    `${isEn ? 'All' : 'Alle'} ${n} ${isEn ? 'answers' : 'Antworten'}:`,
+    JSON.stringify(answerData, null, 2),
+  ].filter(Boolean).join('\n');
 
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-5.4',
-      temperature: 0.2,
+      temperature: 0.15,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
@@ -221,22 +127,45 @@ ${JSON.stringify(answerData, null, 2)}`;
 
     const analysis = JSON.parse(content);
 
-    // Post-validation: verify quotes are actually verbatim
-    const answerTexts = new Set(answerData.map(a => a.text));
+    // ── SERVER-SIDE QUOTE VERIFICATION ──────────────────────────────────
+    // Check each quote against the actual answer texts
     const validatedQuotes = (analysis.selected_quotes ?? []).map((q: {
       answer_id: string;
       participant: string;
       quote: string;
       relevance: string;
     }) => {
-      // Check if quote exists verbatim in any answer
-      const isVerbatim = answerData.some(a =>
-        a.text.includes(q.quote) || q.quote.includes(a.text)
-      );
-      return {
-        ...q,
-        verified: isVerbatim,
-      };
+      // Find the answer this quote claims to be from
+      const sourceAnswer = answerData.find(a => a.id === q.answer_id);
+      let verified = false;
+      let sourceText = '';
+
+      if (sourceAnswer) {
+        sourceText = sourceAnswer.text;
+        // Strip [...] markers for comparison
+        const cleanQuote = q.quote.replace(/\s*\[\.{3}\]\s*/g, '|||SPLIT|||');
+        const parts = cleanQuote.split('|||SPLIT|||').filter(p => p.trim().length > 10);
+
+        if (parts.length > 0) {
+          // Every substantial part of the quote must appear in the source answer
+          verified = parts.every(part => sourceText.includes(part.trim()));
+        } else {
+          // Short quote — check directly
+          verified = sourceText.includes(q.quote.trim());
+        }
+      }
+
+      // Also try matching against ALL answers (in case answer_id is wrong)
+      if (!verified) {
+        for (const a of answerData) {
+          if (a.text.includes(q.quote.replace(/\s*\[\.{3}\]\s*/g, ' ').trim())) {
+            verified = true;
+            break;
+          }
+        }
+      }
+
+      return { ...q, verified };
     });
 
     return NextResponse.json({
@@ -246,11 +175,151 @@ ${JSON.stringify(answerData, null, 2)}`;
       notable_patterns: analysis.notable_patterns,
       selected_quotes: validatedQuotes,
       quality_notes: analysis.quality_notes ?? null,
-      answer_count: answers.length,
-      total_interviews: totalInterviews,
+      answer_count: n,
+      total_interviews: N,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Analysis failed';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+// ── PROMPTS ──────────────────────────────────────────────────────────────────
+
+function buildEnglishPrompt(N: number, n: number): string {
+  return `You are a senior qualitative research analyst writing a publication-ready scientific interview report.
+
+You receive one interview question and ALL ${n} verbatim participant answers (from ${N} total interviews).
+
+═══ FREQUENCY & NUMBER RULES (CRITICAL) ═══
+
+- ALWAYS refer to participants as "X of the participants" or "X participants" — NEVER "X of ${n}" or "X of ${N}".
+  GOOD: "3 of the participants reported..."
+  GOOD: "The majority of participants (8) described..."
+  GOOD: "One participant noted..."
+  BAD: "3 of ${n} participants..."
+  BAD: "3 of 27 respondents..."
+- You may add percentages in parentheses: "Most participants (8, ~73%) agreed..."
+- Use natural language for frequencies: "almost all", "the majority", "about half", "several", "a few", "one participant"
+- ${n < N ? `Note: ${N - n} of ${N} interviewed participants did NOT answer this question. Mention this if relevant, phrased as "Not all participants addressed this question."` : 'All interviewed participants answered this question.'}
+
+═══ QUOTING RULES (CRITICAL) ═══
+
+- The "quote" field must be VERBATIM from the provided answer text — character for character.
+- Include grammar errors, filler words ("like", "uh"), incomplete sentences exactly as they appear.
+- Do NOT clean up, paraphrase, combine, or improve quotes.
+- You may truncate long quotes with "[...]" but included parts must be EXACT.
+- Select quotes that are MEANINGFUL and REPRESENTATIVE — the most insightful, articulate, or revealing passages.
+- Prefer quotes that contain a clear position, reasoning, or experience — not generic/vague statements.
+- Each quote must come from a DIFFERENT participant.
+
+═══ QUOTE SELECTION STRATEGY (select 3-5) ═══
+
+Pick the most AUSSAGEKRÄFTIGE (meaningful/expressive) quotes:
+1. The single most insightful or well-articulated answer that captures the core theme
+2. A quote representing a contrasting or minority view (if one exists)
+3. A quote showing nuance, ambivalence, or a unique angle
+4-5. Additional quotes only if they add genuinely new perspectives not covered by 1-3
+
+Quality over quantity — 3 excellent quotes are better than 5 mediocre ones.
+
+═══ ANALYSIS QUALITY ═══
+
+- Structure summary as: (1) Overall tendency, (2) Consensus points, (3) Differences, (4) Nuances
+- Use hedging language: "tended to", "several reported", "one participant noted"
+- Note the STRENGTH of positions: "strongly positive" vs "mildly positive"
+- notable_patterns must NOT repeat the summary — focus on surprising findings, contradictions, or unexpected connections
+- Flag sentiment misclassifications in quality_notes
+
+═══ SELF-CHECK (do this before returning) ═══
+1. Recount all frequency claims — are they correct?
+2. Verify each quote appears VERBATIM in the provided answers
+3. Check that you used "X of the participants" NOT "X of ${n}" or "X of ${N}"
+4. Are the selected quotes truly the most meaningful ones?
+
+═══ OUTPUT ═══
+
+Return JSON:
+{
+  "summary": "4-6 sentences following the structure above",
+  "notable_patterns": "2-3 sentences — surprising findings only, no repetition from summary",
+  "selected_quotes": [
+    {
+      "answer_id": "A1",
+      "participant": "Name",
+      "quote": "EXACT verbatim text from the answer",
+      "relevance": "Why this quote: represents majority / strongest dissent / unique insight / shows nuance"
+    }
+  ],
+  "quality_notes": "Sentiment misclassifications, off-topic answers, or data issues. null if none."
+}`;
+}
+
+function buildGermanPrompt(N: number, n: number): string {
+  return `Du bist ein erfahrener qualitativer Forschungsanalyst und schreibst einen publikationsreifen wissenschaftlichen Interview-Bericht.
+
+Du erhältst eine Interviewfrage und ALLE ${n} wörtlichen Teilnehmerantworten (von ${N} Interviews insgesamt).
+
+═══ HÄUFIGKEITS- & ZAHLENREGELN (KRITISCH) ═══
+
+- Verwende IMMER "X der Befragten" oder "X Teilnehmende" — NIEMALS "X von ${n}" oder "X von ${N}".
+  GUT: "3 der Befragten berichteten..."
+  GUT: "Die Mehrheit der Teilnehmenden (8) beschrieb..."
+  GUT: "Eine Person merkte an..."
+  SCHLECHT: "3 von ${n} Teilnehmenden..."
+  SCHLECHT: "3 von 27 Befragten..."
+- Prozentangaben in Klammern erlaubt: "Die meisten Befragten (8, ~73%) stimmten zu..."
+- Verwende natürliche Sprache: "fast alle", "die Mehrheit", "etwa die Hälfte", "einige", "wenige", "eine Person"
+- ${n < N ? `Hinweis: ${N - n} von ${N} interviewten Personen haben diese Frage NICHT beantwortet. Erwähne dies falls relevant, formuliert als "Nicht alle Befragten äusserten sich zu dieser Frage."` : 'Alle interviewten Personen haben diese Frage beantwortet.'}
+
+═══ ZITIERREGELN (KRITISCH) ═══
+
+- Das "quote"-Feld muss WÖRTLICH aus dem bereitgestellten Antworttext stammen — Zeichen für Zeichen.
+- Grammatikfehler, Füllwörter ("also", "ähm"), unvollständige Sätze genau so übernehmen.
+- NICHT bereinigen, paraphrasieren, zusammenführen oder verbessern.
+- Lange Zitate dürfen mit "[...]" gekürzt werden, aber die enthaltenen Teile müssen EXAKT sein.
+- Wähle Zitate die AUSSAGEKRÄFTIG und REPRÄSENTATIV sind — die aufschlussreichsten, artikuliertesten oder aufschlussreichsten Passagen.
+- Bevorzuge Zitate mit klarer Position, Begründung oder Erfahrung — nicht generische/vage Aussagen.
+- Jedes Zitat muss von einer ANDEREN Person stammen.
+
+═══ ZITAT-AUSWAHL-STRATEGIE (3-5 wählen) ═══
+
+Wähle die AUSSAGEKRÄFTIGSTEN Zitate:
+1. Die einzelne aufschlussreichste oder am besten artikulierte Antwort, die das Kernthema einfängt
+2. Ein Zitat einer Gegen- oder Minderheitsmeinung (falls vorhanden)
+3. Ein Zitat das Nuance, Ambivalenz oder einen einzigartigen Blickwinkel zeigt
+4-5. Weitere Zitate nur wenn sie genuinely neue Perspektiven bringen
+
+Qualität vor Quantität — 3 exzellente Zitate sind besser als 5 mittelmässige.
+
+═══ ANALYSEQUALITÄT ═══
+
+- Struktur Zusammenfassung: (1) Allgemeine Tendenz, (2) Konsens, (3) Unterschiede, (4) Nuancen
+- Hedging-Sprache: "tendierten dazu", "mehrere berichteten", "eine Person merkte an"
+- STÄRKE der Positionen beachten: "stark positiv" vs. "leicht positiv"
+- notable_patterns darf die Zusammenfassung NICHT wiederholen — nur überraschende Befunde
+- Sentiment-Fehlklassifikationen in quality_notes markieren
+
+═══ SELBSTPRÜFUNG (vor der Rückgabe) ═══
+1. Alle Häufigkeitsangaben nochmals nachzählen — stimmen sie?
+2. Jedes Zitat WÖRTLICH in den bereitgestellten Antworten prüfen
+3. Prüfen dass "X der Befragten" verwendet wurde, NICHT "X von ${n}" oder "X von ${N}"
+4. Sind die ausgewählten Zitate wirklich die aussagekräftigsten?
+
+═══ AUSGABE ═══
+
+Gib JSON zurück:
+{
+  "summary": "4-6 Sätze nach obiger Struktur",
+  "notable_patterns": "2-3 Sätze — nur überraschende Befunde, keine Wiederholung aus der Zusammenfassung",
+  "selected_quotes": [
+    {
+      "answer_id": "A1",
+      "participant": "Name",
+      "quote": "EXAKTER wörtlicher Text aus der Antwort",
+      "relevance": "Begründung: repräsentiert Mehrheit / stärkste Gegenmeinung / einzigartige Einsicht / zeigt Nuance"
+    }
+  ],
+  "quality_notes": "Sentiment-Fehlklassifikationen, Off-Topic-Antworten oder Datenprobleme. null falls keine."
+}`;
 }
