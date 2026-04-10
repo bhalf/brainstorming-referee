@@ -112,6 +112,7 @@ const labels: Record<IALang, Record<string, string>> = {
     tab_heatmap: 'Heatmap',
     tab_comparison: 'Vergleich',
     tab_dashboard: 'Dashboard',
+    tab_report: 'Bericht',
     tab_chat: 'Chat',
     tab_groups: 'Gruppen',
 
@@ -443,6 +444,7 @@ const labels: Record<IALang, Record<string, string>> = {
     tab_heatmap: 'Heatmap',
     tab_comparison: 'Comparison',
     tab_dashboard: 'Dashboard',
+    tab_report: 'Report',
     tab_chat: 'Chat',
     tab_groups: 'Groups',
 
