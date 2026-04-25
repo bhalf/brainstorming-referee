@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -43,13 +44,18 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# build artifacts
-lint-output.txt
+# IDE / Editor
+.idea/
+.vscode/
+.claude/
+
+# Thesis-only artefacts (lokale Analyse, Charts, Notizen)
+/_archive/
+/_docs/
+/charts/
+/chart_example/
+/certificates/
+data_prepare.html
+survey_analysis.html
 bachelorarbeit.md
 generate_thesis.py
-
-certificates
-_docs/bachelorarbeit_de.md
-_docs/bachelorarbeit_de.docx
-_docs/~$chelorarbeit_de.docx
-_docs/bachelorarbeit_de.docx

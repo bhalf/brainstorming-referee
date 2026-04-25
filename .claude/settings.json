@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(find /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" -o -name \"*.css\" \\\\\\) ! -path \"*/node_modules/*\" ! -path \"*/.next/*\" -exec wc -l {} +)",
-      "Bash(wc -l app/call/[room]/page.tsx components/OverlayPanel.tsx components/AnalysisPanel.tsx lib/hooks/*.ts lib/transcription/processTranscriptionChunk.ts lib/decision/stateConfig.ts lib/api/routeHelpers.ts components/shared/*.tsx)",
-      "Bash(wc -l /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/api/embeddings/route.ts /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/api/intervention/ally/route.ts /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/api/intervention/moderator/route.ts /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/api/model-routing/route.ts /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/api/sync/room/route.ts /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/api/test/route.ts /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/api/transcription/route.ts /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/call/[room]/page.tsx /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/layout.tsx /Users/benjaminhalfar/WebstormProjects/uzh-brainstorming-webapp/app/page.tsx)"
-    ]
-  }
-}
