@@ -446,11 +446,6 @@ export default function ReportView({ projectId, projectLanguage }: ReportViewPro
                         <span className="text-[11px] font-semibold" style={{ color: 'var(--ia-text)' }}>
                           {answer.interview_name}
                         </span>
-                        {answer.sentiment && (
-                          <span className="text-[10px]" style={{ color: SENTIMENT_LABELS[answer.sentiment]?.color }}>
-                            {SENTIMENT_LABELS[answer.sentiment]?.[lang] ?? answer.sentiment}
-                          </span>
-                        )}
                       </div>
                       <p className="text-xs leading-relaxed" style={{ color: 'var(--ia-text-secondary)' }}>
                         {answer.text}
@@ -501,12 +496,12 @@ export default function ReportView({ projectId, projectLanguage }: ReportViewPro
                       <span className="text-[11px] font-semibold" style={{ color: 'var(--ia-text)' }}>
                         {quote.interview_name}
                       </span>
-                      {quote.group_label && (
+                      {!isExpanded && quote.group_label && (
                         <span className="ia-badge ia-badge-neutral" style={{ fontSize: '9px' }}>
                           {quote.group_label}
                         </span>
                       )}
-                      {quote.sentiment && (
+                      {!isExpanded && quote.sentiment && (
                         <span className="text-[10px]" style={{ color: SENTIMENT_LABELS[quote.sentiment]?.color }}>
                           {SENTIMENT_LABELS[quote.sentiment]?.[lang] ?? quote.sentiment}
                         </span>
@@ -605,15 +600,9 @@ function formatQuestion(q: ReportQuestion, totalInterviews: number, ai?: AIAnaly
   lines.push(`Question ${q.number}: ${q.canonical_text}`);
   if (q.topic_area) lines.push(`Topic: ${q.topic_area}`);
   lines.push(`Coverage: ${q.total_answers}/${totalInterviews} (${q.coverage_pct}%)`);
-
-  const sentParts = Object.entries(q.sentiment_distribution)
-    .filter(([, c]) => c > 0)
-    .map(([s, c]) => `${s}: ${c}`);
-  lines.push(`Sentiment: ${sentParts.join(', ')}`);
   lines.push('');
 
   if (ai) {
-    // AI-verified analysis
     lines.push('Summary:');
     lines.push(ai.summary);
     lines.push('');
@@ -622,34 +611,23 @@ function formatQuestion(q: ReportQuestion, totalInterviews: number, ai?: AIAnaly
     lines.push(ai.notable_patterns);
     lines.push('');
 
-    lines.push(`Quotes (${ai.selected_quotes.length}):`);
-    for (const quote of ai.selected_quotes) {
-      const verifiedTag = quote.verified === false ? ' [UNVERIFIED]' : '';
-      lines.push(`  [${quote.participant}]${verifiedTag}`);
-      lines.push(`  "${quote.quote}"`);
-      lines.push(`  → ${quote.relevance}`);
-      lines.push('');
-    }
-
     if (ai.quality_notes) {
       lines.push('Quality Notes:');
       lines.push(ai.quality_notes);
       lines.push('');
     }
-  } else {
-    // Fallback: pipeline summary
-    if (q.summary_text) {
-      lines.push('Summary:');
-      lines.push(q.summary_text);
-      lines.push('');
-    }
+  } else if (q.summary_text) {
+    lines.push('Summary:');
+    lines.push(q.summary_text);
+    lines.push('');
+  }
 
-    lines.push(`Quotes (${q.quotes.length}/${q.all_answers.length}):`);
-    for (const quote of q.quotes) {
-      lines.push(`  [${quote.interview_name}${quote.group_label ? ` | ${quote.group_label}` : ''} | ${quote.sentiment ?? 'n/a'}]`);
-      lines.push(`  "${quote.text}"`);
-      lines.push('');
-    }
+  // Full answer list — verbatim, only participant name + text
+  lines.push(`Answers (${q.all_answers.length}):`);
+  for (const answer of q.all_answers) {
+    lines.push(`  [${answer.interview_name}]`);
+    lines.push(`  "${answer.text}"`);
+    lines.push('');
   }
 
   lines.push('─'.repeat(40));
